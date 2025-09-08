@@ -7,6 +7,7 @@
 #include <memory>
 #include <string>
 #include <vector>
+#include <thread>
 
 namespace fuelflux {
 
@@ -129,6 +130,7 @@ private:
     // System state
     bool isRunning_;
     std::string lastErrorMessage_;
+    std::thread authThread_;
 
     // Helper methods
     void setupPeripheralCallbacks();

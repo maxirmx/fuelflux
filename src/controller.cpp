@@ -3,6 +3,7 @@
 #include <sstream>
 #include <iomanip>
 #include <ctime>
+#include <thread>
 
 namespace fuelflux {
 
@@ -84,7 +85,11 @@ void Controller::shutdown() {
     if (pump_) pump_->shutdown();
     if (flowMeter_) flowMeter_->shutdown();
     if (cloudService_) cloudService_->shutdown();
-    
+
+    if (authThread_.joinable()) {
+        authThread_.join();
+    }
+
     std::cout << "[Controller] Shutdown complete" << std::endl;
 }
 
@@ -305,10 +310,12 @@ void Controller::requestAuthorization(const UserId& userId) {
     stateMachine_.processEvent(Event::CardPresented);
     
     auto future = cloudService_->authorizeUser(controllerId_, userId);
-    
-    // In a real implementation, this would be handled asynchronously
-    // For simplicity, we'll wait for the result
-    std::thread([this, future = std::move(future)]() mutable {
+
+    if (authThread_.joinable()) {
+        authThread_.join();
+    }
+
+    authThread_ = std::thread([this, future = std::move(future)]() mutable {
         try {
             AuthResponse response = future.get();
             handleAuthorizationResponse(response);
@@ -319,7 +326,7 @@ void Controller::requestAuthorization(const UserId& userId) {
             response.errorMessage = "Authorization service error";
             handleAuthorizationResponse(response);
         }
-    }).detach();
+    });
 }
 
 void Controller::handleAuthorizationResponse(const AuthResponse& response) {
