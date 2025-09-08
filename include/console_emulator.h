@@ -32,7 +32,8 @@ private:
     mutable std::mutex displayMutex_;
 
     void printDisplay() const;
-    void printBorder() const;
+    void printTopBorder() const;
+    void printBottomBorder() const;
     std::string padLine(const std::string& line, size_t width) const;
 };
 
@@ -144,8 +145,9 @@ public:
 private:
     bool isConnected_;
     std::atomic<bool> isMeasuring_;
-    std::atomic<Volume> currentVolume_;
-    std::atomic<Volume> totalVolume_;
+    Volume currentVolume_;
+    Volume totalVolume_;
+    mutable std::mutex volumeMutex_;
     Volume flowRate_; // liters per second
     FlowCallback flowCallback_;
     std::thread simulationThread_;

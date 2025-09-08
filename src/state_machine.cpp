@@ -25,8 +25,10 @@ bool StateMachine::processEvent(Event event) {
         return false;
     }
 
-    // Check for timeout first
-    checkTimeout();
+    // Check for timeout unless we're already handling one
+    if (event != Event::Timeout) {
+        checkTimeout();
+    }
 
     auto key = std::make_pair(currentState_, event);
     auto it = transitions_.find(key);
@@ -271,6 +273,7 @@ void StateMachine::checkTimeout() {
     
     if (elapsed >= TIMEOUT_DURATION) {
         processEvent(Event::Timeout);
+        updateActivityTime();
     }
 }
 
