@@ -1,0 +1,34 @@
+#pragma once
+
+#include "peripheral_interface.h"
+
+namespace fuelflux::peripherals {
+
+// Hardware flow meter implementation (stub)
+class HardwareFlowMeter : public IFlowMeter {
+public:
+    HardwareFlowMeter();
+    ~HardwareFlowMeter() override;
+
+    // IPeripheral interface
+    bool initialize() override;
+    void shutdown() override;
+    bool isConnected() const override;
+
+    // IFlowMeter interface
+    void startMeasurement() override;
+    void stopMeasurement() override;
+    void resetCounter() override;
+    Volume getCurrentVolume() const override;
+    Volume getTotalVolume() const override;
+    void setFlowCallback(FlowCallback callback) override;
+
+private:
+    bool m_connected;
+    bool m_measuring;
+    Volume m_currentVolume;
+    Volume m_totalVolume;
+    FlowCallback m_callback;
+};
+
+} // namespace fuelflux::peripherals
