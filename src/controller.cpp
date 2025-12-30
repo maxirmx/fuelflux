@@ -3,6 +3,8 @@
 #include <sstream>
 #include <iomanip>
 #include <ctime>
+#include <thread>
+#include <chrono>
 
 namespace fuelflux {
 

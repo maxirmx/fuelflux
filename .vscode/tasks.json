@@ -1,0 +1,30 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "CMake: configure",
+            "type": "shell",
+            "command": "cmake -S ${workspaceFolder} -B ${workspaceFolder}/build -G \"Ninja\"",
+            "problemMatcher": []
+        },
+        {
+            "label": "CMake: build",
+            "type": "shell",
+            "command": "cmake --build ${workspaceFolder}/build --config Debug",
+            "dependsOn": "CMake: configure",
+            "problemMatcher": [
+                "$gcc"
+            ]
+        },
+        {
+            "label": "Build fuelflux",
+            "type": "shell",
+            "command": "cmake --build ${workspaceFolder}/build --config Debug --target fuelflux",
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "problemMatcher": ["$gcc"]
+        }
+    ]
+}

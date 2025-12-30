@@ -32,7 +32,7 @@ private:
     mutable std::mutex displayMutex_;
 
     void printDisplay() const;
-    void printBorder() const;
+    void printBorder(bool bottom) const;
     std::string padLine(const std::string& line, size_t width) const;
 };
 

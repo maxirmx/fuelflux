@@ -52,18 +52,33 @@ void ConsoleDisplay::printDisplay() const {
     const size_t displayWidth = 40;
     
     std::cout << "\n";
-    printBorder();
+        printBorder(false);
     std::cout << "│" << padLine(currentMessage_.line1, displayWidth) << "│\n";
     std::cout << "│" << padLine(currentMessage_.line2, displayWidth) << "│\n";
     std::cout << "│" << padLine(currentMessage_.line3, displayWidth) << "│\n";
     std::cout << "│" << padLine(currentMessage_.line4, displayWidth) << "│\n";
     std::cout << "│" << padLine(currentMessage_.line5, displayWidth) << "│\n";
-    printBorder();
+        printBorder(true);
     std::cout << std::flush;
 }
 
-void ConsoleDisplay::printBorder() const {
-    std::cout << "┌────────────────────────────────────────┐\n";
+void ConsoleDisplay::printBorder(bool bottom) const {
+    const size_t displayWidth = 40;
+#ifdef _WIN32
+    // Use Unicode box drawing characters now that console is UTF-8 enabled
+    if (!bottom) {
+        std::cout << "┌";
+        for (size_t i = 0; i < displayWidth; ++i) std::cout << "─";
+        std::cout << "┐\n";
+    } else {
+        std::cout << "└";
+        for (size_t i = 0; i < displayWidth; ++i) std::cout << "─";
+        std::cout << "┘\n";
+    }
+#else
+    // Fallback to ASCII borders
+    std::cout << "+" << std::string(displayWidth, '-') << "+\n";
+#endif
 }
 
 std::string ConsoleDisplay::padLine(const std::string& line, size_t width) const {
@@ -407,8 +422,8 @@ std::unique_ptr<peripherals::IFlowMeter> ConsoleEmulator::createFlowMeter() {
 void ConsoleEmulator::printWelcome() const {
     std::cout << "\n";
     std::cout << "╔══════════════════════════════════════════════════════════════╗\n";
-    std::cout << "║                    FUEL FLUX CONTROLLER                     ║\n";
-    std::cout << "║                    Console Emulator                         ║\n";
+    std::cout << "║                    FUEL FLUX CONTROLLER                      ║\n";
+    std::cout << "║                    Console Emulator                          ║\n";
     std::cout << "╚══════════════════════════════════════════════════════════════╝\n";
     std::cout << "\n";
     printHelp();

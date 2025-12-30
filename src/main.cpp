@@ -6,6 +6,9 @@
 #include <thread>
 #include <atomic>
 #include <signal.h>
+#ifdef _WIN32
+#include <windows.h>
+#endif
 
 using namespace fuelflux;
 
@@ -47,6 +50,22 @@ int main(int argc, char* argv[]) {
     signal(SIGTERM, signalHandler);
     
     std::cout << "Starting FuelFlux Controller..." << std::endl;
+    // On Windows, set console to UTF-8 and enable virtual terminal processing
+#ifdef _WIN32
+    // Set console code page to UTF-8 for proper Unicode output
+    SetConsoleCP(CP_UTF8);
+    SetConsoleOutputCP(CP_UTF8);
+
+    // Enable VT processing to allow ANSI escape sequences
+    HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
+    if (hOut != INVALID_HANDLE_VALUE) {
+        DWORD dwMode = 0;
+        if (GetConsoleMode(hOut, &dwMode)) {
+            dwMode |= ENABLE_VIRTUAL_TERMINAL_PROCESSING | DISABLE_NEWLINE_AUTO_RETURN;
+            SetConsoleMode(hOut, dwMode);
+        }
+    }
+#endif
     
     // Get controller ID from environment or use default
     std::string controllerId = "CTRL-001";
