@@ -135,6 +135,7 @@ private:
     // System state
     bool isRunning_;
     std::string lastErrorMessage_;
+    std::thread authThread_;
 
     // Event queue for cross-thread event posting
     std::queue<Event> eventQueue_;

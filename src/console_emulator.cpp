@@ -59,15 +59,15 @@ void ConsoleDisplay::setBacklight(bool enabled) {
 
 void ConsoleDisplay::printDisplay() const {
     const size_t displayWidth = 40;
-    
+
     std::cout << "\n";
-        printBorder(false);
+    printBorder(false);
     std::cout << "│" << padLine(currentMessage_.line1, displayWidth) << "│\n";
     std::cout << "│" << padLine(currentMessage_.line2, displayWidth) << "│\n";
     std::cout << "│" << padLine(currentMessage_.line3, displayWidth) << "│\n";
     std::cout << "│" << padLine(currentMessage_.line4, displayWidth) << "│\n";
     std::cout << "│" << padLine(currentMessage_.line5, displayWidth) << "│\n";
-        printBorder(true);
+    printBorder(true);
     std::cout << std::flush;
 }
 
@@ -88,6 +88,10 @@ void ConsoleDisplay::printBorder(bool bottom) const {
     // Fallback to ASCII borders
     std::cout << "+" << std::string(displayWidth, '-') << "+\n";
 #endif
+}
+
+void ConsoleDisplay::printBottomBorder() const {
+    std::cout << "└────────────────────────────────────────┘\n";
 }
 
 std::string ConsoleDisplay::padLine(const std::string& line, size_t width) const {
@@ -335,16 +339,21 @@ void ConsoleFlowMeter::stopMeasurement() {
 }
 
 void ConsoleFlowMeter::resetCounter() {
-    currentVolume_ = 0.0;
+    {
+        std::lock_guard<std::mutex> lock(volumeMutex_);
+        currentVolume_ = 0.0;
+    }
     std::cout << "[FlowMeter] Counter reset" << std::endl;
     notifyFlowUpdate();
 }
 
 Volume ConsoleFlowMeter::getCurrentVolume() const {
+    std::lock_guard<std::mutex> lock(volumeMutex_);
     return currentVolume_;
 }
 
 Volume ConsoleFlowMeter::getTotalVolume() const {
+    std::lock_guard<std::mutex> lock(volumeMutex_);
     return totalVolume_;
 }
 
@@ -366,30 +375,50 @@ void ConsoleFlowMeter::simulationThreadFunction(Volume targetVolume) {
     const auto updateInterval = std::chrono::milliseconds(100);
     const Volume volumePerUpdate = flowRate_ * 0.1; // 100ms updates
     
-    while (!shouldStop_ && isMeasuring_ && currentVolume_ < targetVolume) {
+    while (!shouldStop_ && isMeasuring_) {
+        {
+            std::lock_guard<std::mutex> lock(volumeMutex_);
+            if (currentVolume_ >= targetVolume) {
+                break;
+            }
+        }
         std::this_thread::sleep_for(updateInterval);
-        
+
         if (!isMeasuring_) break;
-        
-        Volume newVolume = std::min(currentVolume_.load() + volumePerUpdate, targetVolume);
-        currentVolume_ = newVolume;
-        totalVolume_ = totalVolume_.load() + volumePerUpdate;
-        
+
+        Volume newVolume;
+        {
+            std::lock_guard<std::mutex> lock(volumeMutex_);
+            newVolume = std::min(currentVolume_ + volumePerUpdate, targetVolume);
+            currentVolume_ = newVolume;
+            totalVolume_ += volumePerUpdate;
+        }
+
         notifyFlowUpdate();
         
         std::cout << "[FlowMeter] Volume: " << std::fixed << std::setprecision(2) 
                   << newVolume << " L" << std::endl;
     }
     
-    if (currentVolume_ >= targetVolume) {
-        std::cout << "[FlowMeter] Target volume reached: " << targetVolume << " L" << std::endl;
+    {
+        std::lock_guard<std::mutex> lock(volumeMutex_);
+        if (currentVolume_ >= targetVolume) {
+            std::cout << "[FlowMeter] Target volume reached: " << targetVolume << " L" << std::endl;
+        }
     }
 }
 
 void ConsoleFlowMeter::notifyFlowUpdate() {
+    Volume current;
+    Volume total;
+    {
+        std::lock_guard<std::mutex> lock(volumeMutex_);
+        current = currentVolume_;
+        total = totalVolume_;
+    }
     std::lock_guard<std::mutex> lock(callbackMutex_);
     if (flowCallback_) {
-        flowCallback_(currentVolume_, totalVolume_);
+        flowCallback_(current, total);
     }
 }
 

@@ -5,6 +5,7 @@
 #include <string>
 #include <thread>
 #include <atomic>
+#include <cstdlib>
 #include <signal.h>
 #include <chrono>
 #include <cctype>
