@@ -4,6 +4,15 @@
 #include <iomanip>
 #include <thread>
 #include <chrono>
+#include <algorithm>
+
+#ifdef _WIN32
+#include <conio.h>
+#else
+#include <unistd.h>
+#include <termios.h>
+#include <sys/select.h>
+#endif
 
 namespace fuelflux {
 
@@ -108,7 +117,7 @@ ConsoleKeyboard::~ConsoleKeyboard() {
 bool ConsoleKeyboard::initialize() {
     isConnected_ = true;
     shouldStop_ = false;
-    inputThread_ = std::thread(&ConsoleKeyboard::inputThreadFunction, this);
+    // Do not start an internal thread; dispatcher will inject keys
     printKeyboardHelp();
     return true;
 }
@@ -134,32 +143,30 @@ void ConsoleKeyboard::enableInput(bool enabled) {
     inputEnabled_ = enabled;
 }
 
+void ConsoleKeyboard::injectKey(char c) {
+    if (!inputEnabled_) return;
+    KeyCode keyCode = charToKeyCode(c);
+    if (keyCode == static_cast<KeyCode>(0)) return;
+    std::lock_guard<std::mutex> lock(callbackMutex_);
+    if (keyPressCallback_) keyPressCallback_(keyCode);
+}
+
 void ConsoleKeyboard::inputThreadFunction() {
-    char input;
-    while (!shouldStop_ && std::cin.get(input)) {
-        if (!inputEnabled_) {
-            continue;
-        }
-        
-        KeyCode keyCode = charToKeyCode(input);
-        if (keyCode != static_cast<KeyCode>(0)) {
-            std::lock_guard<std::mutex> lock(callbackMutex_);
-            if (keyPressCallback_) {
-                keyPressCallback_(keyCode);
-            }
-        }
-    }
+    // unused
 }
 
 KeyCode ConsoleKeyboard::charToKeyCode(char c) const {
-    switch (c) {
+    switch (std::toupper(static_cast<unsigned char>(c))) {
         case '0': case '1': case '2': case '3': case '4':
         case '5': case '6': case '7': case '8': case '9':
-        case '*': case '#': case 'A': case 'B': case 'C': case 'D':
-        case 'a': case 'b': case 'c': case 'd':
-            return static_cast<KeyCode>(std::toupper(c));
-        default:
-            return static_cast<KeyCode>(0);
+            return static_cast<KeyCode>(c);
+        case '*': return KeyCode::KeyMax;
+        case '#': return KeyCode::KeyClear;
+        case 'A': return KeyCode::KeyStart;
+        case 'B': return KeyCode::KeyStop;
+        case 'C': return KeyCode::KeyLiters;
+        case 'D': return KeyCode::KeyRubles;
+        default: return static_cast<KeyCode>(0);
     }
 }
 
@@ -390,6 +397,8 @@ void ConsoleFlowMeter::notifyFlowUpdate() {
 ConsoleEmulator::ConsoleEmulator()
     : cardReader_(nullptr)
     , flowMeter_(nullptr)
+    , keyboard_(nullptr)
+    , commandBuffer_()
 {
 }
 
@@ -400,7 +409,9 @@ std::unique_ptr<peripherals::IDisplay> ConsoleEmulator::createDisplay() {
 }
 
 std::unique_ptr<peripherals::IKeyboard> ConsoleEmulator::createKeyboard() {
-    return std::make_unique<ConsoleKeyboard>();
+    auto kb = std::make_unique<ConsoleKeyboard>();
+    keyboard_ = kb.get();
+    return kb;
 }
 
 std::unique_ptr<peripherals::ICardReader> ConsoleEmulator::createCardReader() {
@@ -417,6 +428,52 @@ std::unique_ptr<peripherals::IFlowMeter> ConsoleEmulator::createFlowMeter() {
     auto meter = std::make_unique<ConsoleFlowMeter>();
     flowMeter_ = meter.get();
     return meter;
+}
+
+void ConsoleEmulator::dispatchKey(char c) {
+    if (keyboard_) {
+        keyboard_->injectKey(c);
+    }
+}
+
+bool ConsoleEmulator::processKeyboardInput(char c, SystemState state) {
+    std::lock_guard<std::mutex> lock(commandMutex_);
+    if (state == SystemState::Waiting) {
+        // command mode: build command buffer, accept backspace and enter
+        if (c == '\r' || c == '\n') {
+            std::string cmd = commandBuffer_;
+            // handle command
+            if (cmd == "quit" || cmd == "exit") {
+                processCommand(cmd);
+                commandBuffer_.clear();
+                std::cout << std::flush;
+                return true;
+            } else if (cmd.rfind("card", 0) == 0) {
+                processCommand(cmd);
+            } else if (cmd == "help") {
+                printHelp();
+            } else {
+                if (!cmd.empty()) std::cout << "Unknown command: " << cmd << std::endl;
+            }
+            commandBuffer_.clear();
+            std::cout << std::flush;
+            return false;
+        } else if (c == 127 || c == 8) {
+            if (!commandBuffer_.empty()) {
+                commandBuffer_.pop_back();
+                std::cout << "\b \b" << std::flush;
+            }
+            return false;
+        } else {
+            commandBuffer_.push_back(c);
+            std::cout << c << std::flush;
+            return false;
+        }
+    } else {
+        // key mode: forward raw key to keyboard
+        if (keyboard_) keyboard_->injectKey(c);
+        return false;
+    }
 }
 
 void ConsoleEmulator::printWelcome() const {
@@ -446,7 +503,7 @@ void ConsoleEmulator::processCommand(const std::string& command) {
     std::istringstream iss(command);
     std::string cmd;
     iss >> cmd;
-    
+
     if (cmd == "card") {
         std::string userId;
         iss >> userId;

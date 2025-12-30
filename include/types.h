@@ -75,7 +75,7 @@ enum class KeyCode {
 // User information
 struct UserInfo {
     UserId uid;
-    UserRole role;
+    UserRole role = UserRole::Unknown;
     Volume allowance = 0.0;  // Remaining allowed volume for customers
     Price price = 0.0;       // Price per liter (optional)
 };
