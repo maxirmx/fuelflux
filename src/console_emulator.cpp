@@ -151,10 +151,6 @@ void ConsoleKeyboard::injectKey(char c) {
     if (keyPressCallback_) keyPressCallback_(keyCode);
 }
 
-void ConsoleKeyboard::inputThreadFunction() {
-    // unused
-}
-
 KeyCode ConsoleKeyboard::charToKeyCode(char c) const {
     switch (std::toupper(static_cast<unsigned char>(c))) {
         case '0': case '1': case '2': case '3': case '4':
@@ -521,7 +517,7 @@ void ConsoleEmulator::processCommand(const std::string& command) {
                 if (flowMeter_) {
                     flowMeter_->simulateFlow(volume);
                 }
-            } catch (const std::exception& e) {
+            } catch (const std::exception&) {
                 std::cout << "Invalid volume: " << volumeStr << std::endl;
             }
         } else {

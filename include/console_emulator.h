@@ -54,9 +54,6 @@ public:
     // Allow external dispatcher to inject a character as a key press
     void injectKey(char c);
 
-    // Console input handling (internal - may be unused when dispatcher is used)
-    void processConsoleInput();
-
 private:
     bool isConnected_;
     bool inputEnabled_;
@@ -65,7 +62,6 @@ private:
     std::atomic<bool> shouldStop_;
     mutable std::mutex callbackMutex_;
 
-    void inputThreadFunction();
     KeyCode charToKeyCode(char c) const;
     void printKeyboardHelp() const;
 };

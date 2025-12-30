@@ -100,16 +100,16 @@ bool StateMachine::canProcessEvent(Event event) const {
 }
 
 void StateMachine::reset() {
+    SystemState old;
     {
         std::scoped_lock lock(mutex_);
         // copy current for exit
-        SystemState old = currentState_;
+        old = currentState_;
         currentState_ = SystemState::Waiting;
         previousState_ = SystemState::Waiting;
         lastActivityTime_ = std::chrono::steady_clock::now();
-        (void)old;
     }
-    onExitState(SystemState::Waiting); // safe no-op or logs
+    onExitState(old); 
     onEnterState(SystemState::Waiting);
 }
 
