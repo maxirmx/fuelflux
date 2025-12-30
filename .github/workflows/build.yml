@@ -1,0 +1,129 @@
+---
+name: Build FuelFlux
+
+'on':
+  push:
+    branches: [main, master, develop]
+  pull_request:
+    branches: [main, master, develop]
+  workflow_dispatch:
+
+jobs:
+  build-x64:
+    name: Build Ubuntu x64
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake g++ make
+
+      - name: Configure CMake
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build --config Release -j$(nproc)
+
+      - name: List built files
+        run: ls -lah build/bin/
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuelflux-ubuntu-x64
+          path: build/bin/fuelflux
+          if-no-files-found: error
+
+  build-arm64:
+    name: Build Ubuntu ARM64
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Install cross-compilation tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake g++-aarch64-linux-gnu
+
+      - name: Configure CMake for ARM64
+        run: |
+          mkdir -p build-arm64
+          cd build-arm64
+          cmake .. \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_SYSTEM_NAME=Linux \
+            -DCMAKE_SYSTEM_PROCESSOR=aarch64 \
+            -DCMAKE_C_COMPILER=aarch64-linux-gnu-gcc \
+            -DCMAKE_CXX_COMPILER=aarch64-linux-gnu-g++
+
+      - name: Build
+        run: cmake --build build-arm64 --config Release -j$(nproc)
+
+      - name: List built files
+        run: ls -lah build-arm64/bin/
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuelflux-ubuntu-arm64
+          path: build-arm64/bin/fuelflux
+          if-no-files-found: error
+
+  build-armhf:
+    name: Build Ubuntu ARMhf
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Install cross-compilation tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake g++-arm-linux-gnueabihf
+
+      - name: Configure CMake for ARMhf
+        run: |
+          mkdir -p build-armhf
+          cd build-armhf
+          cmake .. \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_SYSTEM_NAME=Linux \
+            -DCMAKE_SYSTEM_PROCESSOR=arm \
+            -DCMAKE_C_COMPILER=arm-linux-gnueabihf-gcc \
+            -DCMAKE_CXX_COMPILER=arm-linux-gnueabihf-g++
+
+      - name: Build
+        run: cmake --build build-armhf --config Release -j$(nproc)
+
+      - name: List built files
+        run: ls -lah build-armhf/bin/
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuelflux-ubuntu-armhf
+          path: build-armhf/bin/fuelflux
+          if-no-files-found: error
