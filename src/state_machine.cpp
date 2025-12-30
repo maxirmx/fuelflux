@@ -11,12 +11,26 @@ StateMachine::StateMachine(Controller* controller)
     , lastActivityTime_(std::chrono::steady_clock::now())
 {
     setupTransitions();
+    // Start timeout thread
+    timeoutThreadRunning_.store(true);
+    timeoutThread_ = std::thread(&StateMachine::timeoutThreadFunction, this);
+}
+
+StateMachine::~StateMachine() {
+    // Stop timeout thread
+    timeoutThreadRunning_.store(false);
+    if (timeoutThread_.joinable()) {
+        timeoutThread_.join();
+    }
 }
 
 void StateMachine::initialize() {
-    currentState_ = SystemState::Waiting;
-    previousState_ = SystemState::Waiting;
-    updateActivityTime();
+    {
+        std::scoped_lock lock(mutex_);
+        currentState_ = SystemState::Waiting;
+        previousState_ = SystemState::Waiting;
+        lastActivityTime_ = std::chrono::steady_clock::now();
+    }
     onEnterState(currentState_);
 }
 
@@ -25,50 +39,78 @@ bool StateMachine::processEvent(Event event) {
         return false;
     }
 
-    // Check for timeout first
-    checkTimeout();
+    // Do not call checkTimeout() here - timeout is handled asynchronously by the timeout thread.
 
-    auto key = std::make_pair(currentState_, event);
-    auto it = transitions_.find(key);
-    
-    if (it != transitions_.end()) {
-        previousState_ = currentState_;
-        onExitState(currentState_);
-        
-        // Execute transition action
-        if (it->second.second) {
-            it->second.second();
+    // Lookup transition under lock and extract action and target state, then invoke without holding lock
+    std::function<void()> action;
+    SystemState fromState;
+    SystemState toState;
+    {
+        std::scoped_lock lock(mutex_);
+        fromState = currentState_;
+        auto key = std::make_pair(fromState, event);
+        auto it = transitions_.find(key);
+        if (it == transitions_.end()) {
+            std::cout << "[StateMachine] No transition for state " 
+                      << static_cast<int>(fromState) << " with event " 
+                      << static_cast<int>(event) << std::endl;
+            return false;
         }
-        
-        currentState_ = it->second.first;
-        onEnterState(currentState_);
-        updateActivityTime();
-        
-        std::cout << "[StateMachine] Transition: " 
-                  << static_cast<int>(previousState_) << " -> " 
-                  << static_cast<int>(currentState_) << " (event: " 
-                  << static_cast<int>(event) << ")" << std::endl;
-        
-        return true;
+        toState = it->second.first;
+        action = it->second.second;
+        previousState_ = fromState;
     }
-    
-    std::cout << "[StateMachine] No transition for state " 
-              << static_cast<int>(currentState_) << " with event " 
-              << static_cast<int>(event) << std::endl;
-    return false;
+
+    // Call exit action for the current state without holding the lock
+    onExitState(fromState);
+
+    // Execute transition action
+    if (action) {
+        try {
+            action();
+        } catch (const std::exception& e) {
+            std::cout << "[StateMachine] Exception in transition action: " << e.what() << std::endl;
+        } catch (...) {
+            std::cout << "[StateMachine] Unknown exception in transition action" << std::endl;
+        }
+    }
+
+    // Update state and activity time under lock
+    {
+        std::scoped_lock lock(mutex_);
+        currentState_ = toState;
+        lastActivityTime_ = std::chrono::steady_clock::now();
+    }
+
+    // Enter new state without holding the lock
+    onEnterState(toState);
+
+    std::cout << "[StateMachine] Transition: " 
+              << static_cast<int>(previousState_) << " -> " 
+              << static_cast<int>(currentState_) << " (event: " 
+              << static_cast<int>(event) << ")" << std::endl;
+
+    return true;
 }
 
 bool StateMachine::canProcessEvent(Event event) const {
+    std::scoped_lock lock(mutex_);
     auto key = std::make_pair(currentState_, event);
     return transitions_.find(key) != transitions_.end();
 }
 
 void StateMachine::reset() {
-    onExitState(currentState_);
-    currentState_ = SystemState::Waiting;
-    previousState_ = SystemState::Waiting;
-    onEnterState(currentState_);
-    updateActivityTime();
+    {
+        std::scoped_lock lock(mutex_);
+        // copy current for exit
+        SystemState old = currentState_;
+        currentState_ = SystemState::Waiting;
+        previousState_ = SystemState::Waiting;
+        lastActivityTime_ = std::chrono::steady_clock::now();
+        (void)old;
+    }
+    onExitState(SystemState::Waiting); // safe no-op or logs
+    onEnterState(SystemState::Waiting);
 }
 
 void StateMachine::setupTransitions() {
@@ -252,25 +294,43 @@ void StateMachine::onError() {
 }
 
 bool StateMachine::isTimeoutEnabled() const {
+    std::scoped_lock lock(mutex_);
     return currentState_ != SystemState::Waiting && 
            currentState_ != SystemState::Refueling &&
            currentState_ != SystemState::Error;
 }
 
 void StateMachine::updateActivityTime() {
+    std::scoped_lock lock(mutex_);
     lastActivityTime_ = std::chrono::steady_clock::now();
 }
 
-void StateMachine::checkTimeout() {
-    if (!isTimeoutEnabled()) {
-        return;
-    }
-    
-    auto now = std::chrono::steady_clock::now();
-    auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - lastActivityTime_);
-    
-    if (elapsed >= TIMEOUT_DURATION) {
-        processEvent(Event::Timeout);
+void StateMachine::timeoutThreadFunction() {
+    while (timeoutThreadRunning_.load()) {
+        std::this_thread::sleep_for(std::chrono::seconds(1));
+
+        bool shouldTrigger = false;
+        {
+            std::scoped_lock lock(mutex_);
+            // Avoid calling isTimeoutEnabled() here because it also locks mutex_.
+            if (currentState_ == SystemState::Waiting ||
+                currentState_ == SystemState::Refueling ||
+                currentState_ == SystemState::Error) {
+                continue;
+            }
+            auto now = std::chrono::steady_clock::now();
+            auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - lastActivityTime_);
+            if (elapsed >= TIMEOUT_DURATION) {
+                shouldTrigger = true;
+            }
+        }
+
+        if (shouldTrigger) {
+            // Post timeout to controller's event queue instead of calling state machine directly
+            if (controller_) {
+                controller_->postEvent(Event::Timeout);
+            }
+        }
     }
 }
 

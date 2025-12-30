@@ -78,6 +78,7 @@ void Controller::shutdown() {
     std::cout << "[Controller] Shutting down..." << std::endl;
     
     isRunning_ = false;
+    eventCv_.notify_all();
     
     // Shutdown peripherals
     if (display_) display_->shutdown();
@@ -94,13 +95,37 @@ void Controller::run() {
     std::cout << "[Controller] Starting main loop" << std::endl;
     
     while (isRunning_) {
-        // Main loop - in a real implementation, this would handle
-        // periodic tasks, timeouts, etc.
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
-        
-        // Check for timeouts in state machine
-        // (This is handled internally by the state machine)
+        bool haveEvent = false;
+        Event event = Event::Timeout; // initialize but treat as invalid until popped
+        {
+            std::unique_lock<std::mutex> lock(eventQueueMutex_);
+            if (eventQueue_.empty()) {
+                // wait for an event or timeout periodically to allow shutdown
+                eventCv_.wait_for(lock, std::chrono::milliseconds(100), [this] { return !eventQueue_.empty() || !isRunning_; });
+            }
+            if (!eventQueue_.empty()) {
+                event = eventQueue_.front();
+                eventQueue_.pop();
+                haveEvent = true;
+            }
+        }
+
+        if (haveEvent) {
+            stateMachine_.processEvent(event);
+        }
+
+        // Small sleep to avoid busy loop when no events are present
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
+}
+
+// Allow other threads to post events into controller's loop
+void Controller::postEvent(Event event) {
+    {
+        std::lock_guard<std::mutex> lock(eventQueueMutex_);
+        eventQueue_.push(event);
+    }
+    eventCv_.notify_one();
 }
 
 // Peripheral setters

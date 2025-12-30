@@ -7,6 +7,9 @@
 #include <memory>
 #include <string>
 #include <vector>
+#include <queue>
+#include <mutex>
+#include <condition_variable>
 
 namespace fuelflux {
 
@@ -28,6 +31,9 @@ public:
     void setPump(std::unique_ptr<peripherals::IPump> pump);
     void setFlowMeter(std::unique_ptr<peripherals::IFlowMeter> flowMeter);
     void setCloudService(std::unique_ptr<ICloudService> cloudService);
+
+    // Allow external threads to post events to the controller's event loop
+    void postEvent(Event event);
 
     // State machine interface
     StateMachine& getStateMachine() { return stateMachine_; }
@@ -129,6 +135,11 @@ private:
     // System state
     bool isRunning_;
     std::string lastErrorMessage_;
+
+    // Event queue for cross-thread event posting
+    std::queue<Event> eventQueue_;
+    std::mutex eventQueueMutex_;
+    std::condition_variable eventCv_;
 
     // Helper methods
     void setupPeripheralCallbacks();
