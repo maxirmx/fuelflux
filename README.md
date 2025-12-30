@@ -21,5 +21,3 @@ In VS Code:
 - Start debugging (F5). The preLaunchTask will build the project first.
 
 If you use MSVC toolchain instead of Ninja/gcc, change the `-G "Ninja"` to your generator and adjust `miDebuggerPath` in `.vscode/launch.json` to the Visual Studio debugger (or use `cppvsdbg` type).
-# fuelflux
-fuelflux software

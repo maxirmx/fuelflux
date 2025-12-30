@@ -143,8 +143,9 @@ public:
 private:
     bool isConnected_;
     std::atomic<bool> isMeasuring_;
-    std::atomic<Volume> currentVolume_;
-    std::atomic<Volume> totalVolume_;
+    Volume currentVolume_;
+    Volume totalVolume_;
+    mutable std::mutex volumeMutex_;
     Volume flowRate_; // liters per second
     FlowCallback flowCallback_;
     std::thread simulationThread_;

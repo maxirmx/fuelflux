@@ -5,11 +5,11 @@
 #include <string>
 #include <thread>
 #include <atomic>
+#include <cstdlib>
 #include <signal.h>
 #include <chrono>
 #include <cctype>
 #include <sstream>
-#include <cstdlib>
 #ifdef _WIN32
 #include <windows.h>
 #include <conio.h>
