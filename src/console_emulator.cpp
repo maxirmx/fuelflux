@@ -85,7 +85,7 @@ void ConsoleDisplay::printBorder(bool bottom) const {
         std::cout << "┘\n";
     }
 #else
-    // Fallback to ASCII borders
+    // Use ASCII borders on non-Windows platforms
     std::cout << "+" << std::string(displayWidth, '-') << "+\n";
 #endif
 }
