@@ -4,6 +4,9 @@
 #include <functional>
 #include <unordered_map>
 #include <memory>
+#include <thread>
+#include <atomic>
+#include <mutex>
 
 namespace fuelflux {
 
@@ -22,15 +25,15 @@ struct StateTransition {
 class StateMachine {
 public:
     explicit StateMachine(Controller* controller);
-    ~StateMachine() = default;
+    ~StateMachine();
 
     // State machine operations
     void initialize();
     bool processEvent(Event event);
-    SystemState getCurrentState() const { return currentState_; }
+    SystemState getCurrentState() const { std::scoped_lock lock(mutex_); return currentState_; }
     
     // State queries
-    bool isInState(SystemState state) const { return currentState_ == state; }
+    bool isInState(SystemState state) const { std::scoped_lock lock(mutex_); return currentState_ == state; }
     bool canProcessEvent(Event event) const;
     
     // Reset to initial state
@@ -78,6 +81,12 @@ private:
     bool isTimeoutEnabled() const;
     void updateActivityTime();
     void checkTimeout();
+
+    // Concurrency
+    mutable std::recursive_mutex mutex_;
+    std::atomic<bool> timeoutThreadRunning_{false};
+    std::thread timeoutThread_;
+    void timeoutThreadFunction();
 };
 
 } // namespace fuelflux

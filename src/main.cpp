@@ -7,6 +7,17 @@
 #include <atomic>
 #include <cstdlib>
 #include <signal.h>
+#include <chrono>
+#include <cctype>
+#include <sstream>
+#ifdef _WIN32
+#include <windows.h>
+#include <conio.h>
+#else
+#include <termios.h>
+#include <unistd.h>
+#include <sys/select.h>
+#endif
 
 using namespace fuelflux;
 
@@ -19,27 +30,133 @@ void signalHandler(int signal) {
     g_running = false;
 }
 
-// Command processing thread
-void commandProcessingThread(ConsoleEmulator& emulator) {
-    std::string command;
-    
+// Helper: trim leading/trailing spaces
+static std::string trim(const std::string& s) {
+    size_t a = s.find_first_not_of(" \t\r\n");
+    if (a == std::string::npos) return "";
+    size_t b = s.find_last_not_of(" \t\r\n");
+    return s.substr(a, b - a + 1);
+}
+
+// Dispatcher: switches between command mode (Waiting state) and key mode (other states)
+void inputDispatcher(ConsoleEmulator& emulator, Controller& controller) {
+#ifndef _WIN32
+    struct termios origTerm{};
+    bool haveTerm = (tcgetattr(STDIN_FILENO, &origTerm) == 0);
+
+    auto setRawMode = [&](bool raw) {
+        if (!haveTerm) return;
+        struct termios t = origTerm;
+        if (raw) {
+            t.c_lflag &= ~(ICANON | ECHO);
+            t.c_cc[VMIN] = 0;
+            t.c_cc[VTIME] = 0;
+        } else {
+            // restore canonical with echo
+            t.c_lflag |= (ICANON | ECHO);
+        }
+        tcsetattr(STDIN_FILENO, TCSANOW, &t);
+    };
+#endif
+
+    auto printPrompt = [&]() {
+        std::cout << "\nfuelflux> " << std::flush;
+    };
+
+    // Start in command mode if controller is waiting
+    printPrompt();
+
     while (g_running) {
-        std::cout << "\nfuelflux> ";
-        if (!std::getline(std::cin, command)) {
-            // EOF or input error
-            g_running = false;
-            break;
-        }
-        
-        if (command == "quit" || command == "exit") {
-            g_running = false;
-            break;
-        }
-        
-        if (!command.empty()) {
-            emulator.processCommand(command);
+        SystemState state = controller.getStateMachine().getCurrentState();
+
+        if (state == SystemState::Waiting) {
+            // Command mode: accept only 'card', 'help', 'quit'
+#ifndef _WIN32
+            setRawMode(false); // canonical mode
+#endif
+            std::string line;
+            if (!std::getline(std::cin, line)) {
+                // EOF or error
+                g_running = false;
+                break;
+            }
+            line = trim(line);
+            if (line.empty()) {
+                printPrompt();
+                continue;
+            }
+            // parse first token
+            std::istringstream iss(line);
+            std::string cmd;
+            iss >> cmd;
+            if (cmd == "quit" || cmd == "exit") {
+                g_running = false;
+                break;
+            } else if (cmd == "help") {
+                emulator.printHelp();
+            } else if (cmd == "card") {
+                // only accept card <user_id>
+                std::string userId;
+                iss >> userId;
+                if (!userId.empty()) {
+                    emulator.processCommand(line); // existing handler will simulate card
+                } else {
+                    std::cout << "Usage: card <user_id>\n";
+                }
+            } else {
+                std::cout << "Unknown command in command mode: " << cmd << "\n";
+            }
+            printPrompt();
+        } else {
+            // Key mode: immediate per-key handling
+#ifndef _WIN32
+            setRawMode(true);
+            fd_set readfds;
+            FD_ZERO(&readfds);
+            FD_SET(STDIN_FILENO, &readfds);
+            struct timeval tv;
+            tv.tv_sec = 0;
+            tv.tv_usec = 100000; // 100ms
+            int ret = select(STDIN_FILENO + 1, &readfds, nullptr, nullptr, &tv);
+            if (ret > 0 && FD_ISSET(STDIN_FILENO, &readfds)) {
+                char c = 0;
+                ssize_t r = read(STDIN_FILENO, &c, 1);
+                if (r > 0) {
+                    // map Enter to Start
+                    char toProcess = (c == '\r' || c == '\n') ? 'A' : c;
+                    if (emulator.processKeyboardInput(toProcess, state)) {
+                        g_running = false;
+                        break;
+                    }
+                }
+            }
+#else
+            if (_kbhit()) {
+                int ch = _getch();
+                if (ch == 0 || ch == 224) {
+                    // extended key: ignore second code
+                    (void)_getch();
+                } else {
+                    char c = static_cast<char>(ch);
+                    char toProcess = (c == '\r') ? 'A' : c;
+                    if (emulator.processKeyboardInput(toProcess, state)) {
+                        g_running = false;
+                        break;
+                    }
+                }
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+#endif
+            // small sleep to avoid busy loop
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
         }
     }
+
+#ifndef _WIN32
+    if (haveTerm) {
+        tcsetattr(STDIN_FILENO, TCSANOW, &origTerm);
+    }
+#endif
 }
 
 int main(int argc, char* argv[]) {
@@ -48,6 +165,22 @@ int main(int argc, char* argv[]) {
     signal(SIGTERM, signalHandler);
     
     std::cout << "Starting FuelFlux Controller..." << std::endl;
+    // On Windows, set console to UTF-8 and enable virtual terminal processing
+#ifdef _WIN32
+    // Set console code page to UTF-8 for proper Unicode output
+    SetConsoleCP(CP_UTF8);
+    SetConsoleOutputCP(CP_UTF8);
+
+    // Enable VT processing to allow ANSI escape sequences
+    HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
+    if (hOut != INVALID_HANDLE_VALUE) {
+        DWORD dwMode = 0;
+        if (GetConsoleMode(hOut, &dwMode)) {
+            dwMode |= ENABLE_VIRTUAL_TERMINAL_PROCESSING | DISABLE_NEWLINE_AUTO_RETURN;
+            SetConsoleMode(hOut, dwMode);
+        }
+    }
+#endif
     
     // Get controller ID from environment or use default
     std::string controllerId = "CTRL-001";
@@ -83,8 +216,8 @@ int main(int argc, char* argv[]) {
         std::cout << "\n[Main] Controller initialized successfully" << std::endl;
         std::cout << "[Main] Type 'help' for available commands" << std::endl;
         
-        // Start command processing thread
-        std::thread cmdThread(commandProcessingThread, std::ref(emulator));
+        // Start input dispatcher thread (handles both command and key modes)
+        std::thread inputThread(inputDispatcher, std::ref(emulator), std::ref(controller));
         
         // Start controller main loop in a separate thread
         std::thread controllerThread([&controller]() {
@@ -102,8 +235,8 @@ int main(int argc, char* argv[]) {
         controller.shutdown();
         
         // Wait for threads to finish
-        if (cmdThread.joinable()) {
-            cmdThread.join();
+        if (inputThread.joinable()) {
+            inputThread.join();
         }
         
         if (controllerThread.joinable()) {

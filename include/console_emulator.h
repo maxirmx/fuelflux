@@ -32,8 +32,7 @@ private:
     mutable std::mutex displayMutex_;
 
     void printDisplay() const;
-    void printTopBorder() const;
-    void printBottomBorder() const;
+    void printBorder(bool bottom) const;
     std::string padLine(const std::string& line, size_t width) const;
 };
 
@@ -52,8 +51,8 @@ public:
     void setKeyPressCallback(KeyPressCallback callback) override;
     void enableInput(bool enabled) override;
 
-    // Console input handling
-    void processConsoleInput();
+    // Allow external dispatcher to inject a character as a key press
+    void injectKey(char c);
 
 private:
     bool isConnected_;
@@ -63,7 +62,6 @@ private:
     std::atomic<bool> shouldStop_;
     mutable std::mutex callbackMutex_;
 
-    void inputThreadFunction();
     KeyCode charToKeyCode(char c) const;
     void printKeyboardHelp() const;
 };
@@ -179,10 +177,23 @@ public:
     // Test card simulation
     void simulateCard(const UserId& userId);
 
+    // Dispatcher helper: forward a raw character to the keyboard (if available)
+    void dispatchKey(char c);
+
+    // Process a character according to current system state: in Waiting state
+    // collect command input (card/help/quit), in other states forward as key
+    // Returns true if a quit/exit command was issued
+    bool processKeyboardInput(char c, SystemState state);
+
 private:
     // Keep weak references to created peripherals for command processing
     ConsoleCardReader* cardReader_;
     ConsoleFlowMeter* flowMeter_;
+    ConsoleKeyboard* keyboard_;
+
+    // command assembly in command mode
+    std::string commandBuffer_;
+    mutable std::mutex commandMutex_;
     
     void printAvailableCommands() const;
 };
