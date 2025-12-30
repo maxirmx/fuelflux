@@ -116,10 +116,10 @@ void Controller::run() {
 
         if (haveEvent) {
             stateMachine_.processEvent(event);
+        } else {
+            // Small sleep to avoid busy loop when no events are present
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
         }
-
-        // Small sleep to avoid busy loop when no events are present
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
 }
 
