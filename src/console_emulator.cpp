@@ -90,10 +90,6 @@ void ConsoleDisplay::printBorder(bool bottom) const {
 #endif
 }
 
-void ConsoleDisplay::printBottomBorder() const {
-    std::cout << "└────────────────────────────────────────┘\n";
-}
-
 std::string ConsoleDisplay::padLine(const std::string& line, size_t width) const {
     if (line.length() >= width) {
         return line.substr(0, width);

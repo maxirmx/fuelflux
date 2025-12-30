@@ -310,19 +310,25 @@ void StateMachine::timeoutThreadFunction() {
         std::this_thread::sleep_for(std::chrono::seconds(1));
 
         bool shouldTrigger = false;
+        SystemState stateCopy;
+        std::chrono::steady_clock::time_point lastActivityCopy;
         {
             std::scoped_lock lock(mutex_);
-            // Avoid calling isTimeoutEnabled() here because it also locks mutex_.
-            if (currentState_ == SystemState::Waiting ||
-                currentState_ == SystemState::Refueling ||
-                currentState_ == SystemState::Error) {
-                continue;
-            }
-            auto now = std::chrono::steady_clock::now();
-            auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - lastActivityTime_);
-            if (elapsed >= TIMEOUT_DURATION) {
-                shouldTrigger = true;
-            }
+            stateCopy = currentState_;
+            lastActivityCopy = lastActivityTime_;
+        }
+
+        // If timeouts are disabled for this state, skip checking (no lock held here)
+        if (stateCopy == SystemState::Waiting ||
+            stateCopy == SystemState::Refueling ||
+            stateCopy == SystemState::Error) {
+            continue;
+        }
+
+        auto now = std::chrono::steady_clock::now();
+        auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - lastActivityCopy);
+        if (elapsed >= TIMEOUT_DURATION) {
+            shouldTrigger = true;
         }
 
         if (shouldTrigger) {
