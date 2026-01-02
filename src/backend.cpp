@@ -182,7 +182,7 @@ nlohmann::json Backend::HttpRequestWrapper(const std::string& endpoint,
         } else {
             // HTTP error response
             std::ostringstream oss;
-            oss << "Системная ошибка, код " << res->status;
+            oss << "System error, code " << res->status;
             std::string errorText = oss.str();
             
             LOG_ERROR("HTTP error: {}", errorText);
@@ -220,7 +220,7 @@ bool Backend::Authorize(const std::string& uid) {
         // Make request
         nlohmann::json response = HttpRequestWrapper("/api/pump/authorize", "POST", requestBody, false);
         
-        // Parse response
+        // Parse response - validate all fields before updating state
         if (!response.is_object()) {
             lastError_ = "Invalid response format";
             LOG_ERROR("{}", lastError_);
@@ -233,7 +233,7 @@ bool Backend::Authorize(const std::string& uid) {
             LOG_ERROR("{}", lastError_);
             return false;
         }
-        token_ = response["Token"].get<std::string>();
+        std::string token = response["Token"].get<std::string>();
         
         // Extract RoleId (required)
         if (!response.contains("RoleId") || !response["RoleId"].is_number_integer()) {
@@ -241,33 +241,37 @@ bool Backend::Authorize(const std::string& uid) {
             LOG_ERROR("{}", lastError_);
             return false;
         }
-        roleId_ = response["RoleId"].get<int>();
+        int roleId = response["RoleId"].get<int>();
         
         // Extract Allowance (optional, can be null)
+        double allowance = 0.0;
         if (response.contains("Allowance") && !response["Allowance"].is_null()) {
-            allowance_ = response["Allowance"].get<double>();
-        } else {
-            allowance_ = 0.0;
+            allowance = response["Allowance"].get<double>();
         }
         
         // Extract Price (optional, can be null)
+        double price = 0.0;
         if (response.contains("Price") && !response["Price"].is_null()) {
-            price_ = response["Price"].get<double>();
-        } else {
-            price_ = 0.0;
+            price = response["Price"].get<double>();
         }
         
         // Extract fuelTanks (optional, can be null or array)
-        fuelTanks_.clear();
+        std::vector<BackendTankInfo> fuelTanks;
         if (response.contains("fuelTanks") && response["fuelTanks"].is_array()) {
             for (const auto& tank : response["fuelTanks"]) {
                 BackendTankInfo tankInfo;
                 tankInfo.idTank = tank.value("idTank", 0);
                 tankInfo.nameTank = tank.value("nameTank", "");
-                fuelTanks_.push_back(tankInfo);
+                fuelTanks.push_back(tankInfo);
             }
         }
         
+        // All validations passed - update state atomically
+        token_ = token;
+        roleId_ = roleId;
+        allowance_ = allowance;
+        price_ = price;
+        fuelTanks_ = fuelTanks;
         isAuthorized_ = true;
         lastError_.clear();
         
@@ -299,7 +303,7 @@ bool Backend::Deauthorize() {
         // Make request with bearer token
         nlohmann::json response = HttpRequestWrapper("/api/pump/deauthorize", "POST", requestBody, true);
         
-        // Clear instance variables
+        // Clear instance variables only after successful deauthorization
         token_.clear();
         roleId_ = 0;
         allowance_ = 0.0;
@@ -312,8 +316,17 @@ bool Backend::Deauthorize() {
         
         return true;
     } catch (const std::exception& e) {
+        // On failure, clear state anyway since we can't recover from this
+        // The backend may or may not have deauthorized us, so it's safer to clear our state
+        token_.clear();
+        roleId_ = 0;
+        allowance_ = 0.0;
+        price_ = 0.0;
+        fuelTanks_.clear();
+        isAuthorized_ = false;
+        
         lastError_ = e.what();
-        LOG_ERROR("Deauthorization failed: {}", lastError_);
+        LOG_ERROR("Deauthorization failed: {} (state cleared for safety)", lastError_);
         return false;
     }
 }

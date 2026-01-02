@@ -1,0 +1,22 @@
+[2026-01-02 10:49:37.722] [3942] [fuelflux] [info] [:] Logging system initialized from config file: config/logging.json
+[2026-01-02 10:49:37.722] [3942] [fuelflux] [info] [:] Backend initialized with base API: http://localhost:8080 and controller UID: test-controller-uid
+[2026-01-02 10:49:37.722] [3942] [fuelflux] [error] [:] Not authorized. Call Authorize first.
+[2026-01-02 10:49:37.722] [3942] [fuelflux] [info] [:] Authorizing card UID: test-card-uid
+[2026-01-02 10:49:37.722] [3942] [fuelflux] [debug] [:] Connecting to localhost:8080 for endpoint: /api/pump/authorize
+[2026-01-02 10:49:37.722] [3942] [fuelflux] [debug] [:] Request: POST /api/pump/authorize with body: {"CardUid":"test-card-uid","PumpControllerUid":"test-controller-uid"}
+[2026-01-02 10:49:37.723] [3942] [fuelflux] [error] [:] HTTP request failed: Connection error
+[2026-01-02 10:49:37.723] [3942] [fuelflux] [error] [:] HttpRequestWrapper exception: HTTP request failed: Connection error
+[2026-01-02 10:49:37.723] [3942] [fuelflux] [error] [:] Authorization failed: HTTP request failed: Connection error
+[2026-01-02 10:49:37.723] [3942] [fuelflux] [info] [:] Backend initialized with base API: http://localhost:8080 and controller UID: test-controller-uid-2
+[2026-01-02 10:49:37.723] [3942] [fuelflux] [info] [:] Shutting down logging system
+[2026-01-02 10:52:44.786] [4017] [fuelflux] [info] [:] Logging system initialized from config file: config/logging.json
+[2026-01-02 10:52:44.786] [4017] [fuelflux] [info] [:] Backend initialized with base API: http://localhost:8080 and controller UID: test-controller-uid
+[2026-01-02 10:52:44.786] [4017] [fuelflux] [error] [:] Not authorized. Call Authorize first.
+[2026-01-02 10:52:44.786] [4017] [fuelflux] [info] [:] Authorizing card UID: test-card-uid
+[2026-01-02 10:52:44.786] [4017] [fuelflux] [debug] [:] Connecting to localhost:8080 for endpoint: /api/pump/authorize
+[2026-01-02 10:52:44.786] [4017] [fuelflux] [debug] [:] Request: POST /api/pump/authorize with body: {"CardUid":"test-card-uid","PumpControllerUid":"test-controller-uid"}
+[2026-01-02 10:52:44.787] [4017] [fuelflux] [error] [:] HTTP request failed: Connection error
+[2026-01-02 10:52:44.787] [4017] [fuelflux] [error] [:] HttpRequestWrapper exception: HTTP request failed: Connection error
+[2026-01-02 10:52:44.787] [4017] [fuelflux] [error] [:] Authorization failed: HTTP request failed: Connection error
+[2026-01-02 10:52:44.787] [4017] [fuelflux] [info] [:] Backend initialized with base API: http://localhost:8080 and controller UID: test-controller-uid-2
+[2026-01-02 10:52:44.787] [4017] [fuelflux] [info] [:] Shutting down logging system
