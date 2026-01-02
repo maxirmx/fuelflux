@@ -75,7 +75,6 @@ public:
 
     // Volume/Amount operations
     void enterVolume(Volume volume);
-    void enterAmount(Amount amount);
 
     // Refueling operations
     void startRefueling();
