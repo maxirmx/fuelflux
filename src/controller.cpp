@@ -87,9 +87,6 @@ void Controller::shutdown() {
     if (cardReader_) cardReader_->shutdown();
     if (pump_) pump_->shutdown();
     if (flowMeter_) flowMeter_->shutdown();
-    if (authThread_.joinable()) {
-        authThread_.join();
-    }
 
     LOG_CTRL_INFO("Shutdown complete");
 }
@@ -327,42 +324,24 @@ void Controller::setMaxValue() {
 void Controller::requestAuthorization(const UserId& userId) {
     stateMachine_.processEvent(Event::CardPresented);
 
-    if (authThread_.joinable()) {
-        authThread_.join();
-    }
+    if (backend_.Authorize(userId)) {
+        currentUser_.uid = userId;
+        currentUser_.role = static_cast<UserRole>(backend_.GetRoleId());
+        currentUser_.allowance = backend_.GetAllowance();
+        currentUser_.price = backend_.GetPrice();
 
-    authThread_ = std::thread([this, userId]() {
-        AuthResponse response;
-        if (backend_.Authorize(userId)) {
-            response.success = true;
-            response.userInfo.uid = userId;
-            response.userInfo.role = static_cast<UserRole>(backend_.GetRoleId());
-            response.userInfo.allowance = backend_.GetAllowance();
-            response.userInfo.price = backend_.GetPrice();
-
-            for (const auto& tank : backend_.GetFuelTanks()) {
-                TankInfo info;
-                info.number = tank.idTank;
-                info.capacity = 0.0;
-                info.currentVolume = 0.0;
-                info.fuelType = tank.nameTank;
-                response.tanks.push_back(info);
-            }
-        } else {
-            response.success = false;
-            response.errorMessage = backend_.GetLastError();
+        availableTanks_.clear();
+        for (const auto& tank : backend_.GetFuelTanks()) {
+            TankInfo info;
+            info.number = tank.idTank;
+            info.capacity = 0.0;
+            info.currentVolume = 0.0;
+            info.fuelType = tank.nameTank;
+            availableTanks_.push_back(info);
         }
-        handleAuthorizationResponse(response);
-    });
-}
-
-void Controller::handleAuthorizationResponse(const AuthResponse& response) {
-    if (response.success) {
-        currentUser_ = response.userInfo;
-        availableTanks_ = response.tanks;
         stateMachine_.processEvent(Event::AuthorizationSuccess);
     } else {
-        showError(response.errorMessage);
+        showError(backend_.GetLastError());
         stateMachine_.processEvent(Event::AuthorizationFailed);
     }
 }
