@@ -70,6 +70,7 @@ set(SOURCES
 
 # Headers
 set(HEADERS
+    include/config.h
     include/state_machine.h
     include/controller.h
     include/logger.h
