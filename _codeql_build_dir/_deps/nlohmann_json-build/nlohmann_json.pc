@@ -1,4 +1,0 @@
-Name: nlohmann_json
-Description: JSON for Modern C++
-Version: 3.11.3
-Cflags: -I/home/runner/work/fuelflux/fuelflux/_codeql_build_dir/install/include
