@@ -433,4 +433,71 @@ bool Backend::Refuel(TankNumber tankNumber, Volume volume) {
     }
 }
 
+bool Backend::Intake(TankNumber tankNumber, Volume volume, IntakeDirection direction) {
+    try {
+        if (!isAuthorized_) {
+            LOG_ERROR("Invalid intake report: backend is not authorized");
+            lastError_ = StdControllerError;
+            return false;
+        }
+
+        if (roleId_ != static_cast<int>(UserRole::Operator)) {
+            LOG_ERROR("Invalid intake report: role {} is not allowed (expected Operator)", roleId_);
+            lastError_ = StdControllerError;
+            return false;
+        }
+
+        const auto tankIt = std::find_if(
+            fuelTanks_.begin(),
+            fuelTanks_.end(),
+            [tankNumber](const BackendTankInfo& tank) { return tank.idTank == tankNumber; });
+        if (tankIt == fuelTanks_.end()) {
+            LOG_ERROR("Invalid intake report: tank {} not found in authorized tanks", tankNumber);
+            lastError_ = StdControllerError;
+            return false;
+        }
+
+        if (volume < 0.0) {
+            LOG_ERROR("Invalid intake report: volume {} must be non-negative", volume);
+            lastError_ = StdControllerError;
+            return false;
+        }
+
+        if (direction != IntakeDirection::In && direction != IntakeDirection::Out) {
+            LOG_ERROR("Invalid intake report: direction {} is not supported", static_cast<int>(direction));
+            lastError_ = StdControllerError;
+            return false;
+        }
+
+        const auto now = std::chrono::system_clock::now();
+        const auto timestampMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                     now.time_since_epoch())
+                                     .count();
+
+        nlohmann::json requestBody;
+        requestBody["TankNumber"] = tankNumber;
+        requestBody["IntakeVolume"] = volume;
+        requestBody["Direction"] = static_cast<int>(direction);
+        requestBody["TimeAt"] = timestampMs;
+
+        LOG_INFO("Fuel intake report: tank={}, volume={}, direction={}, timestamp_ms={}",
+                 tankNumber,
+                 volume,
+                 static_cast<int>(direction),
+                 timestampMs);
+
+        HttpRequestWrapper("/api/pump/fuel-intake", "POST", requestBody, true);
+
+        lastError_.clear();
+        LOG_INFO("Fuel intake report accepted");
+        return true;
+    } catch (const std::exception& e) {
+        LOG_ERROR("Failed to send fuel intake report: {}", e.what());
+        if (lastError_.empty()) {
+            lastError_ = StdBackendError;
+        }
+        return false;
+    }
+}
+
 } // namespace fuelflux

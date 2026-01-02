@@ -41,6 +41,14 @@ public:
     // Returns: true on success, false on failure
     bool Refuel(TankNumber tankNumber, Volume volume);
 
+    // Fuel intake method
+    // Parameters:
+    //   tankNumber - fuel tank number
+    //   volume - intake volume
+    //   direction - intake direction (in/out)
+    // Returns: true on success, false on failure
+    bool Intake(TankNumber tankNumber, Volume volume, IntakeDirection direction);
+
     // Getters for authorized state
     bool IsAuthorized() const { return isAuthorized_; }
     const std::string& GetToken() const { return token_; }

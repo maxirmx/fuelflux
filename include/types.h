@@ -24,6 +24,12 @@ enum class UserRole {
     Controller = 3
 };
 
+// Fuel intake direction
+enum class IntakeDirection {
+    In = 1,
+    Out = 2
+};
+
 // System states for Mealy machine
 enum class SystemState {
     Waiting,
