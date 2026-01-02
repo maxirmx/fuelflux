@@ -421,7 +421,9 @@ bool Backend::Refuel(TankNumber tankNumber, Volume volume) {
         return true;
     } catch (const std::exception& e) {
         LOG_ERROR("Failed to send refueling report: {}", e.what());
-        lastError_ = StdBackendError;
+        if (lastError_.empty()) {
+            lastError_ = StdBackendError;
+        }
         return false;
     }
 }
