@@ -1,5 +1,5 @@
 #include "controller.h"
-#include <iostream>
+#include "logger.h"
 #include <sstream>
 #include <iomanip>
 #include <ctime>
@@ -28,36 +28,36 @@ Controller::~Controller() {
 }
 
 bool Controller::initialize() {
-    std::cout << "[Controller] Initializing controller: " << controllerId_ << std::endl;
+    LOG_CTRL_INFO("Initializing controller: {}", controllerId_);
     
     // Initialize all peripherals
     if (display_ && !display_->initialize()) {
-        std::cout << "[Controller] Failed to initialize display" << std::endl;
+        LOG_CTRL_ERROR("Failed to initialize display");
         return false;
     }
     
     if (keyboard_ && !keyboard_->initialize()) {
-        std::cout << "[Controller] Failed to initialize keyboard" << std::endl;
+        LOG_CTRL_ERROR("Failed to initialize keyboard");
         return false;
     }
     
     if (cardReader_ && !cardReader_->initialize()) {
-        std::cout << "[Controller] Failed to initialize card reader" << std::endl;
+        LOG_CTRL_ERROR("Failed to initialize card reader");
         return false;
     }
     
     if (pump_ && !pump_->initialize()) {
-        std::cout << "[Controller] Failed to initialize pump" << std::endl;
+        LOG_CTRL_ERROR("Failed to initialize pump");
         return false;
     }
     
     if (flowMeter_ && !flowMeter_->initialize()) {
-        std::cout << "[Controller] Failed to initialize flow meter" << std::endl;
+        LOG_CTRL_ERROR("Failed to initialize flow meter");
         return false;
     }
     
     if (cloudService_ && !cloudService_->initialize()) {
-        std::cout << "[Controller] Failed to initialize cloud service" << std::endl;
+        LOG_CTRL_ERROR("Failed to initialize cloud service");
         return false;
     }
     
@@ -68,14 +68,14 @@ bool Controller::initialize() {
     stateMachine_.initialize();
     
     isRunning_ = true;
-    std::cout << "[Controller] Initialization complete" << std::endl;
+    LOG_CTRL_INFO("Initialization complete");
     return true;
 }
 
 void Controller::shutdown() {
     if (!isRunning_) return;
     
-    std::cout << "[Controller] Shutting down..." << std::endl;
+    LOG_CTRL_INFO("Shutting down...");
     
     isRunning_ = false;
     eventCv_.notify_all();
@@ -92,11 +92,11 @@ void Controller::shutdown() {
         authThread_.join();
     }
 
-    std::cout << "[Controller] Shutdown complete" << std::endl;
+    LOG_CTRL_INFO("Shutdown complete");
 }
 
 void Controller::run() {
-    std::cout << "[Controller] Starting main loop" << std::endl;
+    LOG_CTRL_INFO("Starting main loop");
     
     while (isRunning_) {
         bool haveEvent = false;
@@ -159,7 +159,7 @@ void Controller::setCloudService(std::unique_ptr<ICloudService> cloudService) {
 
 // Input handling
 void Controller::handleKeyPress(KeyCode key) {
-    std::cout << "[Controller] Key pressed: " << static_cast<char>(key) << std::endl;
+    LOG_CTRL_DEBUG("Key pressed: {}", static_cast<char>(key));
     
     switch (key) {
         case KeyCode::Key0: case KeyCode::Key1: case KeyCode::Key2:
@@ -198,12 +198,12 @@ void Controller::handleKeyPress(KeyCode key) {
 }
 
 void Controller::handleCardPresented(const UserId& userId) {
-    std::cout << "[Controller] Card presented: " << userId << std::endl;
+    LOG_CTRL_INFO("Card presented: {}", userId);
     requestAuthorization(userId);
 }
 
 void Controller::handlePumpStateChanged(bool isRunning) {
-    std::cout << "[Controller] Pump state changed: " << (isRunning ? "Running" : "Stopped") << std::endl;
+    LOG_CTRL_INFO("Pump state changed: {}", isRunning ? "Running" : "Stopped");
     
     if (isRunning && stateMachine_.isInState(SystemState::Refueling)) {
         if (flowMeter_) {
@@ -346,7 +346,7 @@ void Controller::requestAuthorization(const UserId& userId) {
             AuthResponse response = future.get();
             handleAuthorizationResponse(response);
         } catch (const std::exception& e) {
-            std::cout << "[Controller] Authorization error: " << e.what() << std::endl;
+            LOG_CTRL_ERROR("Authorization error: {}", e.what());
             AuthResponse response;
             response.success = false;
             response.errorMessage = "Authorization service error";
