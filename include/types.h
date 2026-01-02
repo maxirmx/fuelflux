@@ -19,8 +19,8 @@ using Amount = double;  // in rubles
 // User roles
 enum class UserRole {
     Unknown = 0,
-    Operator = 1,
-    Customer = 2,
+    Customer = 1,
+    Operator = 2,
     Controller = 3
 };
 
