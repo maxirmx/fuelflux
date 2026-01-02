@@ -5,6 +5,10 @@
 #include "backend.h"
 #include "logger.h"
 #include <httplib.h>
+#include <algorithm>
+#include <chrono>
+#include <ctime>
+#include <iomanip>
 #include <stdexcept>
 #include <sstream>
 
@@ -15,6 +19,20 @@ namespace fuelflux {
 // сообщениями об ошибке.
 const std::string StdControllerError = "Ошибка контроллера";
 const std::string StdBackendError = "Ошибка портала";
+
+namespace {
+
+std::string GetCurrentTimestamp() {
+    auto now = std::chrono::system_clock::now();
+    auto time_t = std::chrono::system_clock::to_time_t(now);
+    auto tm = *std::localtime(&time_t);
+
+    std::ostringstream oss;
+    oss << std::put_time(&tm, "%Y-%m-%dT%H:%M:%S");
+    return oss.str();
+}
+
+} // namespace
 
 Backend::Backend(const std::string& baseAPI, const std::string& controllerUid) : 
     baseAPI_(baseAPI),
@@ -359,6 +377,49 @@ bool Backend::Deauthorize() {
         
         LOG_ERROR("Deauthorization failed: {} (state cleared for safety)", e.what());
 		lastError_ = StdControllerError;
+        return false;
+    }
+}
+
+bool Backend::Intake(TankNumber tankNumber, Volume volume, IntakeDirection direction) {
+    try {
+        if (!isAuthorized_) {
+            LOG_ERROR("Invalid intake report: not authorized");
+            lastError_ = StdControllerError;
+            return false;
+        }
+
+        if (roleId_ != static_cast<int>(UserRole::Operator)) {
+            LOG_ERROR("Invalid intake report: role {} is not operator", roleId_);
+            lastError_ = StdControllerError;
+            return false;
+        }
+
+        const bool tankExists = std::any_of(fuelTanks_.begin(), fuelTanks_.end(),
+                                            [tankNumber](const BackendTankInfo& tank) {
+                                                return tank.idTank == tankNumber;
+                                            });
+        if (!tankExists) {
+            LOG_ERROR("Invalid intake report: tank {} does not exist", tankNumber);
+            lastError_ = StdControllerError;
+            return false;
+        }
+
+        nlohmann::json requestBody;
+        requestBody["TankNumber"] = tankNumber;
+        requestBody["IntakeVolume"] = volume;
+        requestBody["Direction"] = static_cast<int>(direction);
+        requestBody["TimeAt"] = GetCurrentTimestamp();
+
+        HttpRequestWrapper("/api/pump/fuel-intake", "POST", requestBody, true);
+
+        lastError_.clear();
+        LOG_INFO("Intake report accepted: tank={}, volume={}, direction={}", tankNumber, volume,
+                 static_cast<int>(direction));
+        return true;
+    } catch (const std::exception& e) {
+        LOG_ERROR("Failed to send intake report: {}", e.what());
+        lastError_ = StdControllerError;
         return false;
     }
 }

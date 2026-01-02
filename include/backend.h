@@ -4,6 +4,7 @@
 #include <vector>
 #include <memory>
 #include <nlohmann/json.hpp>
+#include "types.h"
 
 namespace fuelflux {
 
@@ -32,6 +33,11 @@ public:
     // Deauthorize method
     // Returns: true on success, false on failure
     bool Deauthorize();
+
+    // Intake method
+    // Parameters: tankNumber - tank number, volume - intake volume, direction - intake direction
+    // Returns: true on success, false on failure
+    bool Intake(TankNumber tankNumber, Volume volume, IntakeDirection direction);
 
     // Getters for authorized state
     bool IsAuthorized() const { return isAuthorized_; }
