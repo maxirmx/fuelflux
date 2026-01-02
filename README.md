@@ -5,7 +5,7 @@ FuelFlux Controller Software - A modern fuel station management system with comp
 
 - **State Machine Architecture**: Robust state management for fuel station operations
 - **Peripheral Management**: Support for displays, keyboards, card readers, pumps, and flow meters  
-- **Cloud Integration**: Mock cloud service for user authentication and transaction reporting
+- **Backend Integration**: Real API integration for user authentication and transaction reporting
 - **Advanced Logging**: Multi-level, multi-sink logging with JSON configuration
 - **Console Emulation**: Full console-based testing and simulation environment
 

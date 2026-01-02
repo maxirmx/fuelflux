@@ -3,7 +3,7 @@
 #include "types.h"
 #include "state_machine.h"
 #include "peripherals/peripheral_interface.h"
-#include "cloud_service.h"
+#include "backend.h"
 #include <memory>
 #include <string>
 #include <vector>
@@ -30,8 +30,6 @@ public:
     void setCardReader(std::unique_ptr<peripherals::ICardReader> cardReader);
     void setPump(std::unique_ptr<peripherals::IPump> pump);
     void setFlowMeter(std::unique_ptr<peripherals::IFlowMeter> flowMeter);
-    void setCloudService(std::unique_ptr<ICloudService> cloudService);
-
     // Allow external threads to post events to the controller's event loop
     void postEvent(Event event);
 
@@ -44,15 +42,13 @@ public:
     const std::vector<TankInfo>& getAvailableTanks() const { return availableTanks_; }
     TankNumber getSelectedTank() const { return selectedTank_; }
     Volume getEnteredVolume() const { return enteredVolume_; }
-    Amount getEnteredAmount() const { return enteredAmount_; }
     const std::string& getCurrentInput() const { return currentInput_; }
-    bool isInLitersMode() const { return litersMode_; }
 
     // Input handling
     void handleKeyPress(KeyCode key);
     void handleCardPresented(const UserId& userId);
     void handlePumpStateChanged(bool isRunning);
-    void handleFlowUpdate(Volume currentVolume, Volume totalVolume);
+    void handleFlowUpdate(Volume currentVolume);
 
     // Display management
     void updateDisplay();
@@ -71,7 +67,6 @@ public:
 
     // Authorization
     void requestAuthorization(const UserId& userId);
-    void handleAuthorizationResponse(const AuthResponse& response);
 
     // Tank operations
     void selectTank(TankNumber tankNumber);
@@ -79,9 +74,6 @@ public:
 
     // Volume/Amount operations
     void enterVolume(Volume volume);
-    void enterAmount(Amount amount);
-    void switchToLitersMode();
-    void switchToRublesMode();
 
     // Refueling operations
     void startRefueling();
@@ -99,8 +91,6 @@ public:
 
     // Utility functions
     std::string formatVolume(Volume volume) const;
-    std::string formatAmount(Amount amount) const;
-    std::string formatPrice(Price price) const;
     std::string getCurrentTimeString() const;
     std::string getDeviceSerialNumber() const;
 
@@ -115,27 +105,23 @@ private:
     std::unique_ptr<peripherals::ICardReader> cardReader_;
     std::unique_ptr<peripherals::IPump> pump_;
     std::unique_ptr<peripherals::IFlowMeter> flowMeter_;
-    std::unique_ptr<ICloudService> cloudService_;
+    Backend backend_;
 
     // Current session state
     UserInfo currentUser_;
     std::vector<TankInfo> availableTanks_;
     TankNumber selectedTank_;
     Volume enteredVolume_;
-    Amount enteredAmount_;
     std::string currentInput_;
-    bool litersMode_;
     
     // Refueling state
     Volume currentRefuelVolume_;
     Volume targetRefuelVolume_;
-    Amount targetRefuelAmount_;
     std::chrono::steady_clock::time_point refuelStartTime_;
     
     // System state
     bool isRunning_;
     std::string lastErrorMessage_;
-    std::thread authThread_;
 
     // Event queue for cross-thread event posting
     std::queue<Event> eventQueue_;
@@ -145,16 +131,10 @@ private:
     // Helper methods
     void setupPeripheralCallbacks();
     void processNumericInput();
-    void validateAndProcessInput();
     Volume parseVolumeFromInput() const;
-    Amount parseAmountFromInput() const;
     TankNumber parseTankFromInput() const;
-    bool isInputValid() const;
     void resetSessionData();
     DisplayMessage createDisplayMessage() const;
-    std::string getStateDisplayText() const;
-    std::string getInputPromptText() const;
-    std::string getStatusText() const;
 };
 
 } // namespace fuelflux
