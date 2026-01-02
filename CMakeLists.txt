@@ -5,11 +5,17 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-# Add these compile definitions to suppress the warnings
+# Compiler-specific options
 if(MSVC)
-    add_compile_definitions(
-        _SILENCE_STDEXT_ARR_ITERS_DEPRECATION_WARNING
-    )
+    add_compile_definitions(_SILENCE_STDEXT_ARR_ITERS_DEPRECATION_WARNING)
+    add_compile_options(/W4)
+else()
+    add_compile_options(-Wall -Wextra -Wpedantic)
+endif()
+
+# Set default install prefix to a more reasonable location
+if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
+    set(CMAKE_INSTALL_PREFIX "${CMAKE_BINARY_DIR}/install" CACHE PATH "Install prefix" FORCE)
 endif()
 
 # Include FetchContent module
@@ -31,13 +37,6 @@ FetchContent_Declare(
 
 # Make dependencies available
 FetchContent_MakeAvailable(nlohmann_json spdlog)
-
-# Compiler-specific options
-if(MSVC)
-    add_compile_options(/W4)
-else()
-    add_compile_options(-Wall -Wextra -Wpedantic)
-endif()
 
 # Include directories
 include_directories(include)
@@ -90,3 +89,17 @@ set_target_properties(fuelflux PROPERTIES
 
 # Install target
 install(TARGETS fuelflux DESTINATION bin)
+
+# Install configuration files
+# The logging.json file will be installed to <install_prefix>/config/
+# At runtime, the application looks for config/logging.json relative to working directory
+install(FILES config/logging.json DESTINATION config)
+
+# Ensure the config directory is copied next to the built executable for each build
+add_custom_command(TARGET fuelflux POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:fuelflux>/config"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${CMAKE_SOURCE_DIR}/config/logging.json"
+        "$<TARGET_FILE_DIR:fuelflux>/config/logging.json"
+    COMMENT "Copy logging.json to output config folder"
+)
