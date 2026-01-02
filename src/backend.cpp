@@ -5,16 +5,18 @@
 #include "backend.h"
 #include "logger.h"
 #include <httplib.h>
+#include <algorithm>
+#include <chrono>
 #include <stdexcept>
 #include <sstream>
 
 namespace fuelflux {
 
-// Поскольку контроллер обладает крайне ограниченными возмможностями по выводу текстовых сообщений,
-// и наличие квалифициированного персонала рядом не предполагается, мы ограничимся двумя универсальными
-// сообщениями об ошибке.
-const std::string StdControllerError = "Ошибка контроллера";
-const std::string StdBackendError = "Ошибка портала";
+// ГЏГ®Г±ГЄГ®Г«ГјГЄГі ГЄГ®Г­ГІГ°Г®Г«Г«ГҐГ° Г®ГЎГ«Г Г¤Г ГҐГІ ГЄГ°Г Г©Г­ГҐ Г®ГЈГ°Г Г­ГЁГ·ГҐГ­Г­Г»Г¬ГЁ ГўГ®Г§Г¬Г¬Г®Г¦Г­Г®Г±ГІГїГ¬ГЁ ГЇГ® ГўГ»ГўГ®Г¤Гі ГІГҐГЄГ±ГІГ®ГўГ»Гµ Г±Г®Г®ГЎГ№ГҐГ­ГЁГ©,
+// ГЁ Г­Г Г«ГЁГ·ГЁГҐ ГЄГўГ Г«ГЁГґГЁГ¶ГЁГЁГ°Г®ГўГ Г­Г­Г®ГЈГ® ГЇГҐГ°Г±Г®Г­Г Г«Г  Г°ГїГ¤Г®Г¬ Г­ГҐ ГЇГ°ГҐГ¤ГЇГ®Г«Г ГЈГ ГҐГІГ±Гї, Г¬Г» Г®ГЈГ°Г Г­ГЁГ·ГЁГ¬Г±Гї Г¤ГўГіГ¬Гї ГіГ­ГЁГўГҐГ°Г±Г Г«ГјГ­Г»Г¬ГЁ
+// Г±Г®Г®ГЎГ№ГҐГ­ГЁГїГ¬ГЁ Г®ГЎ Г®ГёГЁГЎГЄГҐ.
+const std::string StdControllerError = "ГЋГёГЁГЎГЄГ  ГЄГ®Г­ГІГ°Г®Г«Г«ГҐГ°Г ";
+const std::string StdBackendError = "ГЋГёГЁГЎГЄГ  ГЇГ®Г°ГІГ Г«Г ";
 
 Backend::Backend(const std::string& baseAPI, const std::string& controllerUid) : 
     baseAPI_(baseAPI),
@@ -359,6 +361,61 @@ bool Backend::Deauthorize() {
         
         LOG_ERROR("Deauthorization failed: {} (state cleared for safety)", e.what());
 		lastError_ = StdControllerError;
+        return false;
+    }
+}
+
+
+bool Backend::Refuel(TankNumber tankNumber, Volume volume) {
+    try {
+        if (!isAuthorized_) {
+            LOG_ERROR("Refuel denied: backend is not authorized");
+            lastError_ = StdControllerError;
+            return false;
+        }
+
+        if (roleId_ != static_cast<int>(UserRole::Customer)) {
+            LOG_ERROR("Refuel denied: role {} is not allowed (expected Customer)", roleId_);
+            lastError_ = StdControllerError;
+            return false;
+        }
+
+        const auto tankIt = std::find_if(
+            fuelTanks_.begin(),
+            fuelTanks_.end(),
+            [tankNumber](const BackendTankInfo& tank) { return tank.idTank == tankNumber; });
+        if (tankIt == fuelTanks_.end()) {
+            LOG_ERROR("Refuel denied: tank {} not found in authorized tanks", tankNumber);
+            lastError_ = StdControllerError;
+            return false;
+        }
+
+        if (volume > allowance_) {
+            LOG_ERROR("Refuel denied: volume {} exceeds allowance {}", volume, allowance_);
+            lastError_ = StdControllerError;
+            return false;
+        }
+
+        const auto now = std::chrono::system_clock::now();
+        const auto timestampMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                     now.time_since_epoch())
+                                     .count();
+
+        nlohmann::json requestBody;
+        requestBody["TankNumber"] = tankNumber;
+        requestBody["FuelVolume"] = volume;
+        requestBody["TimeAt"] = timestampMs;
+
+        LOG_INFO("Refueling request: tank={}, volume={}, timestamp_ms={}", tankNumber, volume, timestampMs);
+
+        HttpRequestWrapper("/api/pump/refuel", "POST", requestBody, true);
+
+        lastError_.clear();
+        LOG_INFO("Refueling report accepted");
+        return true;
+    } catch (const std::exception& e) {
+        LOG_ERROR("Refuel failed: {}", e.what());
+        lastError_ = StdBackendError;
         return false;
     }
 }
