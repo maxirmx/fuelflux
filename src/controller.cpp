@@ -20,7 +20,6 @@ Controller::Controller(ControllerId controllerId)
     , selectedTank_(0)
     , enteredVolume_(0.0)
     , enteredAmount_(0.0)
-    , litersMode_(true)
     , currentRefuelVolume_(0.0)
     , targetRefuelVolume_(0.0)
     , targetRefuelAmount_(0.0)
@@ -177,13 +176,6 @@ void Controller::handleKeyPress(KeyCode key) {
             stateMachine_.processEvent(Event::CancelPressed);
             break;
             
-        case KeyCode::KeyLiters:
-            switchToLitersMode();
-            break;
-            
-        case KeyCode::KeyRubles:
-            switchToRublesMode();
-            break;
     }
     
     updateDisplay();
@@ -308,12 +300,6 @@ void Controller::setMaxValue() {
                 currentInput_ = std::to_string(static_cast<int>(currentUser_.allowance));
             }
             break;
-        case SystemState::AmountEntry:
-            if (currentUser_.role == UserRole::Customer && currentUser_.price > 0.0) {
-                Amount maxAmount = currentUser_.allowance * currentUser_.price;
-                currentInput_ = std::to_string(static_cast<int>(maxAmount));
-            }
-            break;
         default:
             break;
     }
@@ -328,7 +314,7 @@ void Controller::requestAuthorization(const UserId& userId) {
         currentUser_.uid = userId;
         currentUser_.role = static_cast<UserRole>(backend_.GetRoleId());
         currentUser_.allowance = backend_.GetAllowance();
-        currentUser_.price = backend_.GetPrice();
+        currentUser_.price = 0.0;
 
         availableTanks_.clear();
         for (const auto& tank : backend_.GetFuelTanks()) {
@@ -381,18 +367,6 @@ void Controller::enterAmount(Amount amount) {
         targetRefuelVolume_ = amount / currentUser_.price;
     }
     stateMachine_.processEvent(Event::AmountEntered);
-}
-
-void Controller::switchToLitersMode() {
-    litersMode_ = true;
-    updateDisplay();
-}
-
-void Controller::switchToRublesMode() {
-    if (currentUser_.price > 0.0) {
-        litersMode_ = false;
-        updateDisplay();
-    }
 }
 
 // Refueling operations
@@ -535,24 +509,10 @@ void Controller::processNumericInput() {
             break;
             
         case SystemState::VolumeEntry:
-            if (litersMode_) {
+            {
                 Volume volume = parseVolumeFromInput();
                 if (volume > 0.0) {
                     enterVolume(volume);
-                }
-            } else {
-                Amount amount = parseAmountFromInput();
-                if (amount > 0.0) {
-                    enterAmount(amount);
-                }
-            }
-            break;
-            
-        case SystemState::AmountEntry:
-            {
-                Amount amount = parseAmountFromInput();
-                if (amount > 0.0) {
-                    enterAmount(amount);
                 }
             }
             break;
@@ -604,7 +564,6 @@ void Controller::resetSessionData() {
     currentRefuelVolume_ = 0.0;
     targetRefuelVolume_ = 0.0;
     targetRefuelAmount_ = 0.0;
-    litersMode_ = true;
 }
 
 DisplayMessage Controller::createDisplayMessage() const {
@@ -639,13 +598,10 @@ DisplayMessage Controller::createDisplayMessage() const {
             break;
             
         case SystemState::VolumeEntry:
-            message.line1 = litersMode_ ? "Enter volume in liters" : "Enter amount in rubles";
+            message.line1 = "Enter volume in liters";
             message.line2 = currentInput_;
             if (currentUser_.role == UserRole::Customer) {
                 message.line3 = "Max: " + formatVolume(currentUser_.allowance);
-                if (currentUser_.price > 0.0) {
-                    message.line3 += " (" + formatPrice(currentUser_.price) + ")";
-                }
             }
             break;
             

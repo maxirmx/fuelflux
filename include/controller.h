@@ -44,7 +44,6 @@ public:
     Volume getEnteredVolume() const { return enteredVolume_; }
     Amount getEnteredAmount() const { return enteredAmount_; }
     const std::string& getCurrentInput() const { return currentInput_; }
-    bool isInLitersMode() const { return litersMode_; }
 
     // Input handling
     void handleKeyPress(KeyCode key);
@@ -77,8 +76,6 @@ public:
     // Volume/Amount operations
     void enterVolume(Volume volume);
     void enterAmount(Amount amount);
-    void switchToLitersMode();
-    void switchToRublesMode();
 
     // Refueling operations
     void startRefueling();
@@ -121,7 +118,6 @@ private:
     Volume enteredVolume_;
     Amount enteredAmount_;
     std::string currentInput_;
-    bool litersMode_;
     
     // Refueling state
     Volume currentRefuelVolume_;
