@@ -1,3 +1,7 @@
+// Copyright (C) 2025 Maxim [maxirmx] Samsonov (www.sw.consulting)
+// All rights reserved.
+// This file is a part of fuelflux application
+
 #pragma once
 
 #include <string>
@@ -40,6 +44,14 @@ public:
     //   volume - fuel volume to refuel
     // Returns: true on success, false on failure
     bool Refuel(TankNumber tankNumber, Volume volume);
+
+    // Fuel intake method
+    // Parameters:
+    //   tankNumber - fuel tank number
+    //   volume - intake volume
+    //   direction - intake direction (in/out)
+    // Returns: true on success, false on failure
+    bool Intake(TankNumber tankNumber, Volume volume, IntakeDirection direction);
 
     // Getters for authorized state
     bool IsAuthorized() const { return isAuthorized_; }
