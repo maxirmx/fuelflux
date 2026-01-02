@@ -1,10 +1,13 @@
+# Copyright (C) 2025 Maxim [maxirmx] Samsonov (www.sw.consulting)
+# All rights reserved.
+# This file is a part of fuelflux application
+
 name: Build FuelFlux
 
 on:
   push:
     branches: [main]
   pull_request:
-    branches: [main]
   workflow_dispatch:
 
 permissions:
