@@ -115,7 +115,6 @@ private:
     std::vector<TankInfo> availableTanks_;
     TankNumber selectedTank_;
     Volume enteredVolume_;
-    Amount enteredAmount_;
     std::string currentInput_;
     
     // Refueling state
