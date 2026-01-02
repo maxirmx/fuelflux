@@ -88,6 +88,7 @@ jobs:
                 build-essential cmake ninja-build g++ ca-certificates git libssl-dev
               git config --global --add safe.directory /work/build-armhf/_deps/nlohmann_json-src
               git config --global --add safe.directory /work/build-armhf/_deps/spdlog-src
+              git config --global --add safe.directory /work/build-armhf/_deps/httplib-src
               mkdir -p build-armhf
               cd build-armhf
               cmake .. -G Ninja -DCMAKE_BUILD_TYPE=Release
