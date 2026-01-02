@@ -13,7 +13,7 @@ permissions:
 jobs:
   build-x64:
     name: Build Ubuntu x64
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
 
     steps:
       - name: Checkout code
@@ -40,72 +40,37 @@ jobs:
           path: build/bin/fuelflux
           if-no-files-found: error
 
-  build-arm64:
-    name: Build Ubuntu ARM64
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Install cross-compilation tools
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential cmake g++-aarch64-linux-gnu
-
-      - name: Configure CMake for ARM64
-        run: |
-          mkdir -p build-arm64
-          cd build-arm64
-          cmake .. \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_SYSTEM_NAME=Linux \
-            -DCMAKE_SYSTEM_PROCESSOR=aarch64 \
-            -DCMAKE_C_COMPILER=aarch64-linux-gnu-gcc \
-            -DCMAKE_CXX_COMPILER=aarch64-linux-gnu-g++
-
-      - name: Build
-        run: cmake --build build-arm64 --config Release -j$(nproc)
-
-      - name: List built files
-        run: ls -lah build-arm64/bin/
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: fuelflux-ubuntu-arm64
-          path: build-arm64/bin/fuelflux
-          if-no-files-found: error
-
   build-armhf:
-    name: Build Ubuntu ARMhf
+    name: Build Ubuntu ARMhf (Docker + QEMU, Ubuntu 22.04)
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Install cross-compilation tools
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential cmake g++-arm-linux-gnueabihf
+      - name: Set up QEMU emulation
+        uses: docker/setup-qemu-action@v2
+        with:
+          platforms: linux/arm/v7
 
-      - name: Configure CMake for ARMhf
+      - name: Run build in armhf container (Ubuntu 22.04)
         run: |
-          mkdir -p build-armhf
-          cd build-armhf
-          cmake .. \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_SYSTEM_NAME=Linux \
-            -DCMAKE_SYSTEM_PROCESSOR=arm \
-            -DCMAKE_C_COMPILER=arm-linux-gnueabihf-gcc \
-            -DCMAKE_CXX_COMPILER=arm-linux-gnueabihf-g++
-
-      - name: Build
-        run: cmake --build build-armhf --config Release -j$(nproc)
+          # Run a container built for armhf using QEMU; mount the repo and build inside
+          docker run --rm --platform linux/arm/v7 \
+            -v "${{ github.workspace }}:/work" -w /work \
+            ubuntu:22.04 bash -lc "
+              set -euo pipefail
+              apt-get update
+              apt-get install -y --no-install-recommends \
+                build-essential cmake ninja-build g++ ca-certificates git
+              mkdir -p build-armhf
+              cd build-armhf
+              cmake .. -G Ninja -DCMAKE_BUILD_TYPE=Release
+              cmake --build . --config Release -j$(nproc)
+            "
 
       - name: List built files
-        run: ls -lah build-armhf/bin/
+        run: ls -lah build-armhf/bin/ || true
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
