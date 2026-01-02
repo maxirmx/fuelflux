@@ -5,6 +5,8 @@
 #include "backend.h"
 #include "logger.h"
 #include <httplib.h>
+#include <algorithm>
+#include <chrono>
 #include <stdexcept>
 #include <sstream>
 
@@ -359,6 +361,74 @@ bool Backend::Deauthorize() {
         
         LOG_ERROR("Deauthorization failed: {} (state cleared for safety)", e.what());
 		lastError_ = StdControllerError;
+        return false;
+    }
+}
+
+
+bool Backend::Refuel(TankNumber tankNumber, Volume volume) {
+    try {
+        if (!isAuthorized_) {
+            LOG_ERROR("Invalid refueling report: backend is not authorized");
+            lastError_ = StdControllerError;
+            return false;
+        }
+
+        if (roleId_ != static_cast<int>(UserRole::Customer)) {
+            LOG_ERROR("Invalid refueling report: role {} is not allowed (expected Customer)", roleId_);
+            lastError_ = StdControllerError;
+            return false;
+        }
+
+        const auto tankIt = std::find_if(
+            fuelTanks_.begin(),
+            fuelTanks_.end(),
+            [tankNumber](const BackendTankInfo& tank) { return tank.idTank == tankNumber; });
+        if (tankIt == fuelTanks_.end()) {
+            LOG_ERROR("Invalid refueling report: tank {} not found in authorized tanks", tankNumber);
+            lastError_ = StdControllerError;
+            return false;
+        }
+
+        if (volume < 0.0) {
+            LOG_ERROR("Invalid refueling report: volume {} must be non-negative", volume);
+            lastError_ = StdControllerError;
+            return false;
+        }
+
+        if (volume > allowance_) {
+            LOG_ERROR("Invalid refueling report: volume {} exceeds allowance {}", volume, allowance_);
+            lastError_ = StdControllerError;
+            return false;
+        }
+
+        const auto now = std::chrono::system_clock::now();
+        const auto timestampMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                     now.time_since_epoch())
+                                     .count();
+
+        nlohmann::json requestBody;
+        requestBody["TankNumber"] = tankNumber;
+        requestBody["FuelVolume"] = volume;
+        requestBody["TimeAt"] = timestampMs;
+
+        LOG_INFO("Refueling report: tank={}, volume={}, timestamp_ms={}", tankNumber, volume, timestampMs);
+
+        HttpRequestWrapper("/api/pump/refuel", "POST", requestBody, true);
+
+        // Decrease remaining allowance by the refueled volume after successful API call.
+        allowance_ -= volume;
+        if (allowance_ < 0.0) {
+            allowance_ = 0.0;
+        }
+        lastError_.clear();
+        LOG_INFO("Refueling report accepted");
+        return true;
+    } catch (const std::exception& e) {
+        LOG_ERROR("Failed to send refueling report: {}", e.what());
+        if (lastError_.empty()) {
+            lastError_ = StdBackendError;
+        }
         return false;
     }
 }
