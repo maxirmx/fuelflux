@@ -1,4 +1,5 @@
 #include "console_emulator.h"
+#include "logger.h"
 #include <iostream>
 #include <sstream>
 #include <iomanip>
@@ -30,11 +31,13 @@ ConsoleDisplay::~ConsoleDisplay() {
 bool ConsoleDisplay::initialize() {
     isConnected_ = true;
     clear();
+    LOG_PERIPH_DEBUG("Console display initialized");
     return true;
 }
 
 void ConsoleDisplay::shutdown() {
     isConnected_ = false;
+    LOG_PERIPH_DEBUG("Console display shutdown");
 }
 
 bool ConsoleDisplay::isConnected() const {

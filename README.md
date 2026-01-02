@@ -1,7 +1,17 @@
-# fuelflux
-fuelflux software
+﻿# fuelflux
+FuelFlux Controller Software - A modern fuel station management system with comprehensive logging.
 
-## Debugging and Development
+## Features
+
+- **State Machine Architecture**: Robust state management for fuel station operations
+- **Peripheral Management**: Support for displays, keyboards, card readers, pumps, and flow meters  
+- **Cloud Integration**: Mock cloud service for user authentication and transaction reporting
+- **Advanced Logging**: Multi-level, multi-sink logging with JSON configuration
+- **Console Emulation**: Full console-based testing and simulation environment
+
+## Quick Start
+
+### Build and Run (Development)
 
 Use CMake + Ninja to build and debug in VS Code. Recommended steps (PowerShell):
 
@@ -16,8 +26,53 @@ cmake --build build --config Debug
 .\build\bin\fuelflux.exe
 ```
 
+### Installation (Production)
+
+For production deployment:
+
+```powershell
+# Build release version
+cmake -S . -B build
+cmake --build build --config Release
+
+# Install to default location (build/install)
+cmake --install build --config Release
+
+# Or install to custom location
+cmake --install build --config Release --prefix C:\FuelFlux
+```
+
+## Project Structure
+
+```
+├── src/                    # Source files
+├── include/               # Header files  
+├── config/               # Configuration files
+│   └── logging.json      # Logging configuration
+├── docs/                 # Documentation
+├── logs/                 # Runtime log files (created automatically)
+└── build/                # Build artifacts
+    └── install/          # Default installation directory
+```
+
+## Development
+
 In VS Code:
 - Open the Run and Debug view and select "Debug fuelflux (CMake Build)".
 - Start debugging (F5). The preLaunchTask will build the project first.
 
 If you use MSVC toolchain instead of Ninja/gcc, change the `-G "Ninja"` to your generator and adjust `miDebuggerPath` in `.vscode/launch.json` to the Visual Studio debugger (or use `cppvsdbg` type).
+
+## Documentation
+
+- [Logging System](docs/logging.md) - Detailed logging configuration and usage
+- [Installation Guide](docs/installation.md) - Complete installation instructions
+
+## Dependencies
+
+- **C++17** compatible compiler
+- **CMake 3.16+** 
+- **spdlog** - High performance logging library
+- **nlohmann/json** - JSON parsing and configuration
+
+All dependencies are automatically fetched via CMake FetchContent

@@ -1,6 +1,6 @@
 #include "state_machine.h"
 #include "controller.h"
-#include <iostream>
+#include "logger.h"
 
 namespace fuelflux {
 
@@ -36,6 +36,7 @@ void StateMachine::initialize() {
 
 bool StateMachine::processEvent(Event event) {
     if (!controller_) {
+        LOG_SM_ERROR("Controller is null, cannot process event {}", static_cast<int>(event));
         return false;
     }
 
@@ -51,9 +52,8 @@ bool StateMachine::processEvent(Event event) {
         auto key = std::make_pair(fromState, event);
         auto it = transitions_.find(key);
         if (it == transitions_.end()) {
-            std::cout << "[StateMachine] No transition for state " 
-                      << static_cast<int>(fromState) << " with event " 
-                      << static_cast<int>(event) << std::endl;
+            LOG_SM_WARN("No transition for state {} with event {}", 
+                       static_cast<int>(fromState), static_cast<int>(event));
             return false;
         }
         toState = it->second.first;
@@ -69,9 +69,9 @@ bool StateMachine::processEvent(Event event) {
         try {
             action();
         } catch (const std::exception& e) {
-            std::cout << "[StateMachine] Exception in transition action: " << e.what() << std::endl;
+            LOG_SM_ERROR("Exception in transition action: {}", e.what());
         } catch (...) {
-            std::cout << "[StateMachine] Unknown exception in transition action" << std::endl;
+            LOG_SM_ERROR("Unknown exception in transition action");
         }
     }
 
@@ -85,10 +85,9 @@ bool StateMachine::processEvent(Event event) {
     // Enter new state without holding the lock
     onEnterState(toState);
 
-    std::cout << "[StateMachine] Transition: " 
-              << static_cast<int>(previousState_) << " -> " 
-              << static_cast<int>(currentState_) << " (event: " 
-              << static_cast<int>(event) << ")" << std::endl;
+    LOG_SM_INFO("Transition: {} -> {} (event: {})", 
+               static_cast<int>(previousState_), static_cast<int>(currentState_), 
+               static_cast<int>(event));
 
     return true;
 }
@@ -111,6 +110,7 @@ void StateMachine::reset() {
     }
     onExitState(old); 
     onEnterState(SystemState::Waiting);
+    LOG_SM_INFO("State machine reset to Waiting state");
 }
 
 void StateMachine::setupTransitions() {
@@ -208,10 +208,12 @@ void StateMachine::setupTransitions() {
         transitions_[{state, Event::Error}] = 
             {SystemState::Error, [this]() { onError(); }};
     }
+    
+    LOG_SM_DEBUG("State machine transitions configured with {} entries", transitions_.size());
 }
 
 void StateMachine::onEnterState(SystemState state) {
-    std::cout << "[StateMachine] Entering state: " << static_cast<int>(state) << std::endl;
+    LOG_SM_INFO("Entering state: {}", static_cast<int>(state));
     
     if (controller_) {
         controller_->updateDisplay();
@@ -219,78 +221,78 @@ void StateMachine::onEnterState(SystemState state) {
 }
 
 void StateMachine::onExitState(SystemState state) {
-    std::cout << "[StateMachine] Exiting state: " << static_cast<int>(state) << std::endl;
+    LOG_SM_DEBUG("Exiting state: {}", static_cast<int>(state));
 }
 
 // Transition action implementations
 void StateMachine::onCardPresented() {
-    std::cout << "[StateMachine] Card presented" << std::endl;
+    LOG_SM_INFO("Card presented");
 }
 
 void StateMachine::onPinEntered() {
-    std::cout << "[StateMachine] PIN entered" << std::endl;
+    LOG_SM_INFO("PIN entered");
 }
 
 void StateMachine::onAuthorizationSuccess() {
-    std::cout << "[StateMachine] Authorization successful" << std::endl;
+    LOG_SM_INFO("Authorization successful");
 }
 
 void StateMachine::onAuthorizationFailed() {
-    std::cout << "[StateMachine] Authorization failed" << std::endl;
+    LOG_SM_WARN("Authorization failed");
 }
 
 void StateMachine::onTankSelected() {
-    std::cout << "[StateMachine] Tank selected" << std::endl;
+    LOG_SM_INFO("Tank selected");
 }
 
 void StateMachine::onVolumeEntered() {
-    std::cout << "[StateMachine] Volume entered" << std::endl;
+    LOG_SM_INFO("Volume entered");
 }
 
 void StateMachine::onAmountEntered() {
-    std::cout << "[StateMachine] Amount entered" << std::endl;
+    LOG_SM_INFO("Amount entered");
 }
 
 void StateMachine::onRefuelingStarted() {
-    std::cout << "[StateMachine] Refueling started" << std::endl;
+    LOG_SM_INFO("Refueling started");
 }
 
 void StateMachine::onRefuelingStopped() {
-    std::cout << "[StateMachine] Refueling stopped" << std::endl;
+    LOG_SM_INFO("Refueling stopped");
 }
 
 void StateMachine::onRefuelingComplete() {
-    std::cout << "[StateMachine] Refueling complete" << std::endl;
+    LOG_SM_INFO("Refueling complete");
 }
 
 void StateMachine::onIntakeSelected() {
-    std::cout << "[StateMachine] Intake operation selected" << std::endl;
+    LOG_SM_INFO("Intake operation selected");
 }
 
 void StateMachine::onIntakeVolumeEntered() {
-    std::cout << "[StateMachine] Intake volume entered" << std::endl;
+    LOG_SM_INFO("Intake volume entered");
 }
 
 void StateMachine::onIntakeComplete() {
-    std::cout << "[StateMachine] Intake operation complete" << std::endl;
+    LOG_SM_INFO("Intake operation complete");
 }
 
 void StateMachine::onCancelPressed() {
-    std::cout << "[StateMachine] Cancel pressed" << std::endl;
+    LOG_SM_INFO("Cancel pressed");
     if (controller_) {
         controller_->endCurrentSession();
     }
 }
 
 void StateMachine::onTimeout() {
-    std::cout << "[StateMachine] Timeout occurred" << std::endl;
+    LOG_SM_INFO("Timeout occurred");
     if (controller_) {
         controller_->endCurrentSession();
     }
 }
 
 void StateMachine::onError() {
-    std::cout << "[StateMachine] Error occurred" << std::endl;
+    LOG_SM_ERROR("Error occurred");
 }
 
 bool StateMachine::isTimeoutEnabled() const {
@@ -306,6 +308,8 @@ void StateMachine::updateActivityTime() {
 }
 
 void StateMachine::timeoutThreadFunction() {
+    LOG_SM_DEBUG("Timeout thread started");
+    
     while (timeoutThreadRunning_.load()) {
         std::this_thread::sleep_for(std::chrono::seconds(1));
 
@@ -332,12 +336,15 @@ void StateMachine::timeoutThreadFunction() {
         }
 
         if (shouldTrigger) {
+            LOG_SM_INFO("Timeout triggered after {} seconds of inactivity", elapsed.count());
             // Post timeout to controller's event queue instead of calling state machine directly
             if (controller_) {
                 controller_->postEvent(Event::Timeout);
             }
         }
     }
+    
+    LOG_SM_DEBUG("Timeout thread stopped");
 }
 
 } // namespace fuelflux

@@ -7,10 +7,36 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 # Compiler-specific options
 if(MSVC)
+    add_compile_definitions(_SILENCE_STDEXT_ARR_ITERS_DEPRECATION_WARNING)
     add_compile_options(/W4)
 else()
     add_compile_options(-Wall -Wextra -Wpedantic)
 endif()
+
+# Set default install prefix to a more reasonable location
+if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
+    set(CMAKE_INSTALL_PREFIX "${CMAKE_BINARY_DIR}/install" CACHE PATH "Install prefix" FORCE)
+endif()
+
+# Include FetchContent module
+include(FetchContent)
+
+# Fetch nlohmann/json
+FetchContent_Declare(
+    nlohmann_json
+    GIT_REPOSITORY https://github.com/nlohmann/json.git
+    GIT_TAG        v3.11.3
+)
+
+# Fetch spdlog
+FetchContent_Declare(
+    spdlog
+    GIT_REPOSITORY https://github.com/gabime/spdlog.git
+    GIT_TAG        v1.12.0
+)
+
+# Make dependencies available
+FetchContent_MakeAvailable(nlohmann_json spdlog)
 
 # Include directories
 include_directories(include)
@@ -20,6 +46,7 @@ set(SOURCES
     src/main.cpp
     src/state_machine.cpp
     src/controller.cpp
+    src/logger.cpp
     src/peripherals/display.cpp
     src/peripherals/keyboard.cpp
     src/peripherals/card_reader.cpp
@@ -33,6 +60,7 @@ set(SOURCES
 set(HEADERS
     include/state_machine.h
     include/controller.h
+    include/logger.h
     include/peripherals/display.h
     include/peripherals/keyboard.h
     include/peripherals/card_reader.h
@@ -47,6 +75,13 @@ set(HEADERS
 # Create executable
 add_executable(fuelflux ${SOURCES} ${HEADERS})
 
+# Link libraries
+target_link_libraries(fuelflux 
+    PRIVATE 
+    nlohmann_json::nlohmann_json 
+    spdlog::spdlog
+)
+
 # Set output directory
 set_target_properties(fuelflux PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
@@ -54,3 +89,17 @@ set_target_properties(fuelflux PROPERTIES
 
 # Install target
 install(TARGETS fuelflux DESTINATION bin)
+
+# Install configuration files
+# The logging.json file will be installed to <install_prefix>/config/
+# At runtime, the application looks for config/logging.json relative to working directory
+install(FILES config/logging.json DESTINATION config)
+
+# Ensure the config directory is copied next to the built executable for each build
+add_custom_command(TARGET fuelflux POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:fuelflux>/config"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${CMAKE_SOURCE_DIR}/config/logging.json"
+        "$<TARGET_FILE_DIR:fuelflux>/config/logging.json"
+    COMMENT "Copy logging.json to output config folder"
+)
