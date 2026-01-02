@@ -3,7 +3,7 @@
 #include "types.h"
 #include "state_machine.h"
 #include "peripherals/peripheral_interface.h"
-#include "cloud_service.h"
+#include "backend.h"
 #include <memory>
 #include <string>
 #include <vector>
@@ -30,8 +30,6 @@ public:
     void setCardReader(std::unique_ptr<peripherals::ICardReader> cardReader);
     void setPump(std::unique_ptr<peripherals::IPump> pump);
     void setFlowMeter(std::unique_ptr<peripherals::IFlowMeter> flowMeter);
-    void setCloudService(std::unique_ptr<ICloudService> cloudService);
-
     // Allow external threads to post events to the controller's event loop
     void postEvent(Event event);
 
@@ -115,7 +113,7 @@ private:
     std::unique_ptr<peripherals::ICardReader> cardReader_;
     std::unique_ptr<peripherals::IPump> pump_;
     std::unique_ptr<peripherals::IFlowMeter> flowMeter_;
-    std::unique_ptr<ICloudService> cloudService_;
+    Backend backend_;
 
     // Current session state
     UserInfo currentUser_;

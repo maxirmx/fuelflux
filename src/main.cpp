@@ -1,6 +1,5 @@
 #include "controller.h"
 #include "console_emulator.h"
-#include "cloud_service.h"
 #include "logger.h"
 #include <iostream>
 #include <string>
@@ -210,10 +209,6 @@ int main(int argc, char* argv[]) {
         controller.setCardReader(emulator.createCardReader());
         controller.setPump(emulator.createPump());
         controller.setFlowMeter(emulator.createFlowMeter());
-        
-        // Create and setup cloud service
-        auto cloudService = std::make_unique<MockCloudService>();
-        controller.setCloudService(std::move(cloudService));
         
         // Initialize controller
         if (!controller.initialize()) {
