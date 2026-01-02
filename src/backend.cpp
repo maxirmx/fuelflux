@@ -416,6 +416,11 @@ bool Backend::Refuel(TankNumber tankNumber, Volume volume) {
 
         HttpRequestWrapper("/api/pump/refuel", "POST", requestBody, true);
 
+        // Decrease remaining allowance by the refueled volume after successful API call.
+        allowance_ -= volume;
+        if (allowance_ < 0.0) {
+            allowance_ = 0.0;
+        }
         lastError_.clear();
         LOG_INFO("Refueling report accepted");
         return true;
