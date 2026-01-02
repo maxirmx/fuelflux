@@ -52,7 +52,7 @@ void HardwareFlowMeter::stopMeasurement() {
         m_totalVolume += m_currentVolume;
         
         if (m_callback) {
-            m_callback(m_currentVolume, m_totalVolume);
+            m_callback(m_currentVolume);
         }
     }
 }

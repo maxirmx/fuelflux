@@ -15,7 +15,7 @@ namespace fuelflux {
 // Tank information structure for backend
 struct BackendTankInfo {
     int idTank;
-    std::string nameTank;
+    std::string nameTank = "";
 };
 
 // Backend class for real REST API communication

@@ -39,12 +39,12 @@ Backend::Backend(const std::string& baseAPI, const std::string& controllerUid) :
     }
 #endif
 
-    LOG_INFO("Backend initialized with base API: {} and controller UID: {}", baseAPI_, controllerUid_);
+    LOG_BCK_INFO("Backend initialized with base API: {} and controller UID: {}", baseAPI_, controllerUid_);
 }
 
 Backend::~Backend() {
     if (isAuthorized_) {
-        LOG_WARN("Backend destroyed while still authorized");
+        LOG_BCK_WARN("Backend destroyed while still authorized");
     }
 }
 
@@ -95,7 +95,7 @@ nlohmann::json Backend::HttpRequestWrapper(const std::string& endpoint,
             host = urlToParse;
         }
         
-        LOG_DEBUG("Connecting to {}:{} for endpoint: {} (scheme={})", host, port, endpoint, scheme);
+        LOG_BCK_DEBUG("Connecting to {}:{} for endpoint: {} (scheme={})", host, port, endpoint, scheme);
         
         // Prepare headers
         httplib::Headers headers = {
@@ -109,7 +109,7 @@ nlohmann::json Backend::HttpRequestWrapper(const std::string& endpoint,
         // Prepare request body
         std::string bodyStr = requestBody.dump();
         
-        LOG_DEBUG("Request: {} {} with body: {}", method, endpoint, bodyStr);
+        LOG_BCK_DEBUG("Request: {} {} with body: {}", method, endpoint, bodyStr);
         
         // helper lambda to perform request on either Client or SSLClient
         auto doRequest = [&](auto &client) -> httplib::Result {
@@ -187,7 +187,7 @@ nlohmann::json Backend::HttpRequestWrapper(const std::string& endpoint,
             throw std::runtime_error(errorMsg);
         }
         
-        LOG_DEBUG("Response status: {} body: {}", res->status, res->body);
+        LOG_BCK_DEBUG("Response status: {} body: {}", res->status, res->body);
         
         // Check HTTP status code
         if (res->status >= 200 && res->status < 300) {
@@ -237,12 +237,12 @@ bool Backend::Authorize(const std::string& uid) {
     try {
         // Check if already authorized
         if (isAuthorized_) {
-            LOG_ERROR("{}", "Already authorized. Call Deauthorize first.");
+            LOG_BCK_ERROR("{}", "Already authorized. Call Deauthorize first.");
             lastError_ = StdControllerError;
             return false;
         }
         
-        LOG_INFO("Authorizing card UID: {}", uid);
+        LOG_BCK_INFO("Authorizing card UID: {}", uid);
         
         // Prepare request body
         nlohmann::json requestBody;
@@ -255,13 +255,13 @@ bool Backend::Authorize(const std::string& uid) {
         // Parse response - validate all fields before updating state
         if (!response.is_object()) {
             lastError_ = "Invalid response format";
-            LOG_ERROR("{}", lastError_);
+            LOG_BCK_ERROR("{}", lastError_);
             return false;
         }
         
         // Extract token (required)
         if (!response.contains("Token") || !response["Token"].is_string()) {
-            LOG_ERROR("{}", "Missing or invalid Token in response");
+            LOG_BCK_ERROR("{}", "Missing or invalid Token in response");
             lastError_ = StdBackendError;
             return false;
         }
@@ -269,7 +269,7 @@ bool Backend::Authorize(const std::string& uid) {
         
         // Extract RoleId (required)
         if (!response.contains("RoleId") || !response["RoleId"].is_number_integer()) {
-            LOG_ERROR("{}", "Missing or invalid RoleId in response");
+            LOG_BCK_ERROR("{}", "Missing or invalid RoleId in response");
             lastError_ = StdBackendError;
             return false;
         }
@@ -307,13 +307,13 @@ bool Backend::Authorize(const std::string& uid) {
         isAuthorized_ = true;
         lastError_.clear();
         
-        LOG_INFO("Authorization successful: RoleId={}, Allowance={}, Price={}, Tanks={}", 
+        LOG_BCK_INFO("Authorization successful: RoleId={}, Allowance={}, Price={}, Tanks={}",
                  roleId_, allowance_, price_, fuelTanks_.size());
         
         return true;
     } 
     catch (const std::exception& e) {
-        LOG_ERROR("Authorization failed: {}", e.what());
+        LOG_BCK_ERROR("Authorization failed: {}", e.what());
         lastError_ = StdControllerError;
         return false;
     }
@@ -323,12 +323,12 @@ bool Backend::Deauthorize() {
     try {
         // Check if not authorized
         if (!isAuthorized_) {
-            LOG_ERROR("{}", "Not authorized. Call Authorize first.");
+            LOG_BCK_ERROR("{}", "Not authorized. Call Authorize first.");
             lastError_ = StdControllerError;
             return false;
         }
         
-        LOG_INFO("Deauthorizing");
+        LOG_BCK_INFO("Deauthorizing");
         
         // Prepare empty request body
         nlohmann::json requestBody = nlohmann::json::object();
@@ -345,7 +345,7 @@ bool Backend::Deauthorize() {
         isAuthorized_ = false;
         lastError_.clear();
         
-        LOG_INFO("Deauthorization successful");
+        LOG_BCK_INFO("Deauthorization successful");
         
         return true;
     } 
@@ -359,7 +359,7 @@ bool Backend::Deauthorize() {
         fuelTanks_.clear();
         isAuthorized_ = false;
         
-        LOG_ERROR("Deauthorization failed: {} (state cleared for safety)", e.what());
+        LOG_BCK_ERROR("Deauthorization failed: {} (state cleared for safety)", e.what());
 		lastError_ = StdControllerError;
         return false;
     }
@@ -369,13 +369,13 @@ bool Backend::Deauthorize() {
 bool Backend::Refuel(TankNumber tankNumber, Volume volume) {
     try {
         if (!isAuthorized_) {
-            LOG_ERROR("Invalid refueling report: backend is not authorized");
+            LOG_BCK_ERROR("Invalid refueling report: backend is not authorized");
             lastError_ = StdControllerError;
             return false;
         }
 
         if (roleId_ != static_cast<int>(UserRole::Customer)) {
-            LOG_ERROR("Invalid refueling report: role {} is not allowed (expected Customer)", roleId_);
+            LOG_BCK_ERROR("Invalid refueling report: role {} is not allowed (expected Customer)", roleId_);
             lastError_ = StdControllerError;
             return false;
         }
@@ -385,19 +385,19 @@ bool Backend::Refuel(TankNumber tankNumber, Volume volume) {
             fuelTanks_.end(),
             [tankNumber](const BackendTankInfo& tank) { return tank.idTank == tankNumber; });
         if (tankIt == fuelTanks_.end()) {
-            LOG_ERROR("Invalid refueling report: tank {} not found in authorized tanks", tankNumber);
+            LOG_BCK_ERROR("Invalid refueling report: tank {} not found in authorized tanks", tankNumber);
             lastError_ = StdControllerError;
             return false;
         }
 
         if (volume < 0.0) {
-            LOG_ERROR("Invalid refueling report: volume {} must be non-negative", volume);
+            LOG_BCK_ERROR("Invalid refueling report: volume {} must be non-negative", volume);
             lastError_ = StdControllerError;
             return false;
         }
 
         if (volume > allowance_) {
-            LOG_ERROR("Invalid refueling report: volume {} exceeds allowance {}", volume, allowance_);
+            LOG_BCK_ERROR("Invalid refueling report: volume {} exceeds allowance {}", volume, allowance_);
             lastError_ = StdControllerError;
             return false;
         }
@@ -412,7 +412,7 @@ bool Backend::Refuel(TankNumber tankNumber, Volume volume) {
         requestBody["FuelVolume"] = volume;
         requestBody["TimeAt"] = timestampMs;
 
-        LOG_INFO("Refueling report: tank={}, volume={}, timestamp_ms={}", tankNumber, volume, timestampMs);
+        LOG_BCK_INFO("Refueling report: tank={}, volume={}, timestamp_ms={}", tankNumber, volume, timestampMs);
 
         HttpRequestWrapper("/api/pump/refuel", "POST", requestBody, true);
 
@@ -422,10 +422,10 @@ bool Backend::Refuel(TankNumber tankNumber, Volume volume) {
             allowance_ = 0.0;
         }
         lastError_.clear();
-        LOG_INFO("Refueling report accepted");
+        LOG_BCK_INFO("Refueling report accepted");
         return true;
     } catch (const std::exception& e) {
-        LOG_ERROR("Failed to send refueling report: {}", e.what());
+        LOG_BCK_ERROR("Failed to send refueling report: {}", e.what());
         if (lastError_.empty()) {
             lastError_ = StdBackendError;
         }
@@ -436,13 +436,13 @@ bool Backend::Refuel(TankNumber tankNumber, Volume volume) {
 bool Backend::Intake(TankNumber tankNumber, Volume volume, IntakeDirection direction) {
     try {
         if (!isAuthorized_) {
-            LOG_ERROR("Invalid intake report: backend is not authorized");
+            LOG_BCK_ERROR("Invalid intake report: backend is not authorized");
             lastError_ = StdControllerError;
             return false;
         }
 
         if (roleId_ != static_cast<int>(UserRole::Operator)) {
-            LOG_ERROR("Invalid intake report: role {} is not allowed (expected Operator)", roleId_);
+            LOG_BCK_ERROR("Invalid intake report: role {} is not allowed (expected Operator)", roleId_);
             lastError_ = StdControllerError;
             return false;
         }
@@ -452,19 +452,19 @@ bool Backend::Intake(TankNumber tankNumber, Volume volume, IntakeDirection direc
             fuelTanks_.end(),
             [tankNumber](const BackendTankInfo& tank) { return tank.idTank == tankNumber; });
         if (tankIt == fuelTanks_.end()) {
-            LOG_ERROR("Invalid intake report: tank {} not found in authorized tanks", tankNumber);
+            LOG_BCK_ERROR("Invalid intake report: tank {} not found in authorized tanks", tankNumber);
             lastError_ = StdControllerError;
             return false;
         }
 
         if (volume < 0.0) {
-            LOG_ERROR("Invalid intake report: volume {} must be non-negative", volume);
+            LOG_BCK_ERROR("Invalid intake report: volume {} must be non-negative", volume);
             lastError_ = StdControllerError;
             return false;
         }
 
         if (direction != IntakeDirection::In && direction != IntakeDirection::Out) {
-            LOG_ERROR("Invalid intake report: direction {} is not supported", static_cast<int>(direction));
+            LOG_BCK_ERROR("Invalid intake report: direction {} is not supported", static_cast<int>(direction));
             lastError_ = StdControllerError;
             return false;
         }
@@ -480,7 +480,7 @@ bool Backend::Intake(TankNumber tankNumber, Volume volume, IntakeDirection direc
         requestBody["Direction"] = static_cast<int>(direction);
         requestBody["TimeAt"] = timestampMs;
 
-        LOG_INFO("Fuel intake report: tank={}, volume={}, direction={}, timestamp_ms={}",
+        LOG_BCK_INFO("Fuel intake report: tank={}, volume={}, direction={}, timestamp_ms={}",
                  tankNumber,
                  volume,
                  static_cast<int>(direction),
@@ -489,10 +489,10 @@ bool Backend::Intake(TankNumber tankNumber, Volume volume, IntakeDirection direc
         HttpRequestWrapper("/api/pump/fuel-intake", "POST", requestBody, true);
 
         lastError_.clear();
-        LOG_INFO("Fuel intake report accepted");
+        LOG_BCK_INFO("Fuel intake report accepted");
         return true;
     } catch (const std::exception& e) {
-        LOG_ERROR("Failed to send fuel intake report: {}", e.what());
+        LOG_BCK_ERROR("Failed to send fuel intake report: {}", e.what());
         if (lastError_.empty()) {
             lastError_ = StdBackendError;
         }

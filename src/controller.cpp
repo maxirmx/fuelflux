@@ -3,6 +3,7 @@
 // This file is a part of fuelflux application
 
 #include "controller.h"
+#include "config.h"
 #include "logger.h"
 #include <sstream>
 #include <iomanip>
@@ -15,13 +16,11 @@ namespace fuelflux {
 Controller::Controller(ControllerId controllerId)
     : controllerId_(std::move(controllerId))
     , stateMachine_(this)
+    , backend_(BACKEND_API_URL, CONTROLLER_UID)
     , selectedTank_(0)
     , enteredVolume_(0.0)
-    , enteredAmount_(0.0)
-    , litersMode_(true)
     , currentRefuelVolume_(0.0)
     , targetRefuelVolume_(0.0)
-    , targetRefuelAmount_(0.0)
     , isRunning_(false)
 {
     resetSessionData();
@@ -60,11 +59,6 @@ bool Controller::initialize() {
         return false;
     }
     
-    if (cloudService_ && !cloudService_->initialize()) {
-        LOG_CTRL_ERROR("Failed to initialize cloud service");
-        return false;
-    }
-    
     // Setup peripheral callbacks
     setupPeripheralCallbacks();
     
@@ -90,11 +84,6 @@ void Controller::shutdown() {
     if (cardReader_) cardReader_->shutdown();
     if (pump_) pump_->shutdown();
     if (flowMeter_) flowMeter_->shutdown();
-    if (cloudService_) cloudService_->shutdown();
-
-    if (authThread_.joinable()) {
-        authThread_.join();
-    }
 
     LOG_CTRL_INFO("Shutdown complete");
 }
@@ -157,10 +146,6 @@ void Controller::setFlowMeter(std::unique_ptr<peripherals::IFlowMeter> flowMeter
     flowMeter_ = std::move(flowMeter);
 }
 
-void Controller::setCloudService(std::unique_ptr<ICloudService> cloudService) {
-    cloudService_ = std::move(cloudService);
-}
-
 // Input handling
 void Controller::handleKeyPress(KeyCode key) {
     LOG_CTRL_DEBUG("Key pressed: {}", static_cast<char>(key));
@@ -189,13 +174,6 @@ void Controller::handleKeyPress(KeyCode key) {
             stateMachine_.processEvent(Event::CancelPressed);
             break;
             
-        case KeyCode::KeyLiters:
-            switchToLitersMode();
-            break;
-            
-        case KeyCode::KeyRubles:
-            switchToRublesMode();
-            break;
     }
     
     updateDisplay();
@@ -223,7 +201,7 @@ void Controller::handlePumpStateChanged(bool isRunning) {
     }
 }
 
-void Controller::handleFlowUpdate(Volume currentVolume, Volume totalVolume) {
+void Controller::handleFlowUpdate(Volume currentVolume) {
     currentRefuelVolume_ = currentVolume;
     
     // Check if target volume reached
@@ -288,6 +266,9 @@ void Controller::endCurrentSession() {
     if (flowMeter_) {
         flowMeter_->stopMeasurement();
     }
+    if (backend_.IsAuthorized()) {
+        (void)backend_.Deauthorize();
+    }
     updateDisplay();
 }
 
@@ -331,41 +312,26 @@ void Controller::setMaxValue() {
 
 // Authorization
 void Controller::requestAuthorization(const UserId& userId) {
-    if (!cloudService_) {
-        showError("Cloud service not available");
-        stateMachine_.processEvent(Event::AuthorizationFailed);
-        return;
-    }
-    
     stateMachine_.processEvent(Event::CardPresented);
-    
-    auto future = cloudService_->authorizeUser(controllerId_, userId);
 
-    if (authThread_.joinable()) {
-        authThread_.join();
-    }
+    if (backend_.Authorize(userId)) {
+        currentUser_.uid = userId;
+        currentUser_.role = static_cast<UserRole>(backend_.GetRoleId());
+        currentUser_.allowance = backend_.GetAllowance();
+        currentUser_.price = backend_.GetPrice();
 
-    authThread_ = std::thread([this, future = std::move(future)]() mutable {
-        try {
-            AuthResponse response = future.get();
-            handleAuthorizationResponse(response);
-        } catch (const std::exception& e) {
-            LOG_CTRL_ERROR("Authorization error: {}", e.what());
-            AuthResponse response;
-            response.success = false;
-            response.errorMessage = "Authorization service error";
-            handleAuthorizationResponse(response);
+        availableTanks_.clear();
+        for (const auto& tank : backend_.GetFuelTanks()) {
+            TankInfo info;
+            info.number = tank.idTank;
+            info.capacity = 0.0;
+            info.currentVolume = 0.0;
+            info.fuelType = tank.nameTank;
+            availableTanks_.push_back(info);
         }
-    });
-}
-
-void Controller::handleAuthorizationResponse(const AuthResponse& response) {
-    if (response.success) {
-        currentUser_ = response.userInfo;
-        availableTanks_ = response.tanks;
         stateMachine_.processEvent(Event::AuthorizationSuccess);
     } else {
-        showError(response.errorMessage);
+        showError(backend_.GetLastError());
         stateMachine_.processEvent(Event::AuthorizationFailed);
     }
 }
@@ -397,26 +363,6 @@ void Controller::enterVolume(Volume volume) {
     enteredVolume_ = volume;
     targetRefuelVolume_ = volume;
     stateMachine_.processEvent(Event::VolumeEntered);
-}
-
-void Controller::enterAmount(Amount amount) {
-    enteredAmount_ = amount;
-    if (currentUser_.price > 0.0) {
-        targetRefuelVolume_ = amount / currentUser_.price;
-    }
-    stateMachine_.processEvent(Event::AmountEntered);
-}
-
-void Controller::switchToLitersMode() {
-    litersMode_ = true;
-    updateDisplay();
-}
-
-void Controller::switchToRublesMode() {
-    if (currentUser_.price > 0.0) {
-        litersMode_ = false;
-        updateDisplay();
-    }
 }
 
 // Refueling operations
@@ -471,35 +417,17 @@ void Controller::completeIntakeOperation() {
 
 // Transaction logging
 void Controller::logRefuelTransaction(const RefuelTransaction& transaction) {
-    if (cloudService_) {
-        auto future = cloudService_->reportRefuelTransaction(transaction);
-        // In a real implementation, handle the result asynchronously
-    }
+    (void)backend_.Refuel(transaction.tankNumber, transaction.volume);
 }
 
 void Controller::logIntakeTransaction(const IntakeTransaction& transaction) {
-    if (cloudService_) {
-        auto future = cloudService_->reportIntakeTransaction(transaction);
-        // In a real implementation, handle the result asynchronously
-    }
+    (void)backend_.Intake(transaction.tankNumber, transaction.volume, IntakeDirection::In);
 }
 
 // Utility functions
 std::string Controller::formatVolume(Volume volume) const {
     std::ostringstream oss;
     oss << std::fixed << std::setprecision(2) << volume << " L";
-    return oss.str();
-}
-
-std::string Controller::formatAmount(Amount amount) const {
-    std::ostringstream oss;
-    oss << std::fixed << std::setprecision(2) << amount << " RUB";
-    return oss.str();
-}
-
-std::string Controller::formatPrice(Price price) const {
-    std::ostringstream oss;
-    oss << std::fixed << std::setprecision(2) << price << " RUB/L";
     return oss.str();
 }
 
@@ -540,8 +468,8 @@ void Controller::setupPeripheralCallbacks() {
     }
     
     if (flowMeter_) {
-        flowMeter_->setFlowCallback([this](Volume current, Volume total) {
-            handleFlowUpdate(current, total);
+        flowMeter_->setFlowCallback([this](Volume current) {
+            handleFlowUpdate(current);
         });
     }
 }
@@ -549,6 +477,7 @@ void Controller::setupPeripheralCallbacks() {
 void Controller::processNumericInput() {
     if (currentInput_.empty()) return;
     
+    Volume volume = 0.0;
     switch (stateMachine_.getCurrentState()) {
         case SystemState::PinEntry:
             // PIN entered - trigger authorization
@@ -565,34 +494,17 @@ void Controller::processNumericInput() {
             break;
             
         case SystemState::VolumeEntry:
-            if (litersMode_) {
-                Volume volume = parseVolumeFromInput();
-                if (volume > 0.0) {
-                    enterVolume(volume);
-                }
-            } else {
-                Amount amount = parseAmountFromInput();
-                if (amount > 0.0) {
-                    enterAmount(amount);
-                }
+            volume = parseVolumeFromInput();
+            if (volume > 0.0) {
+                enterVolume(volume);
             }
             break;
             
-        case SystemState::AmountEntry:
-            {
-                Amount amount = parseAmountFromInput();
-                if (amount > 0.0) {
-                    enterAmount(amount);
-                }
-            }
-            break;
-            
+           
         case SystemState::IntakeVolumeEntry:
-            {
-                Volume volume = parseVolumeFromInput();
-                if (volume > 0.0) {
-                    enterIntakeVolume(volume);
-                }
+            volume = parseVolumeFromInput();
+            if (volume > 0.0) {
+                enterIntakeVolume(volume);
             }
             break;
             
@@ -602,14 +514,6 @@ void Controller::processNumericInput() {
 }
 
 Volume Controller::parseVolumeFromInput() const {
-    try {
-        return std::stod(currentInput_);
-    } catch (const std::exception&) {
-        return 0.0;
-    }
-}
-
-Amount Controller::parseAmountFromInput() const {
     try {
         return std::stod(currentInput_);
     } catch (const std::exception&) {
@@ -630,11 +534,8 @@ void Controller::resetSessionData() {
     availableTanks_.clear();
     selectedTank_ = 0;
     enteredVolume_ = 0.0;
-    enteredAmount_ = 0.0;
     currentRefuelVolume_ = 0.0;
     targetRefuelVolume_ = 0.0;
-    targetRefuelAmount_ = 0.0;
-    litersMode_ = true;
 }
 
 DisplayMessage Controller::createDisplayMessage() const {
@@ -669,30 +570,21 @@ DisplayMessage Controller::createDisplayMessage() const {
             break;
             
         case SystemState::VolumeEntry:
-            message.line1 = litersMode_ ? "Enter volume in liters" : "Enter amount in rubles";
+            message.line1 = "Enter volume in liters";
             message.line2 = currentInput_;
             if (currentUser_.role == UserRole::Customer) {
                 message.line3 = "Max: " + formatVolume(currentUser_.allowance);
-                if (currentUser_.price > 0.0) {
-                    message.line3 += " (" + formatPrice(currentUser_.price) + ")";
-                }
             }
             break;
             
         case SystemState::Refueling:
             message.line1 = "Refueling " + formatVolume(targetRefuelVolume_);
             message.line2 = formatVolume(currentRefuelVolume_);
-            if (currentUser_.price > 0.0) {
-                message.line3 = formatAmount(currentRefuelVolume_ * currentUser_.price);
-            }
             break;
             
         case SystemState::RefuelingComplete:
             message.line1 = "Refueling complete";
             message.line2 = formatVolume(currentRefuelVolume_);
-            if (currentUser_.price > 0.0) {
-                message.line3 = formatAmount(currentRefuelVolume_ * currentUser_.price);
-            }
             message.line4 = "Present card or enter PIN";
             break;
             
