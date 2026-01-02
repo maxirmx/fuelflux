@@ -1,14 +1,21 @@
+# Copyright (C) 2025 Maxim [maxirmx] Samsonov (www.sw.consulting)
+# All rights reserved.
+# This file is a part of fuelflux application
+
 name: Build FuelFlux
 
 on:
   push:
     branches: [main]
   pull_request:
-    branches: [main]
   workflow_dispatch:
 
 permissions:
   contents: read
+
+concurrency:
+  group: '${{ github.workflow }}-${{ github.job }}-${{ github.head_ref || github.ref_name }}'
+  cancel-in-progress: true    
 
 jobs:
   build-x64:
@@ -19,13 +26,21 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Restore CMake deps cache
+        uses: actions/cache@v4
+        with:
+          path: build/_deps
+          key: ${{ runner.os }}-fuelflux-cmake-deps-${{ hashFiles('CMakeLists.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-fuelflux-cmake-deps-
+
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential cmake g++ make
+          sudo apt-get install -y build-essential cmake g++ make libssl-dev ninja-build
 
       - name: Configure CMake
-        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
 
       - name: Build
         run: cmake --build build --config Release -j$(nproc)
@@ -48,10 +63,22 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Restore CMake deps cache (armhf)
+        uses: actions/cache@v4
+        with:
+          path: build-armhf/_deps
+          key: ${{ runner.os }}-fuelflux-cmake-deps-armhf-${{ hashFiles('CMakeLists.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-fuelflux-cmake-deps-armhf-
+
       - name: Set up QEMU emulation
         uses: docker/setup-qemu-action@v2
         with:
           platforms: linux/arm/v7
+
+
+      - name: Declare directory as safe for git
+        run: git config --global --add safe.directory /work/build-armhf/_deps/nlohmann_json-src
 
       - name: Run build in armhf container (Ubuntu 22.04)
         run: |
@@ -62,7 +89,7 @@ jobs:
               set -euo pipefail
               apt-get update
               apt-get install -y --no-install-recommends \
-                build-essential cmake ninja-build g++ ca-certificates git
+                build-essential cmake ninja-build g++ ca-certificates git libssl-dev
               mkdir -p build-armhf
               cd build-armhf
               cmake .. -G Ninja -DCMAKE_BUILD_TYPE=Release
