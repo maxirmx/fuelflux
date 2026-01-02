@@ -73,6 +73,10 @@ jobs:
         with:
           platforms: linux/arm/v7
 
+
+      - name: Declare directory as safe for git
+        run: git config --global --add safe.directory /work/build-armhf/_deps/nlohmann_json-src
+
       - name: Run build in armhf container (Ubuntu 22.04)
         run: |
           # Run a container built for armhf using QEMU; mount the repo and build inside
