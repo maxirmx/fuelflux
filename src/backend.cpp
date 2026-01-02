@@ -10,16 +10,22 @@
 
 namespace fuelflux {
 
-Backend::Backend(const std::string& baseAPI, const std::string& controllerUid)
-    : baseAPI_(baseAPI)
-    , controllerUid_(controllerUid)
-    , isAuthorized_(false)
-    , roleId_(0)
-    , allowance_(0.0)
-    , price_(0.0)
+// Поскольку контроллер обладает крайне ограниченными возмможностями по выводу текстовых сообщений,
+// и наличие квалифициированного персонала рядом не предполагается, мы ограничимся двумя универсальными
+// сообщениями об ошибке.
+const std::string StdControllerError = "Ошибка контроллера";
+const std::string StdBackendError = "Ошибка портала";
+
+Backend::Backend(const std::string& baseAPI, const std::string& controllerUid) : 
+    baseAPI_(baseAPI),
+    controllerUid_(controllerUid),
+    isAuthorized_(false),
+    roleId_(0),
+    allowance_(0.0),
+    price_(0.0)
 {
-    // If the user configured an HTTPS backend but cpp-httplib was built without OpenSSL,
-    // reject early with a clear error message.
+// If the user configured an HTTPS backend but cpp-httplib was built without OpenSSL,
+// reject early with a clear error message.
 #ifndef CPPHTTPLIB_OPENSSL_SUPPORT
     if (!baseAPI_.empty()) {
         const std::string https_prefix = "https://";
@@ -74,13 +80,16 @@ nlohmann::json Backend::HttpRequestWrapper(const std::string& endpoint,
             std::string portStr;
             if (pathPos != std::string::npos) {
                 portStr = urlToParse.substr(portPos + 1, pathPos - portPos - 1);
-            } else {
+            } 
+            else {
                 portStr = urlToParse.substr(portPos + 1);
             }
             port = std::stoi(portStr);
-        } else if (pathPos != std::string::npos) {
+        } 
+        else if (pathPos != std::string::npos) {
             host = urlToParse.substr(0, pathPos);
-        } else {
+        } 
+        else {
             host = urlToParse;
         }
         
@@ -108,9 +117,11 @@ nlohmann::json Backend::HttpRequestWrapper(const std::string& endpoint,
 
             if (method == "POST") {
                 return client.Post(endpoint.c_str(), headers, bodyStr, "application/json");
-            } else if (method == "GET") {
+            } 
+            else if (method == "GET") {
                 return client.Get(endpoint.c_str(), headers);
-            } else {
+            } 
+            else {
                 throw std::runtime_error("Unsupported HTTP method: " + method);
             }
         };
@@ -123,7 +134,6 @@ nlohmann::json Backend::HttpRequestWrapper(const std::string& endpoint,
             res = doRequest(sslClient);
 #else
             std::string err = "HTTPS requested but cpp-httplib built without OpenSSL support";
-            LOG_ERROR("{}", err);
             throw std::runtime_error(err);
 #endif
         } else {
@@ -172,7 +182,6 @@ nlohmann::json Backend::HttpRequestWrapper(const std::string& endpoint,
                     errorMsg += "Unknown error";
                     break;
             }
-            LOG_ERROR("{}", errorMsg);
             throw std::runtime_error(errorMsg);
         }
         
@@ -186,11 +195,12 @@ nlohmann::json Backend::HttpRequestWrapper(const std::string& endpoint,
             // Handle empty or "null" response
             if (res->body.empty() || res->body == "null") {
                 responseJson = nlohmann::json(nullptr);
-            } else {
+            } 
+            else {
                 try {
                     responseJson = nlohmann::json::parse(res->body);
-                } catch (const std::exception& e) {
-                    LOG_ERROR("Failed to parse response JSON: {}", e.what());
+                } 
+                catch (const std::exception& e) {
                     throw std::runtime_error("Failed to parse response JSON: " + std::string(e.what()));
                 }
             }
@@ -200,23 +210,22 @@ nlohmann::json Backend::HttpRequestWrapper(const std::string& endpoint,
                 int errorCode = responseJson["CodeError"].get<int>();
                 if (errorCode != 0) {
                     std::string errorText = responseJson.value("TextError", "Unknown error");
-                    LOG_ERROR("Backend returned error: Code={}, Text={}", errorCode, errorText);
                     throw std::runtime_error("Backend error: " + errorText);
                 }
             }
             
             return responseJson;
-        } else {
+        } 
+        else {
             // HTTP error response
             std::ostringstream oss;
             oss << "System error, code " << res->status;
             std::string errorText = oss.str();
             
-            LOG_ERROR("HTTP error: {}", errorText);
             throw std::runtime_error(errorText);
         }
-    } catch (const std::exception& e) {
-        LOG_ERROR("HttpRequestWrapper exception: {}", e.what());
+    } 
+    catch (const std::exception& e) {
         lastError_ = e.what();
         throw;
     }
@@ -226,8 +235,8 @@ bool Backend::Authorize(const std::string& uid) {
     try {
         // Check if already authorized
         if (isAuthorized_) {
-            lastError_ = "Already authorized. Call Deauthorize first.";
-            LOG_ERROR("{}", lastError_);
+            LOG_ERROR("{}", "Already authorized. Call Deauthorize first.");
+            lastError_ = StdControllerError;
             return false;
         }
         
@@ -250,16 +259,16 @@ bool Backend::Authorize(const std::string& uid) {
         
         // Extract token (required)
         if (!response.contains("Token") || !response["Token"].is_string()) {
-            lastError_ = "Missing or invalid Token in response";
-            LOG_ERROR("{}", lastError_);
+            LOG_ERROR("{}", "Missing or invalid Token in response");
+            lastError_ = StdBackendError;
             return false;
         }
         std::string token = response["Token"].get<std::string>();
         
         // Extract RoleId (required)
         if (!response.contains("RoleId") || !response["RoleId"].is_number_integer()) {
-            lastError_ = "Missing or invalid RoleId in response";
-            LOG_ERROR("{}", lastError_);
+            LOG_ERROR("{}", "Missing or invalid RoleId in response");
+            lastError_ = StdBackendError;
             return false;
         }
         int roleId = response["RoleId"].get<int>();
@@ -300,9 +309,10 @@ bool Backend::Authorize(const std::string& uid) {
                  roleId_, allowance_, price_, fuelTanks_.size());
         
         return true;
-    } catch (const std::exception& e) {
-        lastError_ = e.what();
-        LOG_ERROR("Authorization failed: {}", lastError_);
+    } 
+    catch (const std::exception& e) {
+        LOG_ERROR("Authorization failed: {}", e.what());
+        lastError_ = StdControllerError;
         return false;
     }
 }
@@ -311,8 +321,8 @@ bool Backend::Deauthorize() {
     try {
         // Check if not authorized
         if (!isAuthorized_) {
-            lastError_ = "Not authorized. Call Authorize first.";
-            LOG_ERROR("{}", lastError_);
+            LOG_ERROR("{}", "Not authorized. Call Authorize first.");
+            lastError_ = StdControllerError;
             return false;
         }
         
@@ -336,7 +346,8 @@ bool Backend::Deauthorize() {
         LOG_INFO("Deauthorization successful");
         
         return true;
-    } catch (const std::exception& e) {
+    } 
+    catch (const std::exception& e) {
         // On failure, clear state anyway since we can't recover from this
         // The backend may or may not have deauthorized us, so it's safer to clear our state
         token_.clear();
@@ -346,8 +357,8 @@ bool Backend::Deauthorize() {
         fuelTanks_.clear();
         isAuthorized_ = false;
         
-        lastError_ = e.what();
-        LOG_ERROR("Deauthorization failed: {} (state cleared for safety)", lastError_);
+        LOG_ERROR("Deauthorization failed: {} (state cleared for safety)", e.what());
+		lastError_ = StdControllerError;
         return false;
     }
 }
