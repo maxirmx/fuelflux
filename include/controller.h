@@ -42,7 +42,6 @@ public:
     const std::vector<TankInfo>& getAvailableTanks() const { return availableTanks_; }
     TankNumber getSelectedTank() const { return selectedTank_; }
     Volume getEnteredVolume() const { return enteredVolume_; }
-    Amount getEnteredAmount() const { return enteredAmount_; }
     const std::string& getCurrentInput() const { return currentInput_; }
 
     // Input handling
