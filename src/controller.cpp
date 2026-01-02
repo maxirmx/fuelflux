@@ -313,7 +313,6 @@ void Controller::requestAuthorization(const UserId& userId) {
         currentUser_.uid = userId;
         currentUser_.role = static_cast<UserRole>(backend_.GetRoleId());
         currentUser_.allowance = backend_.GetAllowance();
-        currentUser_.price = 0.0;
 
         availableTanks_.clear();
         for (const auto& tank : backend_.GetFuelTanks()) {
