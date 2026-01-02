@@ -1,3 +1,7 @@
+// Copyright (C) 2025 Maxim [maxirmx] Samsonov (www.sw.consulting)
+// All rights reserved.
+// This file is a part of fuelflux application
+
 #pragma once
 
 #include <spdlog/spdlog.h>
@@ -65,11 +69,7 @@ private:
      * @return true if loaded successfully, false otherwise
      */
     static bool loadConfig(const std::string& configPath);
-    
-    /**
-     * @brief Create default logging configuration
-     */
-    static void createDefaultConfig();
+   
 };
 
 // Convenience macros for different logger categories

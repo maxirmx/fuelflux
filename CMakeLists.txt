@@ -1,3 +1,7 @@
+# Copyright (C) 2025 Maxim [maxirmx] Samsonov (www.sw.consulting)
+# All rights reserved.
+# This file is a part of fuelflux application
+
 cmake_minimum_required(VERSION 3.16)
 project(FuelFlux VERSION 1.0.0 LANGUAGES CXX)
 
@@ -35,8 +39,15 @@ FetchContent_Declare(
     GIT_TAG        v1.12.0
 )
 
+# Fetch cpp-httplib
+FetchContent_Declare(
+    httplib
+    GIT_REPOSITORY https://github.com/yhirose/cpp-httplib.git
+    GIT_TAG        v0.15.3
+)
+
 # Make dependencies available
-FetchContent_MakeAvailable(nlohmann_json spdlog)
+FetchContent_MakeAvailable(nlohmann_json spdlog httplib)
 
 # Include directories
 include_directories(include)
@@ -80,6 +91,7 @@ target_link_libraries(fuelflux
     PRIVATE 
     nlohmann_json::nlohmann_json 
     spdlog::spdlog
+    httplib::httplib
 )
 
 # Set output directory
