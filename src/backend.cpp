@@ -169,11 +169,6 @@ nlohmann::json Backend::HttpRequestWrapper(const std::string& endpoint,
                 if (errorCode != 0) {
                     std::string errorText = responseJson.value("TextError", "Unknown error");
                     LOG_ERROR("Backend returned error: Code={}, Text={}", errorCode, errorText);
-                    
-                    // Create error JSON
-                    nlohmann::json errorJson;
-                    errorJson["CodeError"] = errorCode;
-                    errorJson["TextError"] = errorText;
                     throw std::runtime_error("Backend error: " + errorText);
                 }
             }
@@ -186,12 +181,6 @@ nlohmann::json Backend::HttpRequestWrapper(const std::string& endpoint,
             std::string errorText = oss.str();
             
             LOG_ERROR("HTTP error: {}", errorText);
-            
-            // Create error JSON
-            nlohmann::json errorJson;
-            errorJson["CodeError"] = -1;
-            errorJson["TextError"] = errorText;
-            
             throw std::runtime_error(errorText);
         }
     } catch (const std::exception& e) {
