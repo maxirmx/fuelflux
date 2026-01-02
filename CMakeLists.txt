@@ -14,7 +14,7 @@ if(MSVC)
     add_compile_definitions(_SILENCE_STDEXT_ARR_ITERS_DEPRECATION_WARNING)
     add_compile_options(/W4)
 else()
-    add_compile_options(-Wall -Wextra -Wpedantic)
+    add_compile_options(-Wall -Wextra -Wpedantic -Wno-psabi)
 endif()
 
 # Set default install prefix to a more reasonable location
@@ -29,7 +29,7 @@ include(FetchContent)
 FetchContent_Declare(
     nlohmann_json
     GIT_REPOSITORY https://github.com/nlohmann/json.git
-    GIT_TAG        v3.11.3
+    GIT_TAG        v3.12.0
 )
 
 # Fetch spdlog
@@ -65,6 +65,7 @@ set(SOURCES
     src/peripherals/flow_meter.cpp
     src/console_emulator.cpp
     src/cloud_service.cpp
+    src/backend.cpp
 )
 
 # Headers
@@ -80,11 +81,22 @@ set(HEADERS
     include/peripherals/peripheral_interface.h
     include/console_emulator.h
     include/cloud_service.h
+    include/backend.h
     include/types.h
 )
 
 # Create executable
 add_executable(fuelflux ${SOURCES} ${HEADERS})
+
+# Try to find OpenSSL and enable cpp-httplib SSL support (optional)
+find_package(OpenSSL)
+if(OpenSSL_FOUND)
+    message(STATUS "Found OpenSSL: enabling cpp-httplib SSL support")
+    target_compile_definitions(fuelflux PRIVATE CPPHTTPLIB_OPENSSL_SUPPORT)
+    target_link_libraries(fuelflux PRIVATE OpenSSL::SSL OpenSSL::Crypto)
+else()
+    message(WARNING "OpenSSL not found. HTTPS support will be disabled, builds will succeed but HTTPS backends will be rejected at runtime.")
+endif()
 
 # Link libraries
 target_link_libraries(fuelflux 
