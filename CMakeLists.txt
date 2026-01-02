@@ -11,7 +11,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 # Compiler-specific options
 if(MSVC)
-    add_compile_definitions(_SILENCE_STDEXT_ARR_ITERS_DEPRECATION_WARNING)
+    add_compile_definitions(_SILENCE_STDEXT_ARR_ITERS_DEPRECATION_WARNING _CRT_SECURE_NO_WARNINGS)
     add_compile_options(/W4)
 else()
     add_compile_options(-Wall -Wextra -Wpedantic -Wno-psabi)
@@ -64,7 +64,6 @@ set(SOURCES
     src/peripherals/pump.cpp
     src/peripherals/flow_meter.cpp
     src/console_emulator.cpp
-    src/cloud_service.cpp
     src/backend.cpp
 )
 
@@ -81,7 +80,6 @@ set(HEADERS
     include/peripherals/flow_meter.h
     include/peripherals/peripheral_interface.h
     include/console_emulator.h
-    include/cloud_service.h
     include/backend.h
     include/types.h
 )

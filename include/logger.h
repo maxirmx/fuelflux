@@ -76,7 +76,7 @@ private:
 #define LOG_STATE_MACHINE() fuelflux::Logger::getLogger("StateMachine")
 #define LOG_CONTROLLER() fuelflux::Logger::getLogger("Controller") 
 #define LOG_PERIPHERALS() fuelflux::Logger::getLogger("Peripherals")
-#define LOG_CLOUD_SERVICE() fuelflux::Logger::getLogger("CloudService")
+#define LOG_BACKEND() fuelflux::Logger::getLogger("Backend")
 #define LOG_MAIN() fuelflux::Logger::getLogger("fuelflux")
 
 // Convenience logging macros with automatic logger selection
@@ -95,10 +95,10 @@ private:
 #define LOG_PERIPH_WARN(...) LOG_PERIPHERALS()->warn(__VA_ARGS__)
 #define LOG_PERIPH_ERROR(...) LOG_PERIPHERALS()->error(__VA_ARGS__)
 
-#define LOG_CLOUD_DEBUG(...) LOG_CLOUD_SERVICE()->debug(__VA_ARGS__)
-#define LOG_CLOUD_INFO(...) LOG_CLOUD_SERVICE()->info(__VA_ARGS__)
-#define LOG_CLOUD_WARN(...) LOG_CLOUD_SERVICE()->warn(__VA_ARGS__)
-#define LOG_CLOUD_ERROR(...) LOG_CLOUD_SERVICE()->error(__VA_ARGS__)
+#define LOG_BCK_DEBUG(...) LOG_BACKEND()->debug(__VA_ARGS__)
+#define LOG_BCK_INFO(...) LOG_BACKEND()->info(__VA_ARGS__)
+#define LOG_BCK_WARN(...) LOG_BACKEND()->warn(__VA_ARGS__)
+#define LOG_BCK_ERROR(...) LOG_BACKEND()->error(__VA_ARGS__)
 
 #define LOG_DEBUG(...) LOG_MAIN()->debug(__VA_ARGS__)
 #define LOG_INFO(...) LOG_MAIN()->info(__VA_ARGS__)

@@ -417,7 +417,7 @@ void ConsoleFlowMeter::notifyFlowUpdate() {
     }
     std::lock_guard<std::mutex> lock(callbackMutex_);
     if (flowCallback_) {
-        flowCallback_(current, total);
+        flowCallback_(current);
     }
 }
 
