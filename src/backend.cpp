@@ -369,13 +369,13 @@ bool Backend::Deauthorize() {
 bool Backend::Refuel(TankNumber tankNumber, Volume volume) {
     try {
         if (!isAuthorized_) {
-            LOG_ERROR("Refuel denied: backend is not authorized");
+            LOG_ERROR("Invalid refueling report: backend is not authorized");
             lastError_ = StdControllerError;
             return false;
         }
 
         if (roleId_ != static_cast<int>(UserRole::Customer)) {
-            LOG_ERROR("Refuel denied: role {} is not allowed (expected Customer)", roleId_);
+            LOG_ERROR("Invalid refueling report: role {} is not allowed (expected Customer)", roleId_);
             lastError_ = StdControllerError;
             return false;
         }
@@ -385,13 +385,19 @@ bool Backend::Refuel(TankNumber tankNumber, Volume volume) {
             fuelTanks_.end(),
             [tankNumber](const BackendTankInfo& tank) { return tank.idTank == tankNumber; });
         if (tankIt == fuelTanks_.end()) {
-            LOG_ERROR("Refuel denied: tank {} not found in authorized tanks", tankNumber);
+            LOG_ERROR("Invalid refueling report: tank {} not found in authorized tanks", tankNumber);
+            lastError_ = StdControllerError;
+            return false;
+        }
+
+        if (volume < 0.0) {
+            LOG_ERROR("Invalid refueling report: volume {} must be non-negative", volume);
             lastError_ = StdControllerError;
             return false;
         }
 
         if (volume > allowance_) {
-            LOG_ERROR("Refuel denied: volume {} exceeds allowance {}", volume, allowance_);
+            LOG_ERROR("Invalid refueling report: volume {} exceeds allowance {}", volume, allowance_);
             lastError_ = StdControllerError;
             return false;
         }
@@ -406,7 +412,7 @@ bool Backend::Refuel(TankNumber tankNumber, Volume volume) {
         requestBody["FuelVolume"] = volume;
         requestBody["TimeAt"] = timestampMs;
 
-        LOG_INFO("Refueling request: tank={}, volume={}, timestamp_ms={}", tankNumber, volume, timestampMs);
+        LOG_INFO("Refueling report: tank={}, volume={}, timestamp_ms={}", tankNumber, volume, timestampMs);
 
         HttpRequestWrapper("/api/pump/refuel", "POST", requestBody, true);
 
@@ -414,7 +420,7 @@ bool Backend::Refuel(TankNumber tankNumber, Volume volume) {
         LOG_INFO("Refueling report accepted");
         return true;
     } catch (const std::exception& e) {
-        LOG_ERROR("Refuel failed: {}", e.what());
+        LOG_ERROR("Failed to send refueling report: {}", e.what());
         lastError_ = StdBackendError;
         return false;
     }
