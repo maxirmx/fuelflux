@@ -64,7 +64,6 @@ set(SOURCES
     src/peripherals/pump.cpp
     src/peripherals/flow_meter.cpp
     src/console_emulator.cpp
-    src/cloud_service.cpp
     src/backend.cpp
 )
 
@@ -81,7 +80,6 @@ set(HEADERS
     include/peripherals/flow_meter.h
     include/peripherals/peripheral_interface.h
     include/console_emulator.h
-    include/cloud_service.h
     include/backend.h
     include/types.h
 )

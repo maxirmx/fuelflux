@@ -3,6 +3,7 @@
 // This file is a part of fuelflux application
 
 #include "controller.h"
+#include "config.h"
 #include "logger.h"
 #include <sstream>
 #include <iomanip>
@@ -15,6 +16,7 @@ namespace fuelflux {
 Controller::Controller(ControllerId controllerId)
     : controllerId_(std::move(controllerId))
     , stateMachine_(this)
+    , backend_(BACKEND_API_URL, CONTROLLER_UID)
     , selectedTank_(0)
     , enteredVolume_(0.0)
     , enteredAmount_(0.0)
@@ -60,11 +62,6 @@ bool Controller::initialize() {
         return false;
     }
     
-    if (cloudService_ && !cloudService_->initialize()) {
-        LOG_CTRL_ERROR("Failed to initialize cloud service");
-        return false;
-    }
-    
     // Setup peripheral callbacks
     setupPeripheralCallbacks();
     
@@ -90,11 +87,6 @@ void Controller::shutdown() {
     if (cardReader_) cardReader_->shutdown();
     if (pump_) pump_->shutdown();
     if (flowMeter_) flowMeter_->shutdown();
-    if (cloudService_) cloudService_->shutdown();
-
-    if (authThread_.joinable()) {
-        authThread_.join();
-    }
 
     LOG_CTRL_INFO("Shutdown complete");
 }
@@ -155,10 +147,6 @@ void Controller::setPump(std::unique_ptr<peripherals::IPump> pump) {
 
 void Controller::setFlowMeter(std::unique_ptr<peripherals::IFlowMeter> flowMeter) {
     flowMeter_ = std::move(flowMeter);
-}
-
-void Controller::setCloudService(std::unique_ptr<ICloudService> cloudService) {
-    cloudService_ = std::move(cloudService);
 }
 
 // Input handling
@@ -288,6 +276,9 @@ void Controller::endCurrentSession() {
     if (flowMeter_) {
         flowMeter_->stopMeasurement();
     }
+    if (backend_.IsAuthorized()) {
+        (void)backend_.Deauthorize();
+    }
     updateDisplay();
 }
 
@@ -331,41 +322,26 @@ void Controller::setMaxValue() {
 
 // Authorization
 void Controller::requestAuthorization(const UserId& userId) {
-    if (!cloudService_) {
-        showError("Cloud service not available");
-        stateMachine_.processEvent(Event::AuthorizationFailed);
-        return;
-    }
-    
     stateMachine_.processEvent(Event::CardPresented);
-    
-    auto future = cloudService_->authorizeUser(controllerId_, userId);
 
-    if (authThread_.joinable()) {
-        authThread_.join();
-    }
+    if (backend_.Authorize(userId)) {
+        currentUser_.uid = userId;
+        currentUser_.role = static_cast<UserRole>(backend_.GetRoleId());
+        currentUser_.allowance = backend_.GetAllowance();
+        currentUser_.price = backend_.GetPrice();
 
-    authThread_ = std::thread([this, future = std::move(future)]() mutable {
-        try {
-            AuthResponse response = future.get();
-            handleAuthorizationResponse(response);
-        } catch (const std::exception& e) {
-            LOG_CTRL_ERROR("Authorization error: {}", e.what());
-            AuthResponse response;
-            response.success = false;
-            response.errorMessage = "Authorization service error";
-            handleAuthorizationResponse(response);
+        availableTanks_.clear();
+        for (const auto& tank : backend_.GetFuelTanks()) {
+            TankInfo info;
+            info.number = tank.idTank;
+            info.capacity = 0.0;
+            info.currentVolume = 0.0;
+            info.fuelType = tank.nameTank;
+            availableTanks_.push_back(info);
         }
-    });
-}
-
-void Controller::handleAuthorizationResponse(const AuthResponse& response) {
-    if (response.success) {
-        currentUser_ = response.userInfo;
-        availableTanks_ = response.tanks;
         stateMachine_.processEvent(Event::AuthorizationSuccess);
     } else {
-        showError(response.errorMessage);
+        showError(backend_.GetLastError());
         stateMachine_.processEvent(Event::AuthorizationFailed);
     }
 }
@@ -471,17 +447,11 @@ void Controller::completeIntakeOperation() {
 
 // Transaction logging
 void Controller::logRefuelTransaction(const RefuelTransaction& transaction) {
-    if (cloudService_) {
-        auto future = cloudService_->reportRefuelTransaction(transaction);
-        // In a real implementation, handle the result asynchronously
-    }
+    (void)backend_.Refuel(transaction.tankNumber, transaction.volume);
 }
 
 void Controller::logIntakeTransaction(const IntakeTransaction& transaction) {
-    if (cloudService_) {
-        auto future = cloudService_->reportIntakeTransaction(transaction);
-        // In a real implementation, handle the result asynchronously
-    }
+    (void)backend_.Intake(transaction.tankNumber, transaction.volume, IntakeDirection::In);
 }
 
 // Utility functions
