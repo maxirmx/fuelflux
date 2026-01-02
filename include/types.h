@@ -94,14 +94,6 @@ struct TankInfo {
     std::string fuelType;
 };
 
-// Authorization response
-struct AuthResponse {
-    bool success = false;
-    UserInfo userInfo;
-    std::vector<TankInfo> tanks;
-    std::string errorMessage;
-};
-
 // Refueling transaction
 struct RefuelTransaction {
     UserId userId;
