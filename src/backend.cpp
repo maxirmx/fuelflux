@@ -493,7 +493,9 @@ bool Backend::Intake(TankNumber tankNumber, Volume volume, IntakeDirection direc
         return true;
     } catch (const std::exception& e) {
         LOG_ERROR("Failed to send fuel intake report: {}", e.what());
-        lastError_ = StdBackendError;
+        if (lastError_.empty()) {
+            lastError_ = StdBackendError;
+        }
         return false;
     }
 }
