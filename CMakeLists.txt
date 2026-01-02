@@ -35,8 +35,15 @@ FetchContent_Declare(
     GIT_TAG        v1.12.0
 )
 
+# Fetch cpp-httplib
+FetchContent_Declare(
+    httplib
+    GIT_REPOSITORY https://github.com/yhirose/cpp-httplib.git
+    GIT_TAG        v0.14.3
+)
+
 # Make dependencies available
-FetchContent_MakeAvailable(nlohmann_json spdlog)
+FetchContent_MakeAvailable(nlohmann_json spdlog httplib)
 
 # Include directories
 include_directories(include)
@@ -54,6 +61,7 @@ set(SOURCES
     src/peripherals/flow_meter.cpp
     src/console_emulator.cpp
     src/cloud_service.cpp
+    src/backend.cpp
 )
 
 # Headers
@@ -69,6 +77,7 @@ set(HEADERS
     include/peripherals/peripheral_interface.h
     include/console_emulator.h
     include/cloud_service.h
+    include/backend.h
     include/types.h
 )
 
@@ -80,6 +89,7 @@ target_link_libraries(fuelflux
     PRIVATE 
     nlohmann_json::nlohmann_json 
     spdlog::spdlog
+    httplib::httplib
 )
 
 # Set output directory
