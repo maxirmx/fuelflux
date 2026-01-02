@@ -1,8 +1,0 @@
-[2026-01-02 10:49:37.722] [3942] [fuelflux] [error] [:] Not authorized. Call Authorize first.
-[2026-01-02 10:49:37.723] [3942] [fuelflux] [error] [:] HTTP request failed: Connection error
-[2026-01-02 10:49:37.723] [3942] [fuelflux] [error] [:] HttpRequestWrapper exception: HTTP request failed: Connection error
-[2026-01-02 10:49:37.723] [3942] [fuelflux] [error] [:] Authorization failed: HTTP request failed: Connection error
-[2026-01-02 10:52:44.786] [4017] [fuelflux] [error] [:] Not authorized. Call Authorize first.
-[2026-01-02 10:52:44.787] [4017] [fuelflux] [error] [:] HTTP request failed: Connection error
-[2026-01-02 10:52:44.787] [4017] [fuelflux] [error] [:] HttpRequestWrapper exception: HTTP request failed: Connection error
-[2026-01-02 10:52:44.787] [4017] [fuelflux] [error] [:] Authorization failed: HTTP request failed: Connection error

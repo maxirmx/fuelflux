@@ -43,5 +43,8 @@
 # build
 build/
 
+# logs
+logs/
+
 #
 .vs/
