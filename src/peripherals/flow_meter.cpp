@@ -1,5 +1,5 @@
 #include "peripherals/flow_meter.h"
-#include <iostream>
+#include "logger.h"
 
 namespace fuelflux::peripherals {
 
@@ -12,7 +12,7 @@ HardwareFlowMeter::~HardwareFlowMeter() {
 }
 
 bool HardwareFlowMeter::initialize() {
-    std::cout << "[HardwareFlowMeter] Initializing flow meter hardware..." << std::endl;
+    LOG_PERIPH_INFO("Initializing flow meter hardware...");
     // Stub: In real implementation, this would initialize flow meter hardware
     m_connected = true;
     return true;
@@ -20,7 +20,7 @@ bool HardwareFlowMeter::initialize() {
 
 void HardwareFlowMeter::shutdown() {
     if (m_connected) {
-        std::cout << "[HardwareFlowMeter] Shutting down flow meter hardware..." << std::endl;
+        LOG_PERIPH_INFO("Shutting down flow meter hardware...");
         stopMeasurement();
         m_connected = false;
     }
@@ -32,12 +32,12 @@ bool HardwareFlowMeter::isConnected() const {
 
 void HardwareFlowMeter::startMeasurement() {
     if (!m_connected) {
-        std::cout << "[HardwareFlowMeter] Error: Cannot start measurement - not connected" << std::endl;
+        LOG_PERIPH_ERROR("Cannot start measurement - not connected");
         return;
     }
     
     if (!m_measuring) {
-        std::cout << "[HardwareFlowMeter] Starting flow measurement..." << std::endl;
+        LOG_PERIPH_INFO("Starting flow measurement...");
         m_measuring = true;
         m_currentVolume = 0.0;
     }
@@ -45,7 +45,7 @@ void HardwareFlowMeter::startMeasurement() {
 
 void HardwareFlowMeter::stopMeasurement() {
     if (m_measuring) {
-        std::cout << "[HardwareFlowMeter] Stopping flow measurement..." << std::endl;
+        LOG_PERIPH_INFO("Stopping flow measurement...");
         m_measuring = false;
         
         // Add current volume to total
@@ -58,7 +58,7 @@ void HardwareFlowMeter::stopMeasurement() {
 }
 
 void HardwareFlowMeter::resetCounter() {
-    std::cout << "[HardwareFlowMeter] Resetting volume counter..." << std::endl;
+    LOG_PERIPH_INFO("Resetting volume counter...");
     m_currentVolume = 0.0;
     m_totalVolume = 0.0;
 }

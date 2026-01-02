@@ -1,5 +1,5 @@
 #include "peripherals/pump.h"
-#include <iostream>
+#include "logger.h"
 
 namespace fuelflux::peripherals {
 
@@ -12,7 +12,7 @@ HardwarePump::~HardwarePump() {
 }
 
 bool HardwarePump::initialize() {
-    std::cout << "[HardwarePump] Initializing pump hardware..." << std::endl;
+    LOG_PERIPH_INFO("Initializing pump hardware...");
     // Stub: In real implementation, this would initialize pump hardware
     m_connected = true;
     return true;
@@ -20,7 +20,7 @@ bool HardwarePump::initialize() {
 
 void HardwarePump::shutdown() {
     if (m_connected) {
-        std::cout << "[HardwarePump] Shutting down pump hardware..." << std::endl;
+        LOG_PERIPH_INFO("Shutting down pump hardware...");
         stop();
         m_connected = false;
     }
@@ -32,12 +32,12 @@ bool HardwarePump::isConnected() const {
 
 void HardwarePump::start() {
     if (!m_connected) {
-        std::cout << "[HardwarePump] Error: Cannot start pump - not connected" << std::endl;
+        LOG_PERIPH_ERROR("Cannot start pump - not connected");
         return;
     }
     
     if (!m_running) {
-        std::cout << "[HardwarePump] Starting pump..." << std::endl;
+        LOG_PERIPH_INFO("Starting pump...");
         m_running = true;
         
         if (m_callback) {
@@ -48,7 +48,7 @@ void HardwarePump::start() {
 
 void HardwarePump::stop() {
     if (m_running) {
-        std::cout << "[HardwarePump] Stopping pump..." << std::endl;
+        LOG_PERIPH_INFO("Stopping pump...");
         m_running = false;
         
         if (m_callback) {

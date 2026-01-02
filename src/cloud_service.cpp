@@ -1,5 +1,5 @@
 #include "cloud_service.h"
-#include <iostream>
+#include "logger.h"
 #include <thread>
 #include <chrono>
 
@@ -15,13 +15,13 @@ MockCloudService::MockCloudService()
 
 bool MockCloudService::initialize() {
     isConnected_ = true;
-    std::cout << "[CloudService] Initialized (Mock)" << std::endl;
+    LOG_CLOUD_INFO("Initialized (Mock)");
     return true;
 }
 
 void MockCloudService::shutdown() {
     isConnected_ = false;
-    std::cout << "[CloudService] Shutdown" << std::endl;
+    LOG_CLOUD_INFO("Shutdown");
 }
 
 bool MockCloudService::isConnected() const {
@@ -31,8 +31,7 @@ bool MockCloudService::isConnected() const {
 std::future<AuthResponse> MockCloudService::authorizeUser(const ControllerId& controllerId, 
                                                          const UserId& userId) {
     return std::async(std::launch::async, [this, controllerId, userId]() -> AuthResponse {
-        std::cout << "[CloudService] Authorizing user: " << userId 
-                  << " for controller: " << controllerId << std::endl;
+        LOG_CLOUD_INFO("Authorizing user: {} for controller: {}", userId, controllerId);
         
         // Simulate network delay
         std::this_thread::sleep_for(authDelay_);
@@ -51,54 +50,48 @@ std::future<AuthResponse> MockCloudService::authorizeUser(const ControllerId& co
 
 std::future<bool> MockCloudService::reportRefuelTransaction(const RefuelTransaction& transaction) {
     return std::async(std::launch::async, [this, transaction]() -> bool {
-        std::cout << "[CloudService] Reporting refuel transaction: "
-                  << "User=" << transaction.userId
-                  << ", Tank=" << transaction.tankNumber
-                  << ", Volume=" << transaction.volume << "L"
-                  << ", Amount=" << transaction.totalAmount << " RUB" << std::endl;
+        LOG_CLOUD_INFO("Reporting refuel transaction: User={}, Tank={}, Volume={}L, Amount={} RUB",
+                      transaction.userId, transaction.tankNumber, transaction.volume, transaction.totalAmount);
         
         if (!isConnected_) {
-            std::cout << "[CloudService] Failed to report transaction - not connected" << std::endl;
+            LOG_CLOUD_ERROR("Failed to report transaction - not connected");
             return false;
         }
         
         // Simulate processing delay
         std::this_thread::sleep_for(std::chrono::milliseconds(200));
         
-        std::cout << "[CloudService] Transaction reported successfully" << std::endl;
+        LOG_CLOUD_INFO("Transaction reported successfully");
         return true;
     });
 }
 
 std::future<bool> MockCloudService::reportIntakeTransaction(const IntakeTransaction& transaction) {
     return std::async(std::launch::async, [this, transaction]() -> bool {
-        std::cout << "[CloudService] Reporting intake transaction: "
-                  << "Operator=" << transaction.operatorId
-                  << ", Tank=" << transaction.tankNumber
-                  << ", Volume=" << transaction.volume << "L" << std::endl;
+        LOG_CLOUD_INFO("Reporting intake transaction: Operator={}, Tank={}, Volume={}L",
+                      transaction.operatorId, transaction.tankNumber, transaction.volume);
         
         if (!isConnected_) {
-            std::cout << "[CloudService] Failed to report transaction - not connected" << std::endl;
+            LOG_CLOUD_ERROR("Failed to report transaction - not connected");
             return false;
         }
         
         // Simulate processing delay
         std::this_thread::sleep_for(std::chrono::milliseconds(200));
         
-        std::cout << "[CloudService] Intake transaction reported successfully" << std::endl;
+        LOG_CLOUD_INFO("Intake transaction reported successfully");
         return true;
     });
 }
 
 std::future<std::vector<UserInfo>> MockCloudService::getUserList(int first, int count) {
     return std::async(std::launch::async, [this, first, count]() -> std::vector<UserInfo> {
-        std::cout << "[CloudService] Getting user list: first=" << first 
-                  << ", count=" << count << std::endl;
+        LOG_CLOUD_DEBUG("Getting user list: first={}, count={}", first, count);
         
         std::vector<UserInfo> result;
         
         if (!isConnected_) {
-            std::cout << "[CloudService] Failed to get user list - not connected" << std::endl;
+            LOG_CLOUD_ERROR("Failed to get user list - not connected");
             return result;
         }
         
@@ -110,24 +103,24 @@ std::future<std::vector<UserInfo>> MockCloudService::getUserList(int first, int 
             result.push_back(testUsers_[i]);
         }
         
-        std::cout << "[CloudService] Returned " << result.size() << " users" << std::endl;
+        LOG_CLOUD_DEBUG("Returned {} users", result.size());
         return result;
     });
 }
 
 std::future<std::vector<TankInfo>> MockCloudService::getTankInfo(const ControllerId& controllerId) {
     return std::async(std::launch::async, [this, controllerId]() -> std::vector<TankInfo> {
-        std::cout << "[CloudService] Getting tank info for controller: " << controllerId << std::endl;
+        LOG_CLOUD_DEBUG("Getting tank info for controller: {}", controllerId);
         
         if (!isConnected_) {
-            std::cout << "[CloudService] Failed to get tank info - not connected" << std::endl;
+            LOG_CLOUD_ERROR("Failed to get tank info - not connected");
             return std::vector<TankInfo>();
         }
         
         // Simulate processing delay
         std::this_thread::sleep_for(std::chrono::milliseconds(200));
         
-        std::cout << "[CloudService] Returned " << testTanks_.size() << " tanks" << std::endl;
+        LOG_CLOUD_DEBUG("Returned {} tanks", testTanks_.size());
         return testTanks_;
     });
 }
@@ -157,13 +150,12 @@ AuthResponse MockCloudService::createAuthResponse(const UserInfo* user) const {
         response.userInfo = *user;
         response.tanks = testTanks_;
         
-        std::cout << "[CloudService] Authorization successful for user: " << user->uid
-                  << " (Role: " << static_cast<int>(user->role) << ")" << std::endl;
+        LOG_CLOUD_INFO("Authorization successful for user: {} (Role: {})", user->uid, static_cast<int>(user->role));
     } else {
         response.success = false;
         response.errorMessage = "Unknown user";
         
-        std::cout << "[CloudService] Authorization failed - unknown user" << std::endl;
+        LOG_CLOUD_WARN("Authorization failed - unknown user");
     }
     
     return response;
@@ -214,8 +206,7 @@ void MockCloudService::initializeTestData() {
     tank3.fuelType = "Diesel";
     testTanks_.push_back(tank3);
     
-    std::cout << "[CloudService] Initialized with " << testUsers_.size() 
-              << " test users and " << testTanks_.size() << " test tanks" << std::endl;
+    LOG_CLOUD_DEBUG("Initialized with {} test users and {} test tanks", testUsers_.size(), testTanks_.size());
 }
 
 } // namespace fuelflux

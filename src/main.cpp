@@ -1,6 +1,7 @@
 #include "controller.h"
 #include "console_emulator.h"
 #include "cloud_service.h"
+#include "logger.h"
 #include <iostream>
 #include <string>
 #include <thread>
@@ -26,7 +27,7 @@ std::atomic<bool> g_running{true};
 
 // Signal handler for graceful shutdown
 void signalHandler(int signal) {
-    std::cout << "\n[Main] Received signal " << signal << ", shutting down..." << std::endl;
+    LOG_INFO("Received signal {}, shutting down...", signal);
     g_running = false;
 }
 
@@ -164,7 +165,14 @@ int main(int argc, char* argv[]) {
     signal(SIGINT, signalHandler);
     signal(SIGTERM, signalHandler);
     
-    std::cout << "Starting FuelFlux Controller..." << std::endl;
+    // Initialize logging system first (before any logging calls)
+    if (!Logger::initialize()) {
+        std::cerr << "Failed to initialize logging system" << std::endl;
+        return 1;
+    }
+    
+    LOG_INFO("Starting FuelFlux Controller...");
+    
     // On Windows, set console to UTF-8 and enable virtual terminal processing
 #ifdef _WIN32
     // Set console code page to UTF-8 for proper Unicode output
@@ -209,11 +217,11 @@ int main(int argc, char* argv[]) {
         
         // Initialize controller
         if (!controller.initialize()) {
-            std::cerr << "Failed to initialize controller" << std::endl;
+            LOG_ERROR("Failed to initialize controller");
             return 1;
         }
         
-        std::cout << "\n[Main] Controller initialized successfully" << std::endl;
+        LOG_INFO("Controller initialized successfully");
         std::cout << "[Main] Type 'help' for available commands" << std::endl;
         
         // Start input dispatcher thread (handles both command and key modes)
@@ -229,7 +237,7 @@ int main(int argc, char* argv[]) {
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
         }
         
-        std::cout << "\n[Main] Shutting down..." << std::endl;
+        LOG_INFO("Shutting down...");
         
         // Shutdown controller
         controller.shutdown();
@@ -243,13 +251,18 @@ int main(int argc, char* argv[]) {
             controllerThread.join();
         }
         
-        std::cout << "[Main] Shutdown complete" << std::endl;
+        LOG_INFO("Shutdown complete");
+        
+        // Shutdown logging system last
+        Logger::shutdown();
         
     } catch (const std::exception& e) {
-        std::cerr << "Error: " << e.what() << std::endl;
+        LOG_CRITICAL("Error: {}", e.what());
+        Logger::shutdown();
         return 1;
     } catch (...) {
-        std::cerr << "Unknown error occurred" << std::endl;
+        LOG_CRITICAL("Unknown error occurred");
+        Logger::shutdown();
         return 1;
     }
     
