@@ -61,14 +61,25 @@ public:
     double GetPrice() const { return price_; }
     const std::vector<BackendTankInfo>& GetFuelTanks() const { return fuelTanks_; }
     const std::string& GetLastError() const { return lastError_; }
+    int GetLastErrorCode() const { return lastErrorCode_; }
 
 private:
     // Private method for common parsing of responses from the backend
-    // Returns: parsed JSON or throws exception
-    nlohmann::json HttpRequestWrapper(const std::string& endpoint, 
-                                       const std::string& method,
-                                       const nlohmann::json& requestBody,
-                                       bool useBearerToken = false);
+    // Returns: true on success, false on backend-reported errors (CodeError != 0)
+    // On success, responseOut is populated with the parsed JSON
+    // On backend error (false return), lastError_ and lastErrorCode_ are populated
+    // with the backend-provided error details; callers should check GetLastError()
+    // and GetLastErrorCode() for diagnostic information
+    // Throws exception only for internal/unexpected errors (HTTP failures, parse errors, etc.)
+    bool HttpRequestWrapper(const std::string& endpoint, 
+                            const std::string& method,
+                            const nlohmann::json& requestBody,
+                            nlohmann::json& responseOut,
+                            bool useBearerToken = false);
+
+    // Helper method to clear authorization state
+    // If clearErrorState is true, also clears lastError_ and lastErrorCode_
+    void ClearAuthState(bool clearErrorState = false);
 
     // Base URL of backend REST API
     std::string baseAPI_;
@@ -88,6 +99,7 @@ private:
     
     // Last error message
     std::string lastError_;
+    int lastErrorCode_;
 };
 
 } // namespace fuelflux

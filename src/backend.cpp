@@ -17,6 +17,7 @@ namespace fuelflux {
 // сообщениями об ошибке.
 const std::string StdControllerError = "Ошибка контроллера";
 const std::string StdBackendError = "Ошибка портала";
+const std::string UnknownBackendError = "Неизвестная ошибка";
 
 Backend::Backend(const std::string& baseAPI, const std::string& controllerUid) : 
     baseAPI_(baseAPI),
@@ -24,7 +25,8 @@ Backend::Backend(const std::string& baseAPI, const std::string& controllerUid) :
     isAuthorized_(false),
     roleId_(0),
     allowance_(0.0),
-    price_(0.0)
+    price_(0.0),
+    lastErrorCode_(0)
 {
 // If the user configured an HTTPS backend but cpp-httplib was built without OpenSSL,
 // reject early with a clear error message.
@@ -48,10 +50,11 @@ Backend::~Backend() {
     }
 }
 
-nlohmann::json Backend::HttpRequestWrapper(const std::string& endpoint, 
-                                            const std::string& method,
-                                            const nlohmann::json& requestBody,
-                                            bool useBearerToken) {
+bool Backend::HttpRequestWrapper(const std::string& endpoint, 
+                                 const std::string& method,
+                                 const nlohmann::json& requestBody,
+                                 nlohmann::json& responseOut,
+                                 bool useBearerToken) {
     try {
         // Parse the base URL to extract host and port
         std::string host;
@@ -211,12 +214,16 @@ nlohmann::json Backend::HttpRequestWrapper(const std::string& endpoint,
             if (responseJson.is_object() && responseJson.contains("CodeError")) {
                 int errorCode = responseJson["CodeError"].get<int>();
                 if (errorCode != 0) {
-                    std::string errorText = responseJson.value("TextError", "Unknown error");
-                    throw std::runtime_error("Backend error: " + errorText);
+                    // Backend reported an error - handle gracefully
+                    lastErrorCode_ = errorCode;
+                    lastError_ = responseJson.value("TextError", UnknownBackendError);
+                    return false;
                 }
             }
             
-            return responseJson;
+            // Success - return the parsed response
+            responseOut = responseJson;
+            return true;
         } 
         else {
             // HTTP error response
@@ -228,8 +235,27 @@ nlohmann::json Backend::HttpRequestWrapper(const std::string& endpoint,
         }
     } 
     catch (const std::exception& e) {
+        // Internal/unexpected errors - set error state and re-throw
         lastError_ = e.what();
+        lastErrorCode_ = -1;
         throw;
+    }
+}
+
+// Helper method to clear authorization state variables.
+// When clearErrorState is true, also resets lastError_ and lastErrorCode_ to indicate success.
+// When false, preserves the current error state (used when clearing state due to errors).
+void Backend::ClearAuthState(bool clearErrorState) {
+    token_.clear();
+    roleId_ = 0;
+    allowance_ = 0.0;
+    price_ = 0.0;
+    fuelTanks_.clear();
+    isAuthorized_ = false;
+    
+    if (clearErrorState) {
+        lastError_.clear();
+        lastErrorCode_ = 0;
     }
 }
 
@@ -239,6 +265,7 @@ bool Backend::Authorize(const std::string& uid) {
         if (isAuthorized_) {
             LOG_BCK_ERROR("{}", "Already authorized. Call Deauthorize first.");
             lastError_ = StdControllerError;
+            lastErrorCode_ = -1;
             return false;
         }
         
@@ -250,11 +277,17 @@ bool Backend::Authorize(const std::string& uid) {
         requestBody["PumpControllerUid"] = controllerUid_;
         
         // Make request
-        nlohmann::json response = HttpRequestWrapper("/api/pump/authorize", "POST", requestBody, false);
+        nlohmann::json response;
+        if (!HttpRequestWrapper("/api/pump/authorize", "POST", requestBody, response, false)) {
+            // Backend reported an error - already logged in lastError_ and lastErrorCode_
+            LOG_BCK_ERROR("Authorization failed with backend error code {}: {}", lastErrorCode_, lastError_);
+            return false;
+        }
         
         // Parse response - validate all fields before updating state
         if (!response.is_object()) {
             lastError_ = "Invalid response format";
+            lastErrorCode_ = -1;
             LOG_BCK_ERROR("{}", lastError_);
             return false;
         }
@@ -263,6 +296,7 @@ bool Backend::Authorize(const std::string& uid) {
         if (!response.contains("Token") || !response["Token"].is_string()) {
             LOG_BCK_ERROR("{}", "Missing or invalid Token in response");
             lastError_ = StdBackendError;
+            lastErrorCode_ = -1;
             return false;
         }
         std::string token = response["Token"].get<std::string>();
@@ -271,6 +305,7 @@ bool Backend::Authorize(const std::string& uid) {
         if (!response.contains("RoleId") || !response["RoleId"].is_number_integer()) {
             LOG_BCK_ERROR("{}", "Missing or invalid RoleId in response");
             lastError_ = StdBackendError;
+            lastErrorCode_ = -1;
             return false;
         }
         int roleId = response["RoleId"].get<int>();
@@ -306,6 +341,7 @@ bool Backend::Authorize(const std::string& uid) {
         fuelTanks_ = fuelTanks;
         isAuthorized_ = true;
         lastError_.clear();
+        lastErrorCode_ = 0;
         
         LOG_BCK_INFO("Authorization successful: RoleId={}, Allowance={}, Price={}, Tanks={}",
                  roleId_, allowance_, price_, fuelTanks_.size());
@@ -315,6 +351,7 @@ bool Backend::Authorize(const std::string& uid) {
     catch (const std::exception& e) {
         LOG_BCK_ERROR("Authorization failed: {}", e.what());
         lastError_ = StdControllerError;
+        lastErrorCode_ = -1;
         return false;
     }
 }
@@ -325,6 +362,7 @@ bool Backend::Deauthorize() {
         if (!isAuthorized_) {
             LOG_BCK_ERROR("{}", "Not authorized. Call Authorize first.");
             lastError_ = StdControllerError;
+            lastErrorCode_ = -1;
             return false;
         }
         
@@ -334,16 +372,18 @@ bool Backend::Deauthorize() {
         nlohmann::json requestBody = nlohmann::json::object();
         
         // Make request with bearer token
-        nlohmann::json response = HttpRequestWrapper("/api/pump/deauthorize", "POST", requestBody, true);
+        nlohmann::json response;
+        if (!HttpRequestWrapper("/api/pump/deauthorize", "POST", requestBody, response, true)) {
+            // Backend reported an error - already logged in lastError_ and lastErrorCode_
+            LOG_BCK_ERROR("Deauthorization failed with backend error code {}: {}", lastErrorCode_, lastError_);
+            // On failure, clear state anyway since we can't recover from this
+            // The backend may or may not have deauthorized us, so it's safer to clear our state
+            ClearAuthState(false); // Don't clear error state - preserve backend error
+            return false;
+        }
         
-        // Clear instance variables only after successful deauthorization
-        token_.clear();
-        roleId_ = 0;
-        allowance_ = 0.0;
-        price_ = 0.0;
-        fuelTanks_.clear();
-        isAuthorized_ = false;
-        lastError_.clear();
+        // Clear instance variables and error state after successful deauthorization
+        ClearAuthState(true); // Clear error state too on success
         
         LOG_BCK_INFO("Deauthorization successful");
         
@@ -352,15 +392,11 @@ bool Backend::Deauthorize() {
     catch (const std::exception& e) {
         // On failure, clear state anyway since we can't recover from this
         // The backend may or may not have deauthorized us, so it's safer to clear our state
-        token_.clear();
-        roleId_ = 0;
-        allowance_ = 0.0;
-        price_ = 0.0;
-        fuelTanks_.clear();
-        isAuthorized_ = false;
+        ClearAuthState(false); // Don't clear error state - will be set below
         
         LOG_BCK_ERROR("Deauthorization failed: {} (state cleared for safety)", e.what());
-		lastError_ = StdControllerError;
+        lastError_ = StdControllerError;
+        lastErrorCode_ = -1;
         return false;
     }
 }
@@ -371,12 +407,14 @@ bool Backend::Refuel(TankNumber tankNumber, Volume volume) {
         if (!isAuthorized_) {
             LOG_BCK_ERROR("Invalid refueling report: backend is not authorized");
             lastError_ = StdControllerError;
+            lastErrorCode_ = -1;
             return false;
         }
 
         if (roleId_ != static_cast<int>(UserRole::Customer)) {
             LOG_BCK_ERROR("Invalid refueling report: role {} is not allowed (expected Customer)", roleId_);
             lastError_ = StdControllerError;
+            lastErrorCode_ = -1;
             return false;
         }
 
@@ -387,18 +425,21 @@ bool Backend::Refuel(TankNumber tankNumber, Volume volume) {
         if (tankIt == fuelTanks_.end()) {
             LOG_BCK_ERROR("Invalid refueling report: tank {} not found in authorized tanks", tankNumber);
             lastError_ = StdControllerError;
+            lastErrorCode_ = -1;
             return false;
         }
 
         if (volume < 0.0) {
             LOG_BCK_ERROR("Invalid refueling report: volume {} must be non-negative", volume);
             lastError_ = StdControllerError;
+            lastErrorCode_ = -1;
             return false;
         }
 
         if (volume > allowance_) {
             LOG_BCK_ERROR("Invalid refueling report: volume {} exceeds allowance {}", volume, allowance_);
             lastError_ = StdControllerError;
+            lastErrorCode_ = -1;
             return false;
         }
 
@@ -414,7 +455,12 @@ bool Backend::Refuel(TankNumber tankNumber, Volume volume) {
 
         LOG_BCK_INFO("Refueling report: tank={}, volume={}, timestamp_ms={}", tankNumber, volume, timestampMs);
 
-        HttpRequestWrapper("/api/pump/refuel", "POST", requestBody, true);
+        nlohmann::json response;
+        if (!HttpRequestWrapper("/api/pump/refuel", "POST", requestBody, response, true)) {
+            // Backend reported an error - already logged in lastError_ and lastErrorCode_
+            LOG_BCK_ERROR("Refuel failed with backend error code {}: {}", lastErrorCode_, lastError_);
+            return false;
+        }
 
         // Decrease remaining allowance by the refueled volume after successful API call.
         allowance_ -= volume;
@@ -422,13 +468,13 @@ bool Backend::Refuel(TankNumber tankNumber, Volume volume) {
             allowance_ = 0.0;
         }
         lastError_.clear();
+        lastErrorCode_ = 0;
         LOG_BCK_INFO("Refueling report accepted");
         return true;
     } catch (const std::exception& e) {
         LOG_BCK_ERROR("Failed to send refueling report: {}", e.what());
-        if (lastError_.empty()) {
-            lastError_ = StdBackendError;
-        }
+        lastError_ = StdBackendError;
+        lastErrorCode_ = -1;
         return false;
     }
 }
@@ -438,12 +484,14 @@ bool Backend::Intake(TankNumber tankNumber, Volume volume, IntakeDirection direc
         if (!isAuthorized_) {
             LOG_BCK_ERROR("Invalid intake report: backend is not authorized");
             lastError_ = StdControllerError;
+            lastErrorCode_ = -1;
             return false;
         }
 
         if (roleId_ != static_cast<int>(UserRole::Operator)) {
             LOG_BCK_ERROR("Invalid intake report: role {} is not allowed (expected Operator)", roleId_);
             lastError_ = StdControllerError;
+            lastErrorCode_ = -1;
             return false;
         }
 
@@ -454,18 +502,21 @@ bool Backend::Intake(TankNumber tankNumber, Volume volume, IntakeDirection direc
         if (tankIt == fuelTanks_.end()) {
             LOG_BCK_ERROR("Invalid intake report: tank {} not found in authorized tanks", tankNumber);
             lastError_ = StdControllerError;
+            lastErrorCode_ = -1;
             return false;
         }
 
         if (volume < 0.0) {
             LOG_BCK_ERROR("Invalid intake report: volume {} must be non-negative", volume);
             lastError_ = StdControllerError;
+            lastErrorCode_ = -1;
             return false;
         }
 
         if (direction != IntakeDirection::In && direction != IntakeDirection::Out) {
             LOG_BCK_ERROR("Invalid intake report: direction {} is not supported", static_cast<int>(direction));
             lastError_ = StdControllerError;
+            lastErrorCode_ = -1;
             return false;
         }
 
@@ -486,16 +537,21 @@ bool Backend::Intake(TankNumber tankNumber, Volume volume, IntakeDirection direc
                  static_cast<int>(direction),
                  timestampMs);
 
-        HttpRequestWrapper("/api/pump/fuel-intake", "POST", requestBody, true);
+        nlohmann::json response;
+        if (!HttpRequestWrapper("/api/pump/fuel-intake", "POST", requestBody, response, true)) {
+            // Backend reported an error - already logged in lastError_ and lastErrorCode_
+            LOG_BCK_ERROR("Intake failed with backend error code {}: {}", lastErrorCode_, lastError_);
+            return false;
+        }
 
         lastError_.clear();
+        lastErrorCode_ = 0;
         LOG_BCK_INFO("Fuel intake report accepted");
         return true;
     } catch (const std::exception& e) {
         LOG_BCK_ERROR("Failed to send fuel intake report: {}", e.what());
-        if (lastError_.empty()) {
-            lastError_ = StdBackendError;
-        }
+        lastError_ = StdBackendError;
+        lastErrorCode_ = -1;
         return false;
     }
 }
