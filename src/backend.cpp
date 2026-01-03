@@ -17,7 +17,7 @@ namespace fuelflux {
 // сообщениями об ошибке.
 const std::string StdControllerError = "Ошибка контроллера";
 const std::string StdBackendError = "Ошибка портала";
-const std::string UnknownBackendError = "Неизвестная  ошибка";
+const std::string UnknownBackendError = "Неизвестная ошибка";
 
 Backend::Backend(const std::string& baseAPI, const std::string& controllerUid) : 
     baseAPI_(baseAPI),
