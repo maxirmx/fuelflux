@@ -55,6 +55,7 @@ enum class Event {
     AuthorizationFailed,
     IntakeDirectionSelected,
     TankSelected,
+    IntakeTankSelected,
     VolumeEntered,
     AmountEntered,
     RefuelingStarted,

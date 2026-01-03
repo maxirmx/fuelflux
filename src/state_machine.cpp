@@ -151,7 +151,7 @@ void StateMachine::setupTransitions() {
     // From TankSelection state
     transitions_[{SystemState::TankSelection, Event::TankSelected}] = 
         {SystemState::VolumeEntry, [this]() { onTankSelected(); }};
-    transitions_[{SystemState::TankSelection, Event::IntakeSelected}] = 
+    transitions_[{SystemState::TankSelection, Event::IntakeTankSelected}] = 
         {SystemState::IntakeVolumeEntry, [this]() { onIntakeSelected(); }};
     transitions_[{SystemState::TankSelection, Event::CancelPressed}] = 
         {SystemState::Waiting, [this]() { onCancelPressed(); }};

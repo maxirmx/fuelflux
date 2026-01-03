@@ -354,7 +354,7 @@ void Controller::selectTank(TankNumber tankNumber) {
         
         // Operators perform intake operations, customers perform refueling
         if (currentUser_.role == UserRole::Operator) {
-            stateMachine_.processEvent(Event::IntakeSelected);
+            stateMachine_.processEvent(Event::IntakeTankSelected);
         } else {
             stateMachine_.processEvent(Event::TankSelected);
         }
