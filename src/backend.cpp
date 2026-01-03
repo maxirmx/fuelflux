@@ -242,6 +242,9 @@ bool Backend::HttpRequestWrapper(const std::string& endpoint,
     }
 }
 
+// Helper method to clear authorization state variables.
+// When clearErrorState is true, also resets lastError_ and lastErrorCode_ to indicate success.
+// When false, preserves the current error state (used when clearing state due to errors).
 void Backend::ClearAuthState(bool clearErrorState) {
     token_.clear();
     roleId_ = 0;
