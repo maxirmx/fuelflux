@@ -19,9 +19,15 @@ using Amount = double;  // in rubles
 // User roles
 enum class UserRole {
     Unknown = 0,
-    Operator = 1,
-    Customer = 2,
+    Customer = 1,
+    Operator = 2,
     Controller = 3
+};
+
+// Fuel intake direction
+enum class IntakeDirection {
+    In = 1,
+    Out = 2
 };
 
 // System states for Mealy machine
@@ -86,14 +92,6 @@ struct TankInfo {
     Volume capacity;
     Volume currentVolume;
     std::string fuelType;
-};
-
-// Authorization response
-struct AuthResponse {
-    bool success = false;
-    UserInfo userInfo;
-    std::vector<TankInfo> tanks;
-    std::string errorMessage;
 };
 
 // Refueling transaction

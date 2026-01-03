@@ -1,4 +1,9 @@
+// Copyright (C) 2025 Maxim [maxirmx] Samsonov (www.sw.consulting)
+// All rights reserved.
+// This file is a part of fuelflux application
+
 #include "console_emulator.h"
+#include "logger.h"
 #include <iostream>
 #include <sstream>
 #include <iomanip>
@@ -30,11 +35,13 @@ ConsoleDisplay::~ConsoleDisplay() {
 bool ConsoleDisplay::initialize() {
     isConnected_ = true;
     clear();
+    LOG_PERIPH_DEBUG("Console display initialized");
     return true;
 }
 
 void ConsoleDisplay::shutdown() {
     isConnected_ = false;
+    LOG_PERIPH_DEBUG("Console display shutdown");
 }
 
 bool ConsoleDisplay::isConnected() const {
@@ -160,8 +167,6 @@ KeyCode ConsoleKeyboard::charToKeyCode(char c) const {
         case '#': return KeyCode::KeyClear;
         case 'A': return KeyCode::KeyStart;
         case 'B': return KeyCode::KeyStop;
-        case 'C': return KeyCode::KeyLiters;
-        case 'D': return KeyCode::KeyRubles;
         default: return static_cast<KeyCode>(0);
     }
 }
@@ -173,8 +178,6 @@ void ConsoleKeyboard::printKeyboardHelp() const {
     std::cout << "#  : Clear (clear last digit)\n";
     std::cout << "A  : Start/Enter\n";
     std::cout << "B  : Stop/Cancel\n";
-    std::cout << "C  : Liters mode\n";
-    std::cout << "D  : Rubles mode\n";
     std::cout << "====================\n\n";
 }
 
@@ -410,7 +413,7 @@ void ConsoleFlowMeter::notifyFlowUpdate() {
     }
     std::lock_guard<std::mutex> lock(callbackMutex_);
     if (flowCallback_) {
-        flowCallback_(current, total);
+        flowCallback_(current);
     }
 }
 

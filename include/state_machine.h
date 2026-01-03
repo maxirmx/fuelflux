@@ -80,7 +80,6 @@ private:
     
     bool isTimeoutEnabled() const;
     void updateActivityTime();
-    void checkTimeout();
 
     // Concurrency
     mutable std::recursive_mutex mutex_;

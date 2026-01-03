@@ -54,7 +54,7 @@ public:
 // Flow meter interface
 class IFlowMeter : public IPeripheral {
 public:
-    using FlowCallback = std::function<void(Volume currentVolume, Volume totalVolume)>;
+    using FlowCallback = std::function<void(Volume currentVolume)>;
     
     virtual void startMeasurement() = 0;
     virtual void stopMeasurement() = 0;
