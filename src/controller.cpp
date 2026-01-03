@@ -13,6 +13,10 @@
 
 namespace fuelflux {
 
+// Constants for intake direction selection
+constexpr int DIRECTION_SELECTION_IN = 1;
+constexpr int DIRECTION_SELECTION_OUT = 2;
+
 Controller::Controller(ControllerId controllerId)
     : controllerId_(std::move(controllerId))
     , stateMachine_(this)
@@ -348,6 +352,7 @@ void Controller::selectTank(TankNumber tankNumber) {
     if (isTankValid(tankNumber)) {
         selectedTank_ = tankNumber;
         
+        // Operators perform intake operations, customers perform refueling
         if (currentUser_.role == UserRole::Operator) {
             stateMachine_.processEvent(Event::IntakeSelected);
         } else {
@@ -498,15 +503,22 @@ void Controller::processNumericInput() {
                 try {
                     selection = std::stoi(currentInput_);
                 } catch (const std::exception&) {
-                    selection = 0;
+                    // Invalid input - clear and let user try again
+                    clearInput();
+                    LOG_CTRL_WARN("Invalid direction selection input: {}", currentInput_);
+                    break;
                 }
                 
-                if (selection == 1) {
+                if (selection == DIRECTION_SELECTION_IN) {
                     selectedIntakeDirection_ = IntakeDirection::In;
                     stateMachine_.processEvent(Event::IntakeDirectionSelected);
-                } else if (selection == 2) {
+                } else if (selection == DIRECTION_SELECTION_OUT) {
                     selectedIntakeDirection_ = IntakeDirection::Out;
                     stateMachine_.processEvent(Event::IntakeDirectionSelected);
+                } else {
+                    // Invalid selection - clear and let user try again
+                    clearInput();
+                    LOG_CTRL_WARN("Invalid direction selection: {}", selection);
                 }
             }
             break;
