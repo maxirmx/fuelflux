@@ -380,7 +380,7 @@ bool Backend::Deauthorize() {
         isAuthorized_ = false;
         
         LOG_BCK_ERROR("Deauthorization failed: {} (state cleared for safety)", e.what());
-		if (lastError_.empty()) {
+        if (lastError_.empty()) {
             lastError_ = StdControllerError;
         }
         if (lastErrorCode_ == 0) {
