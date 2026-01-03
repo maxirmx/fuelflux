@@ -236,13 +236,23 @@ bool Backend::HttpRequestWrapper(const std::string& endpoint,
     } 
     catch (const std::exception& e) {
         // Internal/unexpected errors - set error state and re-throw
-        if (lastError_.empty()) {
-            lastError_ = e.what();
-        }
-        if (lastErrorCode_ == 0) {
-            lastErrorCode_ = -1;
-        }
+        lastError_ = e.what();
+        lastErrorCode_ = -1;
         throw;
+    }
+}
+
+void Backend::ClearAuthState(bool clearErrorState) {
+    token_.clear();
+    roleId_ = 0;
+    allowance_ = 0.0;
+    price_ = 0.0;
+    fuelTanks_.clear();
+    isAuthorized_ = false;
+    
+    if (clearErrorState) {
+        lastError_.clear();
+        lastErrorCode_ = 0;
     }
 }
 
@@ -337,12 +347,8 @@ bool Backend::Authorize(const std::string& uid) {
     } 
     catch (const std::exception& e) {
         LOG_BCK_ERROR("Authorization failed: {}", e.what());
-        if (lastError_.empty()) {
-            lastError_ = StdControllerError;
-        }
-        if (lastErrorCode_ == 0) {
-            lastErrorCode_ = -1;
-        }
+        lastError_ = StdControllerError;
+        lastErrorCode_ = -1;
         return false;
     }
 }
@@ -369,24 +375,12 @@ bool Backend::Deauthorize() {
             LOG_BCK_ERROR("Deauthorization failed with backend error code {}: {}", lastErrorCode_, lastError_);
             // On failure, clear state anyway since we can't recover from this
             // The backend may or may not have deauthorized us, so it's safer to clear our state
-            token_.clear();
-            roleId_ = 0;
-            allowance_ = 0.0;
-            price_ = 0.0;
-            fuelTanks_.clear();
-            isAuthorized_ = false;
+            ClearAuthState(false); // Don't clear error state - preserve backend error
             return false;
         }
         
-        // Clear instance variables only after successful deauthorization
-        token_.clear();
-        roleId_ = 0;
-        allowance_ = 0.0;
-        price_ = 0.0;
-        fuelTanks_.clear();
-        isAuthorized_ = false;
-        lastError_.clear();
-        lastErrorCode_ = 0;
+        // Clear instance variables and error state after successful deauthorization
+        ClearAuthState(true); // Clear error state too on success
         
         LOG_BCK_INFO("Deauthorization successful");
         
@@ -395,20 +389,11 @@ bool Backend::Deauthorize() {
     catch (const std::exception& e) {
         // On failure, clear state anyway since we can't recover from this
         // The backend may or may not have deauthorized us, so it's safer to clear our state
-        token_.clear();
-        roleId_ = 0;
-        allowance_ = 0.0;
-        price_ = 0.0;
-        fuelTanks_.clear();
-        isAuthorized_ = false;
+        ClearAuthState(false); // Don't clear error state - will be set below
         
         LOG_BCK_ERROR("Deauthorization failed: {} (state cleared for safety)", e.what());
-        if (lastError_.empty()) {
-            lastError_ = StdControllerError;
-        }
-        if (lastErrorCode_ == 0) {
-            lastErrorCode_ = -1;
-        }
+        lastError_ = StdControllerError;
+        lastErrorCode_ = -1;
         return false;
     }
 }
@@ -485,12 +470,8 @@ bool Backend::Refuel(TankNumber tankNumber, Volume volume) {
         return true;
     } catch (const std::exception& e) {
         LOG_BCK_ERROR("Failed to send refueling report: {}", e.what());
-        if (lastError_.empty()) {
-            lastError_ = StdBackendError;
-        }
-        if (lastErrorCode_ == 0) {
-            lastErrorCode_ = -1;
-        }
+        lastError_ = StdBackendError;
+        lastErrorCode_ = -1;
         return false;
     }
 }
@@ -566,12 +547,8 @@ bool Backend::Intake(TankNumber tankNumber, Volume volume, IntakeDirection direc
         return true;
     } catch (const std::exception& e) {
         LOG_BCK_ERROR("Failed to send fuel intake report: {}", e.what());
-        if (lastError_.empty()) {
-            lastError_ = StdBackendError;
-        }
-        if (lastErrorCode_ == 0) {
-            lastErrorCode_ = -1;
-        }
+        lastError_ = StdBackendError;
+        lastErrorCode_ = -1;
         return false;
     }
 }
