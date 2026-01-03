@@ -113,6 +113,7 @@ private:
     TankNumber selectedTank_;
     Volume enteredVolume_;
     std::string currentInput_;
+    IntakeDirection selectedIntakeDirection_;
     
     // Refueling state
     Volume currentRefuelVolume_;

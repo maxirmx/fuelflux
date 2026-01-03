@@ -52,6 +52,7 @@ private:
     void onPinEntered();
     void onAuthorizationSuccess();
     void onAuthorizationFailed();
+    void onIntakeDirectionSelected();
     void onTankSelected();
     void onVolumeEntered();
     void onAmountEntered();

@@ -135,8 +135,18 @@ void StateMachine::setupTransitions() {
     // From Authorization state
     transitions_[{SystemState::Authorization, Event::AuthorizationSuccess}] = 
         {SystemState::TankSelection, [this]() { onAuthorizationSuccess(); }};
+    transitions_[{SystemState::Authorization, Event::IntakeSelected}] = 
+        {SystemState::IntakeDirectionSelection, [this]() { onIntakeSelected(); }};
     transitions_[{SystemState::Authorization, Event::AuthorizationFailed}] = 
         {SystemState::Error, [this]() { onAuthorizationFailed(); }};
+
+    // From IntakeDirectionSelection state
+    transitions_[{SystemState::IntakeDirectionSelection, Event::IntakeDirectionSelected}] = 
+        {SystemState::TankSelection, [this]() { onIntakeDirectionSelected(); }};
+    transitions_[{SystemState::IntakeDirectionSelection, Event::CancelPressed}] = 
+        {SystemState::Waiting, [this]() { onCancelPressed(); }};
+    transitions_[{SystemState::IntakeDirectionSelection, Event::Timeout}] = 
+        {SystemState::Waiting, [this]() { onTimeout(); }};
 
     // From TankSelection state
     transitions_[{SystemState::TankSelection, Event::TankSelected}] = 
@@ -206,7 +216,7 @@ void StateMachine::setupTransitions() {
 
     // Global error transitions
     for (auto state : {SystemState::Waiting, SystemState::PinEntry, SystemState::Authorization,
-                      SystemState::TankSelection, SystemState::VolumeEntry, SystemState::AmountEntry,
+                      SystemState::IntakeDirectionSelection, SystemState::TankSelection, SystemState::VolumeEntry, SystemState::AmountEntry,
                       SystemState::Refueling, SystemState::RefuelingComplete, SystemState::IntakeVolumeEntry,
                       SystemState::IntakeComplete}) {
         transitions_[{state, Event::Error}] = 
@@ -267,6 +277,10 @@ void StateMachine::onRefuelingStopped() {
 
 void StateMachine::onRefuelingComplete() {
     LOG_SM_INFO("Refueling complete");
+}
+
+void StateMachine::onIntakeDirectionSelected() {
+    LOG_SM_INFO("Intake direction selected");
 }
 
 void StateMachine::onIntakeSelected() {

@@ -19,6 +19,7 @@ Controller::Controller(ControllerId controllerId)
     , backend_(BACKEND_API_URL, CONTROLLER_UID)
     , selectedTank_(0)
     , enteredVolume_(0.0)
+    , selectedIntakeDirection_(IntakeDirection::In)
     , currentRefuelVolume_(0.0)
     , targetRefuelVolume_(0.0)
     , isRunning_(false)
@@ -329,7 +330,13 @@ void Controller::requestAuthorization(const UserId& userId) {
             info.fuelType = tank.nameTank;
             availableTanks_.push_back(info);
         }
-        stateMachine_.processEvent(Event::AuthorizationSuccess);
+        
+        // For operators, go to IntakeDirectionSelection; for others go to TankSelection
+        if (currentUser_.role == UserRole::Operator) {
+            stateMachine_.processEvent(Event::IntakeSelected);
+        } else {
+            stateMachine_.processEvent(Event::AuthorizationSuccess);
+        }
     } else {
         showError(backend_.GetLastError());
         stateMachine_.processEvent(Event::AuthorizationFailed);
@@ -421,7 +428,7 @@ void Controller::logRefuelTransaction(const RefuelTransaction& transaction) {
 }
 
 void Controller::logIntakeTransaction(const IntakeTransaction& transaction) {
-    (void)backend_.Intake(transaction.tankNumber, transaction.volume, IntakeDirection::In);
+    (void)backend_.Intake(transaction.tankNumber, transaction.volume, selectedIntakeDirection_);
 }
 
 // Utility functions
@@ -484,6 +491,26 @@ void Controller::processNumericInput() {
             stateMachine_.processEvent(Event::PinEntered);
             break;
             
+        case SystemState::IntakeDirectionSelection:
+            {
+                // Handle direction selection: 1 = In, 2 = Out
+                int selection = 0;
+                try {
+                    selection = std::stoi(currentInput_);
+                } catch (const std::exception&) {
+                    selection = 0;
+                }
+                
+                if (selection == 1) {
+                    selectedIntakeDirection_ = IntakeDirection::In;
+                    stateMachine_.processEvent(Event::IntakeDirectionSelected);
+                } else if (selection == 2) {
+                    selectedIntakeDirection_ = IntakeDirection::Out;
+                    stateMachine_.processEvent(Event::IntakeDirectionSelected);
+                }
+            }
+            break;
+            
         case SystemState::TankSelection:
             {
                 TankNumber tank = parseTankFromInput();
@@ -534,6 +561,7 @@ void Controller::resetSessionData() {
     availableTanks_.clear();
     selectedTank_ = 0;
     enteredVolume_ = 0.0;
+    selectedIntakeDirection_ = IntakeDirection::In;
     currentRefuelVolume_ = 0.0;
     targetRefuelVolume_ = 0.0;
 }
@@ -558,6 +586,13 @@ DisplayMessage Controller::createDisplayMessage() const {
             message.line1 = "Authorization in progress...";
             message.line2 = "Please wait";
             message.line3 = getDeviceSerialNumber();
+            break;
+            
+        case SystemState::IntakeDirectionSelection:
+            message.line1 = "Выберите операцию";
+            message.line2 = "1 - Приём топлива";
+            message.line3 = "2 - Слив топлива";
+            message.line4 = currentInput_;
             break;
             
         case SystemState::TankSelection:
