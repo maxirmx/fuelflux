@@ -167,6 +167,8 @@ KeyCode ConsoleKeyboard::charToKeyCode(char c) const {
         case '#': return KeyCode::KeyClear;
         case 'A': return KeyCode::KeyStart;
         case 'B': return KeyCode::KeyStop;
+        case 'C': return KeyCode::KeyLiters;
+        case 'D': return KeyCode::KeyRubles;
         default: return static_cast<KeyCode>(0);
     }
 }
@@ -178,6 +180,8 @@ void ConsoleKeyboard::printKeyboardHelp() const {
     std::cout << "#  : Clear (clear last digit)\n";
     std::cout << "A  : Start/Enter\n";
     std::cout << "B  : Stop/Cancel\n";
+    std::cout << "C  : Liters mode\n";
+    std::cout << "D  : Rubles mode\n";
     std::cout << "====================\n\n";
 }
 
