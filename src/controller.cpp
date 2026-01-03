@@ -505,10 +505,15 @@ void Controller::processNumericInput() {
                 int selection = 0;
                 try {
                     selection = std::stoi(currentInput_);
-                } catch (const std::exception&) {
+                } catch (const std::invalid_argument&) {
                     // Invalid input - clear and let user try again
                     clearInput();
-                    LOG_CTRL_WARN("Invalid direction selection input: {}", currentInput_);
+                    LOG_CTRL_WARN("Invalid direction selection input (not a number): {}", currentInput_);
+                    break;
+                } catch (const std::out_of_range&) {
+                    // Number too large - clear and let user try again
+                    clearInput();
+                    LOG_CTRL_WARN("Invalid direction selection input (out of range): {}", currentInput_);
                     break;
                 }
                 
