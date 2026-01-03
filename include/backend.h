@@ -61,6 +61,7 @@ public:
     double GetPrice() const { return price_; }
     const std::vector<BackendTankInfo>& GetFuelTanks() const { return fuelTanks_; }
     const std::string& GetLastError() const { return lastError_; }
+    int GetLastErrorCode() const { return lastErrorCode_; }
 
 private:
     // Private method for common parsing of responses from the backend
@@ -88,6 +89,7 @@ private:
     
     // Last error message
     std::string lastError_;
+    int lastErrorCode_;
 };
 
 } // namespace fuelflux
