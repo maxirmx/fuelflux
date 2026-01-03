@@ -50,10 +50,11 @@ Backend::~Backend() {
     }
 }
 
-nlohmann::json Backend::HttpRequestWrapper(const std::string& endpoint, 
-                                            const std::string& method,
-                                            const nlohmann::json& requestBody,
-                                            bool useBearerToken) {
+bool Backend::HttpRequestWrapper(const std::string& endpoint, 
+                                 const std::string& method,
+                                 const nlohmann::json& requestBody,
+                                 nlohmann::json& responseOut,
+                                 bool useBearerToken) {
     try {
         // Parse the base URL to extract host and port
         std::string host;
@@ -213,13 +214,16 @@ nlohmann::json Backend::HttpRequestWrapper(const std::string& endpoint,
             if (responseJson.is_object() && responseJson.contains("CodeError")) {
                 int errorCode = responseJson["CodeError"].get<int>();
                 if (errorCode != 0) {
+                    // Backend reported an error - handle gracefully
                     lastErrorCode_ = errorCode;
                     lastError_ = responseJson.value("TextError", UnknownBackendError);
-                    throw std::runtime_error("Backend error");
+                    return false;
                 }
             }
             
-            return responseJson;
+            // Success - return the parsed response
+            responseOut = responseJson;
+            return true;
         } 
         else {
             // HTTP error response
@@ -231,6 +235,7 @@ nlohmann::json Backend::HttpRequestWrapper(const std::string& endpoint,
         }
     } 
     catch (const std::exception& e) {
+        // Internal/unexpected errors - set error state and re-throw
         if (lastError_.empty()) {
             lastError_ = e.what();
         }
@@ -259,7 +264,12 @@ bool Backend::Authorize(const std::string& uid) {
         requestBody["PumpControllerUid"] = controllerUid_;
         
         // Make request
-        nlohmann::json response = HttpRequestWrapper("/api/pump/authorize", "POST", requestBody, false);
+        nlohmann::json response;
+        if (!HttpRequestWrapper("/api/pump/authorize", "POST", requestBody, response, false)) {
+            // Backend reported an error - already logged in lastError_ and lastErrorCode_
+            LOG_BCK_ERROR("Authorization failed with backend error code {}: {}", lastErrorCode_, lastError_);
+            return false;
+        }
         
         // Parse response - validate all fields before updating state
         if (!response.is_object()) {
@@ -353,7 +363,20 @@ bool Backend::Deauthorize() {
         nlohmann::json requestBody = nlohmann::json::object();
         
         // Make request with bearer token
-        nlohmann::json response = HttpRequestWrapper("/api/pump/deauthorize", "POST", requestBody, true);
+        nlohmann::json response;
+        if (!HttpRequestWrapper("/api/pump/deauthorize", "POST", requestBody, response, true)) {
+            // Backend reported an error - already logged in lastError_ and lastErrorCode_
+            LOG_BCK_ERROR("Deauthorization failed with backend error code {}: {}", lastErrorCode_, lastError_);
+            // On failure, clear state anyway since we can't recover from this
+            // The backend may or may not have deauthorized us, so it's safer to clear our state
+            token_.clear();
+            roleId_ = 0;
+            allowance_ = 0.0;
+            price_ = 0.0;
+            fuelTanks_.clear();
+            isAuthorized_ = false;
+            return false;
+        }
         
         // Clear instance variables only after successful deauthorization
         token_.clear();
@@ -444,7 +467,12 @@ bool Backend::Refuel(TankNumber tankNumber, Volume volume) {
 
         LOG_BCK_INFO("Refueling report: tank={}, volume={}, timestamp_ms={}", tankNumber, volume, timestampMs);
 
-        HttpRequestWrapper("/api/pump/refuel", "POST", requestBody, true);
+        nlohmann::json response;
+        if (!HttpRequestWrapper("/api/pump/refuel", "POST", requestBody, response, true)) {
+            // Backend reported an error - already logged in lastError_ and lastErrorCode_
+            LOG_BCK_ERROR("Refuel failed with backend error code {}: {}", lastErrorCode_, lastError_);
+            return false;
+        }
 
         // Decrease remaining allowance by the refueled volume after successful API call.
         allowance_ -= volume;
@@ -525,7 +553,12 @@ bool Backend::Intake(TankNumber tankNumber, Volume volume, IntakeDirection direc
                  static_cast<int>(direction),
                  timestampMs);
 
-        HttpRequestWrapper("/api/pump/fuel-intake", "POST", requestBody, true);
+        nlohmann::json response;
+        if (!HttpRequestWrapper("/api/pump/fuel-intake", "POST", requestBody, response, true)) {
+            // Backend reported an error - already logged in lastError_ and lastErrorCode_
+            LOG_BCK_ERROR("Intake failed with backend error code {}: {}", lastErrorCode_, lastError_);
+            return false;
+        }
 
         lastError_.clear();
         lastErrorCode_ = 0;

@@ -65,11 +65,14 @@ public:
 
 private:
     // Private method for common parsing of responses from the backend
-    // Returns: parsed JSON or throws exception
-    nlohmann::json HttpRequestWrapper(const std::string& endpoint, 
-                                       const std::string& method,
-                                       const nlohmann::json& requestBody,
-                                       bool useBearerToken = false);
+    // Returns: true on success, false on failure (sets lastError_ and lastErrorCode_)
+    // On success, responseOut is populated with the parsed JSON
+    // Throws exception only for internal/unexpected errors
+    bool HttpRequestWrapper(const std::string& endpoint, 
+                            const std::string& method,
+                            const nlohmann::json& requestBody,
+                            nlohmann::json& responseOut,
+                            bool useBearerToken = false);
 
     // Base URL of backend REST API
     std::string baseAPI_;
