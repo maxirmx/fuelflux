@@ -152,7 +152,7 @@ void StateMachine::setupTransitions() {
     transitions_[{SystemState::TankSelection, Event::TankSelected}] = 
         {SystemState::VolumeEntry, [this]() { onTankSelected(); }};
     transitions_[{SystemState::TankSelection, Event::IntakeTankSelected}] = 
-        {SystemState::IntakeVolumeEntry, [this]() { onIntakeSelected(); }};
+        {SystemState::IntakeVolumeEntry, [this]() { onIntakeTankSelected(); }};
     transitions_[{SystemState::TankSelection, Event::CancelPressed}] = 
         {SystemState::Waiting, [this]() { onCancelPressed(); }};
     transitions_[{SystemState::TankSelection, Event::Timeout}] = 
@@ -257,6 +257,10 @@ void StateMachine::onAuthorizationFailed() {
 
 void StateMachine::onTankSelected() {
     LOG_SM_INFO("Tank selected");
+}
+
+void StateMachine::onIntakeTankSelected() {
+    LOG_SM_INFO("Tank selected for intake operation");
 }
 
 void StateMachine::onVolumeEntered() {

@@ -17,13 +17,16 @@ namespace fuelflux {
 constexpr int DIRECTION_SELECTION_IN = 1;
 constexpr int DIRECTION_SELECTION_OUT = 2;
 
+// Default intake direction if not explicitly selected
+constexpr IntakeDirection DEFAULT_INTAKE_DIRECTION = IntakeDirection::In;
+
 Controller::Controller(ControllerId controllerId)
     : controllerId_(std::move(controllerId))
     , stateMachine_(this)
     , backend_(BACKEND_API_URL, CONTROLLER_UID)
     , selectedTank_(0)
     , enteredVolume_(0.0)
-    , selectedIntakeDirection_(IntakeDirection::In)
+    , selectedIntakeDirection_(DEFAULT_INTAKE_DIRECTION)
     , currentRefuelVolume_(0.0)
     , targetRefuelVolume_(0.0)
     , isRunning_(false)
@@ -573,7 +576,7 @@ void Controller::resetSessionData() {
     availableTanks_.clear();
     selectedTank_ = 0;
     enteredVolume_ = 0.0;
-    selectedIntakeDirection_ = IntakeDirection::In;
+    selectedIntakeDirection_ = DEFAULT_INTAKE_DIRECTION;
     currentRefuelVolume_ = 0.0;
     targetRefuelVolume_ = 0.0;
 }

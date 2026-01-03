@@ -54,6 +54,7 @@ private:
     void onAuthorizationFailed();
     void onIntakeDirectionSelected();
     void onTankSelected();
+    void onIntakeTankSelected();
     void onVolumeEntered();
     void onAmountEntered();
     void onRefuelingStarted();
