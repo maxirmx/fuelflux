@@ -519,9 +519,11 @@ void Controller::processNumericInput() {
                 
                 if (selection == DIRECTION_SELECTION_IN) {
                     selectedIntakeDirection_ = IntakeDirection::In;
+                    clearInput();  // Clear input before transitioning to tank selection
                     stateMachine_.processEvent(Event::IntakeDirectionSelected);
                 } else if (selection == DIRECTION_SELECTION_OUT) {
                     selectedIntakeDirection_ = IntakeDirection::Out;
+                    clearInput();  // Clear input before transitioning to tank selection
                     stateMachine_.processEvent(Event::IntakeDirectionSelected);
                 } else {
                     // Invalid selection - clear and let user try again
