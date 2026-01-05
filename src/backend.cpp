@@ -17,6 +17,33 @@ namespace fuelflux {
 // сообщениями об ошибке.
 const std::string StdControllerError = "Ошибка контроллера";
 const std::string StdBackendError = "Ошибка портала";
+constexpr int HttpRequestWrapperErrorCode = -1;
+const std::string HttpRequestWrapperErrorText = "Ошибка связи с сервером";
+
+bool IsErrorResponse(const nlohmann::json& response, std::string* errorText) {
+    if (!response.is_object()) {
+        return false;
+    }
+    const auto codeIt = response.find("CodeError");
+    if (codeIt == response.end() || !codeIt->is_number_integer()) {
+        return false;
+    }
+    const int code = codeIt->get<int>();
+    if (code == 0) {
+        return false;
+    }
+    if (errorText) {
+        *errorText = response.value("TextError", "Неизвестная ошибка");
+    }
+    return true;
+}
+
+nlohmann::json BuildWrapperErrorResponse() {
+    return nlohmann::json{
+        {"CodeError", HttpRequestWrapperErrorCode},
+        {"TextError", HttpRequestWrapperErrorText}
+    };
+}
 
 Backend::Backend(const std::string& baseAPI, const std::string& controllerUid) : 
     baseAPI_(baseAPI),
@@ -126,9 +153,8 @@ nlohmann::json Backend::HttpRequestWrapper(const std::string& endpoint,
             else if (method == "GET") {
                 return client.Get(endpoint.c_str(), headers);
             } 
-            else {
-                throw std::runtime_error("Unsupported HTTP method: " + method);
-            }
+            LOG_BCK_ERROR("Unsupported HTTP method: {}", method);
+            return httplib::Result();
         };
 
         httplib::Result res;
@@ -139,7 +165,8 @@ nlohmann::json Backend::HttpRequestWrapper(const std::string& endpoint,
             res = doRequest(sslClient);
 #else
             std::string err = "HTTPS requested but cpp-httplib built without OpenSSL support";
-            throw std::runtime_error(err);
+            LOG_BCK_ERROR("{}", err);
+            return BuildWrapperErrorResponse();
 #endif
         } else {
             httplib::Client client(host.c_str(), port);
@@ -187,7 +214,8 @@ nlohmann::json Backend::HttpRequestWrapper(const std::string& endpoint,
                     errorMsg += "Unknown error";
                     break;
             }
-            throw std::runtime_error(errorMsg);
+            LOG_BCK_ERROR("{}", errorMsg);
+            return BuildWrapperErrorResponse();
         }
         
         LOG_BCK_DEBUG("Response status: {} body: {}", res->status, res->body);
@@ -206,16 +234,8 @@ nlohmann::json Backend::HttpRequestWrapper(const std::string& endpoint,
                     responseJson = nlohmann::json::parse(res->body);
                 } 
                 catch (const std::exception& e) {
-                    throw std::runtime_error("Failed to parse response JSON: " + std::string(e.what()));
-                }
-            }
-            
-            // Check for application-level errors (200 OK but with error in JSON)
-            if (responseJson.is_object() && responseJson.contains("CodeError")) {
-                int errorCode = responseJson["CodeError"].get<int>();
-                if (errorCode != 0) {
-                    std::string errorText = responseJson.value("TextError", "Unknown error");
-                    throw std::runtime_error("Backend error: " + errorText);
+                    LOG_BCK_ERROR("Failed to parse response JSON: {}", e.what());
+                    return BuildWrapperErrorResponse();
                 }
             }
             
@@ -225,14 +245,13 @@ nlohmann::json Backend::HttpRequestWrapper(const std::string& endpoint,
             // HTTP error response
             std::ostringstream oss;
             oss << "System error, code " << res->status;
-            std::string errorText = oss.str();
-            
-            throw std::runtime_error(errorText);
+            LOG_BCK_ERROR("{}", oss.str());
+            return BuildWrapperErrorResponse();
         }
     } 
     catch (const std::exception& e) {
-        lastError_ = e.what();
-        throw;
+        LOG_BCK_ERROR("HTTP request exception: {}", e.what());
+        return BuildWrapperErrorResponse();
     }
 }
 
@@ -254,6 +273,12 @@ bool Backend::Authorize(const std::string& uid) {
         
         // Make request
         nlohmann::json response = HttpRequestWrapper("/api/pump/authorize", "POST", requestBody, false);
+        std::string responseError;
+        if (IsErrorResponse(response, &responseError)) {
+            LOG_BCK_ERROR("Authorization failed: {}", responseError);
+            lastError_ = responseError;
+            return false;
+        }
         
         // Parse response - validate all fields before updating state
         if (!response.is_object()) {
@@ -338,6 +363,21 @@ bool Backend::Deauthorize() {
         
         // Make request with bearer token
         nlohmann::json response = HttpRequestWrapper("/api/pump/deauthorize", "POST", requestBody, true);
+        std::string responseError;
+        if (IsErrorResponse(response, &responseError)) {
+            // On failure, clear state anyway since we can't recover from this
+            // The backend may or may not have deauthorized us, so it's safer to clear our state
+            token_.clear();
+            roleId_ = 0;
+            allowance_ = 0.0;
+            price_ = 0.0;
+            fuelTanks_.clear();
+            isAuthorized_ = false;
+
+            LOG_BCK_ERROR("Deauthorization failed: {} (state cleared for safety)", responseError);
+            lastError_ = responseError;
+            return false;
+        }
         
         // Clear instance variables only after successful deauthorization
         token_.clear();
@@ -417,7 +457,13 @@ bool Backend::Refuel(TankNumber tankNumber, Volume volume) {
 
         LOG_BCK_INFO("Refueling report: tank={}, volume={}, timestamp_ms={}", tankNumber, volume, timestampMs);
 
-        HttpRequestWrapper("/api/pump/refuel", "POST", requestBody, true);
+        nlohmann::json response = HttpRequestWrapper("/api/pump/refuel", "POST", requestBody, true);
+        std::string responseError;
+        if (IsErrorResponse(response, &responseError)) {
+            LOG_BCK_ERROR("Failed to send refueling report: {}", responseError);
+            lastError_ = responseError;
+            return false;
+        }
 
         // Decrease remaining allowance by the refueled volume after successful API call.
         allowance_ -= volume;
@@ -489,7 +535,13 @@ bool Backend::Intake(TankNumber tankNumber, Volume volume, IntakeDirection direc
                  static_cast<int>(direction),
                  timestampMs);
 
-        HttpRequestWrapper("/api/pump/fuel-intake", "POST", requestBody, true);
+        nlohmann::json response = HttpRequestWrapper("/api/pump/fuel-intake", "POST", requestBody, true);
+        std::string responseError;
+        if (IsErrorResponse(response, &responseError)) {
+            LOG_BCK_ERROR("Failed to send fuel intake report: {}", responseError);
+            lastError_ = responseError;
+            return false;
+        }
 
         lastError_.clear();
         LOG_BCK_INFO("Fuel intake report accepted");
