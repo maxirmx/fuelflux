@@ -343,8 +343,10 @@ void ConsoleFlowMeter::stopMeasurement() {
             // Check if we're on the simulation thread
             if (std::this_thread::get_id() != simulationThread_.get_id()) {
                 simulationThread_.join();
+            } else {
+                // If we're on the simulation thread, detach to avoid leaving a joinable thread
+                simulationThread_.detach();
             }
-            // If we're on the simulation thread, it will exit naturally
         }
         
         shouldStop_ = false;
