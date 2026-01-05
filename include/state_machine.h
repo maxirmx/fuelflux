@@ -7,6 +7,7 @@
 #include <thread>
 #include <atomic>
 #include <mutex>
+#include <string>
 
 namespace fuelflux {
 
@@ -31,12 +32,16 @@ public:
     void initialize();
     bool processEvent(Event event);
     SystemState getCurrentState() const { std::scoped_lock lock(mutex_); return currentState_; }
+    std::string getStateLine1() const { std::scoped_lock lock(mutex_); return stateLine1_; }
     
     // State queries
     bool isInState(SystemState state) const { std::scoped_lock lock(mutex_); return currentState_ == state; }
     
     // Reset to initial state
     void reset();
+    
+    // Reset inactivity timer (call on user activity)
+    void updateActivityTime();
 
 private:
     // State transition table
@@ -48,15 +53,14 @@ private:
     
     // Transition actions
     void onCardPresented();
+    void onPinEntryStarted();
     void onPinEntered();
     void onAuthorizationSuccess();
     void onAuthorizationFailed();
     void onTankSelected();
     void onVolumeEntered();
-    void onAmountEntered();
     void onRefuelingStarted();
     void onRefuelingStopped();
-    void onRefuelingComplete();
     void onIntakeSelected();
     void onIntakeVolumeEntered();
     void onIntakeComplete();
@@ -68,6 +72,7 @@ private:
     Controller* controller_;
     SystemState currentState_;
     SystemState previousState_;
+    std::string stateLine1_;
     
     // Transition table: (current_state, event) -> (next_state, action)
     std::unordered_map<std::pair<SystemState, Event>, 
@@ -78,7 +83,6 @@ private:
     static constexpr std::chrono::seconds TIMEOUT_DURATION{30};
     
     bool isTimeoutEnabled() const;
-    void updateActivityTime();
 
     // Concurrency
     mutable std::recursive_mutex mutex_;
