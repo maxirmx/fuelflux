@@ -3,6 +3,7 @@
 // This file is a part of fuelflux application
 
 #include "controller.h"
+#include "console_emulator.h"
 #include "config.h"
 #include "logger.h"
 #include <sstream>
@@ -203,13 +204,26 @@ void Controller::handleCardPresented(const UserId& userId) {
 void Controller::handlePumpStateChanged(bool isRunning) {
     LOG_CTRL_INFO("Pump state changed: {}", isRunning ? "Running" : "Stopped");
     
-    if (isRunning && stateMachine_.isInState(SystemState::Refueling)) {
+    if (isRunning) {
         if (flowMeter_) {
-            flowMeter_->startMeasurement();
             flowMeter_->resetCounter();
+            flowMeter_->startMeasurement();
+            
+            // For console emulator, automatically start the flow simulation
+            // This is safe because the interface doesn't expose simulateFlow, 
+            // so we need to cast to the concrete type for console emulation
+            auto* consoleFlowMeter = dynamic_cast<ConsoleFlowMeter*>(flowMeter_.get());
+            if (consoleFlowMeter && targetRefuelVolume_ > 0.0) {
+                LOG_CTRL_INFO("Starting automatic flow simulation for {} liters", targetRefuelVolume_);
+                consoleFlowMeter->simulateFlow(targetRefuelVolume_);
+            } else if (consoleFlowMeter) {
+                LOG_CTRL_WARN("Target volume is {}, cannot start flow simulation", targetRefuelVolume_);
+            } else {
+                LOG_CTRL_DEBUG("Using hardware flow meter (not console emulator)");
+            }
         }
         refuelStartTime_ = std::chrono::steady_clock::now();
-    } else if (!isRunning && stateMachine_.isInState(SystemState::Refueling)) {
+    } else if (!isRunning) {
         if (flowMeter_) {
             flowMeter_->stopMeasurement();
         }
@@ -225,7 +239,6 @@ void Controller::handleFlowUpdate(Volume currentVolume) {
         if (pump_) {
             pump_->stop();
         }
-        postEvent(Event::RefuelingComplete);
     }
     
     updateDisplay();

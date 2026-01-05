@@ -297,7 +297,7 @@ ConsoleFlowMeter::ConsoleFlowMeter()
     , isMeasuring_(false)
     , currentVolume_(0.0)
     , totalVolume_(0.0)
-    , flowRate_(2.0) // 2 liters per second default
+    , flowRate_(5.0) // 5 liters per second as per requirement
     , shouldStop_(false)
 {
 }
@@ -327,13 +327,29 @@ bool ConsoleFlowMeter::isConnected() const {
 void ConsoleFlowMeter::startMeasurement() {
     if (!isConnected_) return;
     
-    isMeasuring_ = true;
-    std::cout << "[FlowMeter] Started measurement" << std::endl;
+    bool wasAlreadyMeasuring = isMeasuring_.exchange(true);
+    if (!wasAlreadyMeasuring) {
+        std::cout << "[FlowMeter] Started measurement at " << flowRate_ << " L/s" << std::endl;
+    }
 }
 
 void ConsoleFlowMeter::stopMeasurement() {
-    isMeasuring_ = false;
-    std::cout << "[FlowMeter] Stopped measurement" << std::endl;
+    bool wasMeasuring = isMeasuring_.exchange(false);
+    if (wasMeasuring) {
+        shouldStop_ = true;
+        
+        // Only join if we're not being called from the simulation thread itself
+        if (simulationThread_.joinable()) {
+            // Check if we're on the simulation thread
+            if (std::this_thread::get_id() != simulationThread_.get_id()) {
+                simulationThread_.join();
+            }
+            // If we're on the simulation thread, it will exit naturally
+        }
+        
+        shouldStop_ = false;
+        std::cout << "[FlowMeter] Stopped measurement" << std::endl;
+    }
 }
 
 void ConsoleFlowMeter::resetCounter() {
@@ -361,29 +377,66 @@ void ConsoleFlowMeter::setFlowCallback(FlowCallback callback) {
 }
 
 void ConsoleFlowMeter::simulateFlow(Volume targetVolume) {
+    // Stop any existing simulation thread first
+    shouldStop_ = true;
     if (simulationThread_.joinable()) {
         simulationThread_.join();
     }
     
+    // Reset the stop flag and start new simulation
     shouldStop_ = false;
+    
+    // Ensure measurement is active
+    isMeasuring_ = true;
+    
+    // Create and start the simulation thread
     simulationThread_ = std::thread(&ConsoleFlowMeter::simulationThreadFunction, this, targetVolume);
+    
+    std::cout << "[FlowMeter] Simulation thread started for target: " << std::fixed 
+              << std::setprecision(2) << targetVolume << " L" << std::endl;
 }
 
 void ConsoleFlowMeter::simulationThreadFunction(Volume targetVolume) {
     const auto updateInterval = std::chrono::milliseconds(100);
-    const Volume volumePerUpdate = flowRate_ * 0.1; // 100ms updates
+    const Volume volumePerUpdate = flowRate_ * 0.1; // 100ms updates = 0.1 seconds
     
-    while (!shouldStop_ && isMeasuring_) {
+    std::cout << "[FlowMeter] Simulation thread running - Target: " << std::fixed << std::setprecision(2) 
+              << targetVolume << " L at " << flowRate_ << " L/s" << std::endl;
+    std::cout << "[FlowMeter] Volume per update: " << volumePerUpdate << " L" << std::endl;
+    
+    int updateCount = 0;
+    
+    while (!shouldStop_) {
+        // Check if measurement is still active
+        if (!isMeasuring_) {
+            std::cout << "[FlowMeter] Measurement stopped, exiting simulation thread" << std::endl;
+            break;
+        }
+        
+        Volume currentVol;
         {
             std::lock_guard<std::mutex> lock(volumeMutex_);
-            if (currentVolume_ >= targetVolume) {
-                break;
-            }
+            currentVol = currentVolume_;
         }
+        
+        // Check if we've reached the target
+        if (currentVol >= targetVolume) {
+            std::cout << "[FlowMeter] Target volume reached: " << std::fixed << std::setprecision(2) 
+                      << currentVol << " L after " << updateCount << " updates" << std::endl;
+            break;
+        }
+        
+        // Sleep before updating
         std::this_thread::sleep_for(updateInterval);
 
-        if (!isMeasuring_) break;
+        // Check flags again after sleep
+        if (!isMeasuring_ || shouldStop_) {
+            std::cout << "[FlowMeter] Stopping: isMeasuring=" << isMeasuring_.load() 
+                      << ", shouldStop=" << shouldStop_ << std::endl;
+            break;
+        }
 
+        // Update volume
         Volume newVolume;
         {
             std::lock_guard<std::mutex> lock(volumeMutex_);
@@ -392,27 +445,24 @@ void ConsoleFlowMeter::simulationThreadFunction(Volume targetVolume) {
             totalVolume_ += volumePerUpdate;
         }
 
+        // Notify callback - but don't call stopMeasurement from within callback!
         notifyFlowUpdate();
         
+        updateCount++;
+        
+        // Print progress every update
         std::cout << "[FlowMeter] Volume: " << std::fixed << std::setprecision(2) 
-                  << newVolume << " L" << std::endl;
+                  << newVolume << " L / " << targetVolume << " L (" << updateCount << ")" << std::endl;
     }
     
-    {
-        std::lock_guard<std::mutex> lock(volumeMutex_);
-        if (currentVolume_ >= targetVolume) {
-            std::cout << "[FlowMeter] Target volume reached: " << targetVolume << " L" << std::endl;
-        }
-    }
+    std::cout << "[FlowMeter] Simulation thread exiting" << std::endl;
 }
 
 void ConsoleFlowMeter::notifyFlowUpdate() {
     Volume current;
-    Volume total;
     {
         std::lock_guard<std::mutex> lock(volumeMutex_);
         current = currentVolume_;
-        total = totalVolume_;
     }
     std::lock_guard<std::mutex> lock(callbackMutex_);
     if (flowCallback_) {
@@ -516,18 +566,18 @@ void ConsoleEmulator::printWelcome() const {
 void ConsoleEmulator::printHelp() const {
     std::cout << "=== CONSOLE COMMANDS ===\n";
     std::cout << "card <user_id>  : Simulate card presentation\n";
-    std::cout << "flow <volume>   : Simulate fuel flow\n";
-    std::cout << "keymode        : Switch to key input mode\n";
-    std::cout << "help           : Show this help\n";
-    std::cout << "quit           : Exit application\n";
+    std::cout << "flow <volume>   : Manually simulate fuel flow (for testing)\n";
+    std::cout << "keymode         : Switch to key input mode\n";
+    std::cout << "help            : Show this help\n";
+    std::cout << "quit/exit       : Exit application\n";
     std::cout << "\n=== MODE SWITCHING ===\n";
-    std::cout << "Tab            : Switch between command/key modes\n";
-    std::cout << "  Command mode : Type full commands, press Enter\n";
-    std::cout << "  Key mode     : Press individual keys (A, B, 0-9, *, #)\n";
-    std::cout << "\nTest Users:\n";
-    std::cout << "  1111-1111-1111-1111 (Operator)\n";
-    std::cout << "  2222-2222-2222-2222 (Customer)\n";
-    std::cout << "  3333-3333-3333-3333 (Controller)\n";
+    std::cout << "Tab             : Switch between command/key modes\n";
+    std::cout << "  Command mode  : Type full commands, press Enter\n";
+    std::cout << "  Key mode      : Press individual keys (A, B, 0-9, *, #)\n";
+    std::cout << "\n=== AUTOMATIC FLOW ===\n";
+    std::cout << "When refueling starts, flow automatically runs at 5 L/s\n";
+    std::cout << "until target volume is reached or Cancel (B) is pressed.\n";
+    std::cout << "The 'flow' command is for manual testing only.\n";
     std::cout << "========================\n\n";
 }
 
@@ -543,6 +593,7 @@ void ConsoleEmulator::processCommand(const std::string& command) {
             simulateCard(userId);
         } else {
             std::cout << "Usage: card <user_id>\n";
+            std::cout << "Example: card 2222-2222-2222-2222\n";
         }
     } else if (cmd == "flow") {
         std::string volumeStr;
@@ -550,21 +601,29 @@ void ConsoleEmulator::processCommand(const std::string& command) {
         if (!volumeStr.empty()) {
             try {
                 Volume volume = std::stod(volumeStr);
-                if (flowMeter_) {
-                    flowMeter_->simulateFlow(volume);
+                if (volume > 0.0) {
+                    if (flowMeter_) {
+                        std::cout << "[Command] Manually triggering flow simulation for " 
+                                  << volume << " L\n";
+                        flowMeter_->simulateFlow(volume);
+                    } else {
+                        std::cout << "Flow meter not available\n";
+                    }
+                } else {
+                    std::cout << "Volume must be positive\n";
                 }
-            } catch (const std::exception&) {
-                std::cout << "Invalid volume: " << volumeStr << std::endl;
+            } catch (const std::exception& e) {
+                std::cout << "Invalid volume: " << volumeStr << " (" << e.what() << ")\n";
             }
         } else {
             std::cout << "Usage: flow <volume>\n";
+            std::cout << "Example: flow 30\n";
+            std::cout << "Note: During normal operation, flow starts automatically when refueling begins.\n";
         }
     } else if (cmd == "help") {
         printHelp();
-    } else if (cmd == "quit" || cmd == "exit") {
-        // Handled by main loop
     } else if (!cmd.empty()) {
-        std::cout << "Unknown command: " << cmd << std::endl;
+        std::cout << "Unknown command: " << cmd << "\n";
         printAvailableCommands();
     }
 }
@@ -578,7 +637,8 @@ void ConsoleEmulator::simulateCard(const UserId& userId) {
 }
 
 void ConsoleEmulator::printAvailableCommands() const {
-    std::cout << "Available commands: card, flow, help, quit\n";
+    std::cout << "Available commands: card, flow, keymode, help, quit\n";
+    std::cout << "Type 'help' for detailed information\n";
 }
 
 } // namespace fuelflux

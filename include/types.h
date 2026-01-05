@@ -57,7 +57,6 @@ enum class Event {
     AmountEntered,
     RefuelingStarted,
     RefuelingStopped,
-    RefuelingComplete,
     IntakeSelected,
     IntakeVolumeEntered,
     IntakeComplete,

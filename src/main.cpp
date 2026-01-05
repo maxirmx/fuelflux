@@ -39,7 +39,7 @@ static std::string trim(const std::string& s) {
 }
 
 // Dispatcher: Explicit mode switching with Tab key
-void inputDispatcher(ConsoleEmulator& emulator, Controller& controller) {
+void inputDispatcher(ConsoleEmulator& emulator) {
 #ifndef _WIN32
     struct termios origTerm{};
     bool haveTerm = (tcgetattr(STDIN_FILENO, &origTerm) == 0);
@@ -99,8 +99,6 @@ void inputDispatcher(ConsoleEmulator& emulator, Controller& controller) {
     switchMode(InputMode::Command);
 
     while (g_running) {
-        SystemState state = controller.getStateMachine().getCurrentState();
-
         if (currentMode == InputMode::Command) {
             // Command mode: accept commands with Enter to execute
 #ifndef _WIN32
@@ -125,32 +123,20 @@ void inputDispatcher(ConsoleEmulator& emulator, Controller& controller) {
                 continue;
             }
             
-            // Parse command
-            std::istringstream iss(line);
-            std::string cmd;
-            iss >> cmd;
-            
-            if (cmd == "quit" || cmd == "exit") {
-                g_running = false;
-                break;
-            } else if (cmd == "help") {
-                emulator.printHelp();
-            } else if (cmd == "key" || cmd == "keymode") {
+            // Check only for mode switch command here, everything else goes to emulator
+            if (line == "key" || line == "keymode") {
                 switchMode(InputMode::Key);
                 continue;
-            } else if (cmd == "card") {
-                std::string userId;
-                iss >> userId;
-                if (!userId.empty()) {
-                    emulator.processCommand(line);
-                } else {
-                    std::cout << "Usage: card <user_id>\n";
-                }
-            } else {
-                std::cout << "Unknown command: " << cmd << "\n";
-                std::cout << "Type 'help' for available commands\n";
-                std::cout << "Type 'keymode' to switch to key mode\n";
             }
+            else if (line == "quit" || line == "exit") {
+                g_running = false;
+                break;
+            }
+            
+            // Let ConsoleEmulator handle ALL other commands including quit/exit
+            emulator.processCommand(line);
+           
+            
             printPrompt();
             
         } else {
@@ -179,7 +165,7 @@ void inputDispatcher(ConsoleEmulator& emulator, Controller& controller) {
                         std::cout << "\n[Key mode: Press 'A' to confirm, not Enter]\n" << std::flush;
                         continue;
                     }
-                    // Forward raw key directly to keyboard (bypass processKeyboardInput)
+                    // Forward raw key directly to keyboard
                     emulator.dispatchKey(c);
                 }
             }
@@ -202,7 +188,7 @@ void inputDispatcher(ConsoleEmulator& emulator, Controller& controller) {
                         std::cout << "\n[Key mode: Press 'A' to confirm, not Enter]\n" << std::flush;
                         continue;
                     }
-                    // Forward raw key directly to keyboard (bypass processKeyboardInput)
+                    // Forward raw key directly to keyboard
                     emulator.dispatchKey(c);
                 }
             }
@@ -220,7 +206,7 @@ void inputDispatcher(ConsoleEmulator& emulator, Controller& controller) {
 #endif
 }
 
-int main(int argc [[maybe_unused]], char* argv[] [[maybe_unused]] ) {
+int main(int /*argc*/, char* /*argv*/[] ) {
     // Setup signal handlers for graceful shutdown
     signal(SIGINT, signalHandler);
     signal(SIGTERM, signalHandler);
@@ -281,7 +267,7 @@ int main(int argc [[maybe_unused]], char* argv[] [[maybe_unused]] ) {
         std::cout << "[Main] Type 'help' for available commands" << std::endl;
         
         // Start input dispatcher thread (handles both command and key modes)
-        std::thread inputThread(inputDispatcher, std::ref(emulator), std::ref(controller));
+        std::thread inputThread(inputDispatcher, std::ref(emulator));
         
         // Start controller main loop in a separate thread
         std::thread controllerThread([&controller]() {
