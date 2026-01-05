@@ -405,7 +405,7 @@ TEST_F(BackendTest, TimeoutErrorHandling) {
     // Setup a server that doesn't respond
     mockServer->handleAuthorize = [](const httplib::Request& req [[maybe_unused]], httplib::Response& res) {
         // Simulate slow response that will timeout
-        std::this_thread::sleep_for(std::chrono::seconds(15));
+        std::this_thread::sleep_for(std::chrono::seconds(11));
         res.status = 200;
         res.set_content("null", "application/json");
     };
