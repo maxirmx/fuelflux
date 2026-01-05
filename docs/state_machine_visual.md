@@ -183,7 +183,7 @@ Legend:
 - N/A = Not applicable in this state
 
 **Key Mapping Notes:**
-- 'A' key = Start/Enter (in console emulator, physical Enter key is mapped to 'A')
+- 'A' key = Start/Enter (in console emulator, physical Enter key is NOT mapped and is ignored in key mode)
 - 'B' key = Stop/Cancel
 - '#' key = Clear (backspace)
 - '*' key = Max (set to maximum allowance)
