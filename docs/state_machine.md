@@ -149,9 +149,8 @@ A 30-second inactivity timeout is active in these states:
 
 Timeout is **disabled** in:
 - `Waiting` (no timeout needed)
-- `Authorization` (backend operation)
+- `Authorization` (backend operation - timeout event is ignored)
 - `Refueling` (active operation)
-- `Error` (requires manual intervention)
 
 When timeout occurs: session ends, returns to `Waiting`
 

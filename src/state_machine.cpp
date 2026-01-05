@@ -439,7 +439,8 @@ void StateMachine::timeoutThreadFunction() {
         }
 
         // If timeouts are disabled for this state, skip checking (no lock held here)
-        // Only Waiting and Refueling states have timeout disabled
+        // Waiting and Refueling states have timeout checking disabled here.
+        // Authorization state has timeout checking enabled but ignores timeout events (noOp transition).
         if (stateCopy == SystemState::Waiting ||
             stateCopy == SystemState::Refueling) {
             continue;
