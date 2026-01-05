@@ -89,8 +89,8 @@ jobs:
               apt-get update
               apt-get install -y --no-install-recommends \
                 build-essential cmake ninja-build g++ ca-certificates git libssl-dev
-              for d in \$(find /work/build-armhf/_deps -type d -name .git); do 
-                git config --global --add safe.directory "\$(dirname "\$d")"; 
+              for d in $(find /work/build-armhf/_deps -type d -name .git); do 
+                git config --global --add safe.directory \"$(dirname $d)\"; 
               done
               mkdir -p build-armhf
               cd build-armhf
