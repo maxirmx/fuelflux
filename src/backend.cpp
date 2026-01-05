@@ -117,7 +117,9 @@ nlohmann::json Backend::HttpRequestWrapper(const std::string& endpoint,
                     portPos = bracketEnd + 1;
                 }
             } else {
-                host = urlToParse.substr(1); // Malformed, but try to parse
+                // Malformed IPv6 address - missing closing bracket
+                LOG_BCK_WARN("Malformed IPv6 address in URL: {}", urlToParse);
+                host = urlToParse.substr(1); // Try to use what we have
             }
         } else {
             // IPv4 or hostname - look for port after last colon before path
@@ -150,6 +152,12 @@ nlohmann::json Backend::HttpRequestWrapper(const std::string& endpoint,
         } 
         else if (!isIPv6 && host.empty()) {
             host = urlToParse;
+        }
+        
+        // Validate that we have a host
+        if (host.empty()) {
+            LOG_BCK_ERROR("Failed to parse host from URL: {}", baseAPI_);
+            return {false, "Invalid URL: could not extract host", nlohmann::json::object()};
         }
         
         LOG_BCK_DEBUG("Connecting to {}:{} for endpoint: {} (scheme={})", host, port, endpoint, scheme);
