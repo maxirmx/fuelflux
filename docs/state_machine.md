@@ -149,7 +149,7 @@ A 30-second inactivity timeout is active in these states:
 
 Timeout is **disabled** in:
 - `Waiting` (no timeout needed)
-- `Authorization` (backend operation - timeout event is ignored)
+- `Authorization` (backend operation)
 - `Refueling` (active operation)
 
 When timeout occurs: session ends, returns to `Waiting`
@@ -291,8 +291,6 @@ In the console emulator (for testing), the following key mappings apply:
 **Important:** When using the console emulator:
 - In **Command Mode** (Waiting state): Type full commands like `card 2222-2222-2222-2222`
 - In **Key Mode** (all other states): Press individual keys
-  - Physical Enter key is **NOT** mapped and is ignored; press 'A' to confirm
-  - This requires explicit 'A' key press: type digits then press 'A' to confirm
 
 ### Example Usage
 
