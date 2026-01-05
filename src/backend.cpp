@@ -157,7 +157,7 @@ nlohmann::json Backend::HttpRequestWrapper(const std::string& endpoint,
         // Validate that we have a host
         if (host.empty()) {
             LOG_BCK_ERROR("Failed to parse host from URL: {}", baseAPI_);
-            return {false, "Invalid URL: could not extract host", nlohmann::json::object()};
+            return BuildWrapperErrorResponse();
         }
         
         LOG_BCK_DEBUG("Connecting to {}:{} for endpoint: {} (scheme={})", host, port, endpoint, scheme);
