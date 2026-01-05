@@ -327,9 +327,9 @@ bool ConsoleFlowMeter::isConnected() const {
 void ConsoleFlowMeter::startMeasurement() {
     if (!isConnected_) return;
     
-    std::lock_guard<std::mutex> lock(volumeMutex_);
-    bool wasAlreadyMeasuring = isMeasuring_.exchange(true);
-    if (!wasAlreadyMeasuring) {
+    // Use atomic compare_exchange to ensure only one thread prints the message
+    bool expected = false;
+    if (isMeasuring_.compare_exchange_strong(expected, true)) {
         std::cout << "[FlowMeter] Started measurement at " << flowRate_ << " L/s" << std::endl;
     }
 }
@@ -389,8 +389,8 @@ void ConsoleFlowMeter::simulateFlow(Volume targetVolume) {
     // Reset the stop flag and start new simulation
     shouldStop_ = false;
     
-    // Ensure measurement is active
-    isMeasuring_ = true;
+    // Ensure measurement is active using atomic store
+    isMeasuring_.store(true);
     
     // Create and start the simulation thread
     simulationThread_ = std::thread(&ConsoleFlowMeter::simulationThreadFunction, this, targetVolume);

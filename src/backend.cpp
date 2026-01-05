@@ -106,7 +106,7 @@ nlohmann::json Backend::HttpRequestWrapper(const std::string& endpoint,
         size_t pathPos = urlToParse.find('/');
         bool isIPv6 = false;
         
-        if (urlToParse[0] == '[') {
+        if (!urlToParse.empty() && urlToParse[0] == '[') {
             // IPv6 address in brackets
             isIPv6 = true;
             size_t bracketEnd = urlToParse.find(']');
