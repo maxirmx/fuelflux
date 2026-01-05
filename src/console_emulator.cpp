@@ -327,6 +327,7 @@ bool ConsoleFlowMeter::isConnected() const {
 void ConsoleFlowMeter::startMeasurement() {
     if (!isConnected_) return;
     
+    std::lock_guard<std::mutex> lock(volumeMutex_);
     bool wasAlreadyMeasuring = isMeasuring_.exchange(true);
     if (!wasAlreadyMeasuring) {
         std::cout << "[FlowMeter] Started measurement at " << flowRate_ << " L/s" << std::endl;
