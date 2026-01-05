@@ -34,7 +34,6 @@ public:
     
     // State queries
     bool isInState(SystemState state) const { std::scoped_lock lock(mutex_); return currentState_ == state; }
-    bool canProcessEvent(Event event) const;
     
     // Reset to initial state
     void reset();
