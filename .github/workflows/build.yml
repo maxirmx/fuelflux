@@ -59,6 +59,7 @@ jobs:
           if-no-files-found: error
 
   build-armhf:
+    if: ${{ github.event_name == 'push' }}
     name: Build Ubuntu ARMhf (Docker + QEMU, Ubuntu 22.04)
     runs-on: ubuntu-latest
 
