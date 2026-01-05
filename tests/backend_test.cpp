@@ -102,7 +102,7 @@ protected:
     }
 
     void setupSuccessfulAuthorizeResponse() {
-        mockServer->handleAuthorize = [](const httplib::Request& req, httplib::Response& res) {
+        mockServer->handleAuthorize = [](const httplib::Request& req [[maybe_unused]], httplib::Response& res) {
             nlohmann::json response;
             response["Token"] = "test-token-12345";
             response["RoleId"] = 1;  // Customer
@@ -118,7 +118,7 @@ protected:
     }
 
     void setupFailedAuthorizeResponse() {
-        mockServer->handleAuthorize = [](const httplib::Request& req, httplib::Response& res) {
+        mockServer->handleAuthorize = [](const httplib::Request& req [[maybe_unused]], httplib::Response& res) {
             nlohmann::json response;
             response["CodeError"] = 1;
             response["TextError"] = "Invalid card";
@@ -129,21 +129,21 @@ protected:
     }
 
     void setupSuccessfulDeauthorizeResponse() {
-        mockServer->handleDeauthorize = [](const httplib::Request& req, httplib::Response& res) {
+        mockServer->handleDeauthorize = [](const httplib::Request& req [[maybe_unused]], httplib::Response& res) {
             res.status = 200;
             res.set_content("null", "application/json");
         };
     }
 
     void setupSuccessfulRefuelResponse() {
-        mockServer->handleRefuel = [](const httplib::Request& req, httplib::Response& res) {
+        mockServer->handleRefuel = [](const httplib::Request& req [[maybe_unused]], httplib::Response& res) {
             res.status = 200;
             res.set_content("null", "application/json");
         };
     }
 
     void setupSuccessfulIntakeResponse() {
-        mockServer->handleFuelIntake = [](const httplib::Request& req, httplib::Response& res) {
+        mockServer->handleFuelIntake = [](const httplib::Request& req [[maybe_unused]], httplib::Response& res) {
             res.status = 200;
             res.set_content("null", "application/json");
         };
@@ -297,7 +297,7 @@ TEST_F(BackendTest, RefuelExceedingAllowance) {
 // Test successful fuel intake for operator
 TEST_F(BackendTest, IntakeSuccess) {
     // Setup operator authorization
-    mockServer->handleAuthorize = [](const httplib::Request& req, httplib::Response& res) {
+    mockServer->handleAuthorize = [](const httplib::Request& req [[maybe_unused]], httplib::Response& res) {
         nlohmann::json response;
         response["Token"] = "operator-token";
         response["RoleId"] = 2;  // Operator
@@ -343,7 +343,7 @@ TEST_F(BackendTest, IntakeWithoutAuthorization) {
 // Test intake with invalid tank
 TEST_F(BackendTest, IntakeInvalidTank) {
     // Setup operator authorization
-    mockServer->handleAuthorize = [](const httplib::Request& req, httplib::Response& res) {
+    mockServer->handleAuthorize = [](const httplib::Request& req [[maybe_unused]], httplib::Response& res) {
         nlohmann::json response;
         response["Token"] = "operator-token";
         response["RoleId"] = 2;  // Operator
@@ -367,7 +367,7 @@ TEST_F(BackendTest, IntakeInvalidTank) {
 // Test intake with negative volume
 TEST_F(BackendTest, IntakeNegativeVolume) {
     // Setup operator authorization
-    mockServer->handleAuthorize = [](const httplib::Request& req, httplib::Response& res) {
+    mockServer->handleAuthorize = [](const httplib::Request& req [[maybe_unused]], httplib::Response& res) {
         nlohmann::json response;
         response["Token"] = "operator-token";
         response["RoleId"] = 2;  // Operator

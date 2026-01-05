@@ -37,7 +37,6 @@ enum class SystemState {
     Authorization,
     TankSelection,
     VolumeEntry,
-    AmountEntry,
     Refueling,
     RefuelingComplete,
     FuelIntake,
@@ -73,9 +72,7 @@ enum class KeyCode {
     KeyMax = '*',     // Maximum volume/amount
     KeyClear = '#',   // Clear last digit
     KeyStart = 'A',   // Start/Enter
-    KeyStop = 'B',    // Stop/Cancel
-    KeyLiters = 'C',  // Switch to liters mode
-    KeyRubles = 'D'   // Switch to rubles mode
+    KeyStop  = 'B'    // Stop/Cancel
 };
 
 // User information

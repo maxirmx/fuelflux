@@ -292,21 +292,7 @@ void Controller::removeLastDigit() {
 }
 
 void Controller::setMaxValue() {
-    switch (stateMachine_.getCurrentState()) {
-        case SystemState::VolumeEntry:
-            if (currentUser_.role == UserRole::Customer) {
-                currentInput_ = std::to_string(static_cast<int>(currentUser_.allowance));
-            }
-            break;
-        case SystemState::AmountEntry:
-            if (currentUser_.role == UserRole::Customer && currentUser_.price > 0.0) {
-                Amount maxAmount = currentUser_.allowance * currentUser_.price;
-                currentInput_ = std::to_string(static_cast<int>(maxAmount));
-            }
-            break;
-        default:
-            break;
-    }
+    currentInput_ = std::to_string(static_cast<int>(currentUser_.allowance));
     updateDisplay();
 }
 

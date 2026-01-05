@@ -6,5 +6,5 @@
 
 #include <string>
 
-const std::string CONTROLLER_UID = "232390330480218";   // 0xD35B9718F65A
+const std::string CONTROLLER_UID = "232390330480218";  
 const std::string BACKEND_API_URL = "http://ttft.uxp.ru";

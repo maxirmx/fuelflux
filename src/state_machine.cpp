@@ -119,18 +119,13 @@ void StateMachine::reset() {
 
 void StateMachine::setupTransitions() {
     // From Waiting state
-    transitions_[{SystemState::Waiting, Event::CardPresented}] = 
-        {SystemState::Authorization, [this]() { onCardPresented(); }};
-    transitions_[{SystemState::Waiting, Event::PinEntered}] = 
-        {SystemState::Authorization, [this]() { onPinEntered(); }};
+    transitions_[{SystemState::Waiting, Event::CardPresented}]  = {SystemState::Authorization, [this]() { onCardPresented(); }};
+    transitions_[{SystemState::Waiting, Event::PinEntered}]     = {SystemState::Authorization, [this]() { onPinEntered();    }};
 
     // From PinEntry state
-    transitions_[{SystemState::PinEntry, Event::PinEntered}] = 
-        {SystemState::Authorization, [this]() { onPinEntered(); }};
-    transitions_[{SystemState::PinEntry, Event::CancelPressed}] = 
-        {SystemState::Waiting, [this]() { onCancelPressed(); }};
-    transitions_[{SystemState::PinEntry, Event::Timeout}] = 
-        {SystemState::Waiting, [this]() { onTimeout(); }};
+    transitions_[{SystemState::PinEntry, Event::PinEntered}]    = {SystemState::Authorization, [this]() { onPinEntered();    }};
+    transitions_[{SystemState::PinEntry, Event::CancelPressed}] = {SystemState::Waiting,       [this]() { onCancelPressed(); }};
+    transitions_[{SystemState::PinEntry, Event::Timeout}]       = {SystemState::Waiting,       [this]() { onTimeout();       }};
 
     // From Authorization state
     transitions_[{SystemState::Authorization, Event::AuthorizationSuccess}] = 
@@ -151,21 +146,9 @@ void StateMachine::setupTransitions() {
     // From VolumeEntry state
     transitions_[{SystemState::VolumeEntry, Event::VolumeEntered}] = 
         {SystemState::Refueling, [this]() { onVolumeEntered(); }};
-    transitions_[{SystemState::VolumeEntry, Event::AmountEntered}] = 
-        {SystemState::Refueling, [this]() { onAmountEntered(); }};
     transitions_[{SystemState::VolumeEntry, Event::CancelPressed}] = 
         {SystemState::Waiting, [this]() { onCancelPressed(); }};
     transitions_[{SystemState::VolumeEntry, Event::Timeout}] = 
-        {SystemState::Waiting, [this]() { onTimeout(); }};
-
-    // From AmountEntry state
-    transitions_[{SystemState::AmountEntry, Event::AmountEntered}] = 
-        {SystemState::Refueling, [this]() { onAmountEntered(); }};
-    transitions_[{SystemState::AmountEntry, Event::VolumeEntered}] = 
-        {SystemState::Refueling, [this]() { onVolumeEntered(); }};
-    transitions_[{SystemState::AmountEntry, Event::CancelPressed}] = 
-        {SystemState::Waiting, [this]() { onCancelPressed(); }};
-    transitions_[{SystemState::AmountEntry, Event::Timeout}] = 
         {SystemState::Waiting, [this]() { onTimeout(); }};
 
     // From Refueling state
@@ -206,7 +189,7 @@ void StateMachine::setupTransitions() {
 
     // Global error transitions
     for (auto state : {SystemState::Waiting, SystemState::PinEntry, SystemState::Authorization,
-                      SystemState::TankSelection, SystemState::VolumeEntry, SystemState::AmountEntry,
+                      SystemState::TankSelection, SystemState::VolumeEntry,
                       SystemState::Refueling, SystemState::RefuelingComplete, SystemState::IntakeVolumeEntry,
                       SystemState::IntakeComplete}) {
         transitions_[{state, Event::Error}] = 

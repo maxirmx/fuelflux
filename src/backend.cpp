@@ -98,8 +98,10 @@ nlohmann::json Backend::HttpRequestWrapper(const std::string& endpoint,
         LOG_BCK_DEBUG("Connecting to {}:{} for endpoint: {} (scheme={})", host, port, endpoint, scheme);
         
         // Prepare headers
-        httplib::Headers headers = {
-            {"Content-Type", "application/json"}
+        httplib::Headers headers= {
+            {"User-Agent", "fuelflux/0.1.0"},
+            {"Accept", "*/*"},
+			{"Host", "ttft.uxp.ru"}
         };
         
         if (useBearerToken && !token_.empty()) {
@@ -116,6 +118,7 @@ nlohmann::json Backend::HttpRequestWrapper(const std::string& endpoint,
             client.set_connection_timeout(5, 0); // 5 seconds
             client.set_read_timeout(10, 0);      // 10 seconds
             client.set_write_timeout(10, 0);     // 10 seconds
+            client.set_keep_alive(true);
 
             if (method == "POST") {
                 return client.Post(endpoint.c_str(), headers, bodyStr, "application/json");
