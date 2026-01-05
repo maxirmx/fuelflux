@@ -125,10 +125,16 @@ nlohmann::json Backend::HttpRequestWrapper(const std::string& endpoint,
         LOG_BCK_DEBUG("Connecting to {}:{} for endpoint: {} (scheme={})", host, port, endpoint, scheme);
         
         // Prepare headers
+        std::string hostHeader = host;
+        // Include port in Host header only when it is non-default for the scheme
+        if (!((scheme == "http" && port == 80) || (scheme == "https" && port == 443))) {
+            hostHeader += ":" + std::to_string(port);
+        }
+
         httplib::Headers headers= {
             {"User-Agent", "fuelflux/0.1.0"},
             {"Accept", "*/*"},
-			{"Host", "ttft.uxp.ru"}
+            {"Host", hostHeader}
         };
         
         if (useBearerToken && !token_.empty()) {
