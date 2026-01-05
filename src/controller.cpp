@@ -154,9 +154,15 @@ void Controller::handleKeyPress(KeyCode key) {
     stateMachine_.updateActivityTime();
     
     switch (key) {
-        case KeyCode::Key0: case KeyCode::Key1: case KeyCode::Key2:
-        case KeyCode::Key3: case KeyCode::Key4: case KeyCode::Key5:
-        case KeyCode::Key6: case KeyCode::Key7: case KeyCode::Key8:
+        case KeyCode::Key0: 
+        case KeyCode::Key1: 
+        case KeyCode::Key2:
+        case KeyCode::Key3: 
+        case KeyCode::Key4: 
+        case KeyCode::Key5:
+        case KeyCode::Key6: 
+        case KeyCode::Key7: 
+        case KeyCode::Key8:
         case KeyCode::Key9:
             // Detect first digit in Waiting state -> transition to PinEntry
             if (stateMachine_.getCurrentState() == SystemState::Waiting && 
@@ -319,9 +325,6 @@ void Controller::requestAuthorization(const UserId& userId) {
         for (const auto& tank : backend_.GetFuelTanks()) {
             TankInfo info;
             info.number = tank.idTank;
-            info.capacity = 0.0;
-            info.currentVolume = 0.0;
-            info.fuelType = tank.nameTank;
             availableTanks_.push_back(info);
         }
         // Post event instead of processing it directly to maintain sequential event processing
@@ -501,7 +504,15 @@ void Controller::processNumericInput() {
             {
                 TankNumber tank = parseTankFromInput();
                 if (tank > 0) {
-                    selectTank(tank);
+                    if (isTankValid(tank)) {
+                        selectTank(tank);
+                    } else {
+                        showError("Invalid tank number");
+                        clearInput();
+                    }
+                } else {
+                    showError("Invalid tank number");
+                    clearInput();
                 }
             }
             break;
@@ -510,6 +521,9 @@ void Controller::processNumericInput() {
             volume = parseVolumeFromInput();
             if (volume > 0.0) {
                 enterVolume(volume);
+            } else {
+                showError("Invalid volume");
+                clearInput();
             }
             break;
             
@@ -518,6 +532,9 @@ void Controller::processNumericInput() {
             volume = parseVolumeFromInput();
             if (volume > 0.0) {
                 enterIntakeVolume(volume);
+            } else {
+                showError("Invalid volume");
+                clearInput();
             }
             break;
             

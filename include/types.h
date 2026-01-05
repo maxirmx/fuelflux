@@ -87,9 +87,6 @@ struct UserInfo {
 // Tank information
 struct TankInfo {
     TankNumber number;
-    Volume capacity;
-    Volume currentVolume;
-    std::string fuelType;
 };
 
 // Refueling transaction
