@@ -64,7 +64,7 @@ public:
 
 private:
     // Private method for common parsing of responses from the backend
-    // Returns: parsed JSON or throws exception
+    // Returns: parsed JSON; on error returns object with CodeError/TextError
     nlohmann::json HttpRequestWrapper(const std::string& endpoint, 
                                        const std::string& method,
                                        const nlohmann::json& requestBody,
