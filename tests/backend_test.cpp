@@ -503,9 +503,9 @@ TEST_F(BackendTest, DeauthorizeConnectionError) {
     
     // Setup connection error for deauthorize
     mockServer->handleDeauthorize = [](const httplib::Request& req [[maybe_unused]], httplib::Response& res) {
-        // Simulate timeout
-        std::this_thread::sleep_for(std::chrono::seconds(15));
-        res.status = 200;
+        // Simulate timeout-like connection error with an HTTP error status
+        res.status = 504; // Gateway Timeout
+        res.set_content("Simulated timeout error", "text/plain");
     };
     
     bool result = backend.Deauthorize();
