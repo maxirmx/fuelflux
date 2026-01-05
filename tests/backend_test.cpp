@@ -386,3 +386,180 @@ TEST_F(BackendTest, IntakeNegativeVolume) {
     bool result = backend.Intake(1, -100.0, IntakeDirection::In);
     EXPECT_FALSE(result);
 }
+
+// Test connection error handling
+TEST_F(BackendTest, ConnectionErrorHandling) {
+    // Use an invalid port to simulate connection failure
+    Backend backend("http://127.0.0.1:1", controllerUid);
+    
+    bool result = backend.Authorize("card-uid-12345");
+    
+    EXPECT_FALSE(result);
+    EXPECT_FALSE(backend.IsAuthorized());
+    // Verify error message is set
+    EXPECT_FALSE(backend.GetLastError().empty());
+}
+
+// Test timeout error handling
+TEST_F(BackendTest, TimeoutErrorHandling) {
+    // Setup a server that doesn't respond
+    mockServer->handleAuthorize = [](const httplib::Request& req [[maybe_unused]], httplib::Response& res) {
+        // Simulate slow response that will timeout
+        std::this_thread::sleep_for(std::chrono::seconds(15));
+        res.status = 200;
+        res.set_content("null", "application/json");
+    };
+    
+    Backend backend(baseAPI, controllerUid);
+    bool result = backend.Authorize("card-uid-12345");
+    
+    EXPECT_FALSE(result);
+    EXPECT_FALSE(backend.IsAuthorized());
+    EXPECT_FALSE(backend.GetLastError().empty());
+}
+
+// Test HTTP 404 error handling
+TEST_F(BackendTest, Http404ErrorHandling) {
+    mockServer->handleAuthorize = [](const httplib::Request& req [[maybe_unused]], httplib::Response& res) {
+        res.status = 404;
+        res.set_content("Not Found", "text/plain");
+    };
+    
+    Backend backend(baseAPI, controllerUid);
+    bool result = backend.Authorize("card-uid-12345");
+    
+    EXPECT_FALSE(result);
+    EXPECT_FALSE(backend.IsAuthorized());
+    EXPECT_FALSE(backend.GetLastError().empty());
+}
+
+// Test HTTP 500 error handling
+TEST_F(BackendTest, Http500ErrorHandling) {
+    mockServer->handleAuthorize = [](const httplib::Request& req [[maybe_unused]], httplib::Response& res) {
+        res.status = 500;
+        res.set_content("Internal Server Error", "text/plain");
+    };
+    
+    Backend backend(baseAPI, controllerUid);
+    bool result = backend.Authorize("card-uid-12345");
+    
+    EXPECT_FALSE(result);
+    EXPECT_FALSE(backend.IsAuthorized());
+    EXPECT_FALSE(backend.GetLastError().empty());
+}
+
+// Test HTTP 503 error handling
+TEST_F(BackendTest, Http503ErrorHandling) {
+    mockServer->handleAuthorize = [](const httplib::Request& req [[maybe_unused]], httplib::Response& res) {
+        res.status = 503;
+        res.set_content("Service Unavailable", "text/plain");
+    };
+    
+    Backend backend(baseAPI, controllerUid);
+    bool result = backend.Authorize("card-uid-12345");
+    
+    EXPECT_FALSE(result);
+    EXPECT_FALSE(backend.IsAuthorized());
+    EXPECT_FALSE(backend.GetLastError().empty());
+}
+
+// Test malformed JSON response handling
+TEST_F(BackendTest, MalformedJsonErrorHandling) {
+    mockServer->handleAuthorize = [](const httplib::Request& req [[maybe_unused]], httplib::Response& res) {
+        res.status = 200;
+        res.set_content("{invalid json: missing quotes and brackets", "application/json");
+    };
+    
+    Backend backend(baseAPI, controllerUid);
+    bool result = backend.Authorize("card-uid-12345");
+    
+    EXPECT_FALSE(result);
+    EXPECT_FALSE(backend.IsAuthorized());
+    EXPECT_FALSE(backend.GetLastError().empty());
+}
+
+// Test incomplete JSON response handling
+TEST_F(BackendTest, IncompleteJsonErrorHandling) {
+    mockServer->handleAuthorize = [](const httplib::Request& req [[maybe_unused]], httplib::Response& res) {
+        res.status = 200;
+        res.set_content("{\"Token\": \"test-token\", \"RoleId\": ", "application/json");
+    };
+    
+    Backend backend(baseAPI, controllerUid);
+    bool result = backend.Authorize("card-uid-12345");
+    
+    EXPECT_FALSE(result);
+    EXPECT_FALSE(backend.IsAuthorized());
+    EXPECT_FALSE(backend.GetLastError().empty());
+}
+
+// Test wrapper error response propagation in Deauthorize
+TEST_F(BackendTest, DeauthorizeConnectionError) {
+    setupSuccessfulAuthorizeResponse();
+    
+    Backend backend(baseAPI, controllerUid);
+    EXPECT_TRUE(backend.Authorize("card-uid-12345"));
+    EXPECT_TRUE(backend.IsAuthorized());
+    
+    // Setup connection error for deauthorize
+    mockServer->handleDeauthorize = [](const httplib::Request& req [[maybe_unused]], httplib::Response& res) {
+        // Simulate timeout
+        std::this_thread::sleep_for(std::chrono::seconds(15));
+        res.status = 200;
+    };
+    
+    bool result = backend.Deauthorize();
+    
+    EXPECT_FALSE(result);
+    EXPECT_FALSE(backend.GetLastError().empty());
+}
+
+// Test wrapper error response propagation in Refuel
+TEST_F(BackendTest, RefuelHttpError) {
+    setupSuccessfulAuthorizeResponse();
+    
+    Backend backend(baseAPI, controllerUid);
+    EXPECT_TRUE(backend.Authorize("card-uid-12345"));
+    
+    // Setup HTTP error for refuel
+    mockServer->handleRefuel = [](const httplib::Request& req [[maybe_unused]], httplib::Response& res) {
+        res.status = 500;
+        res.set_content("Server Error", "text/plain");
+    };
+    
+    bool result = backend.Refuel(1, 25.0);
+    
+    EXPECT_FALSE(result);
+    EXPECT_FALSE(backend.GetLastError().empty());
+}
+
+// Test wrapper error response propagation in Intake
+TEST_F(BackendTest, IntakeJsonParseError) {
+    // Setup operator authorization
+    mockServer->handleAuthorize = [](const httplib::Request& req [[maybe_unused]], httplib::Response& res) {
+        nlohmann::json response;
+        response["Token"] = "operator-token";
+        response["RoleId"] = 2;  // Operator
+        response["Allowance"] = nlohmann::json();
+        response["Price"] = nlohmann::json();
+        response["fuelTanks"] = nlohmann::json::array();
+        response["fuelTanks"].push_back({{"idTank", 1}, {"nameTank", "АИ-95"}});
+        
+        res.status = 200;
+        res.set_content(response.dump(), "application/json");
+    };
+    
+    Backend backend(baseAPI, controllerUid);
+    EXPECT_TRUE(backend.Authorize("operator-card-uid"));
+    
+    // Setup malformed JSON for intake
+    mockServer->handleFuelIntake = [](const httplib::Request& req [[maybe_unused]], httplib::Response& res) {
+        res.status = 200;
+        res.set_content("not valid json at all!", "application/json");
+    };
+    
+    bool result = backend.Intake(1, 100.0, IntakeDirection::In);
+    
+    EXPECT_FALSE(result);
+    EXPECT_FALSE(backend.GetLastError().empty());
+}
