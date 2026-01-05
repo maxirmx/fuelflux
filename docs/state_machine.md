@@ -292,12 +292,20 @@ In the console emulator (for testing), the following key mappings apply:
 **Important:** When using the console emulator:
 - In **Command Mode** (Waiting state): Type full commands like `card 2222-2222-2222-2222`
 - In **Key Mode** (all other states): Press individual keys
-  - Physical Enter key is automatically mapped to 'A' (Start/Enter)
-  - This allows natural input: type digits then press Enter to confirm
+  - Physical Enter key is **NOT** mapped and is ignored; press 'A' to confirm
+  - This requires explicit 'A' key press: type digits then press 'A' to confirm
 
 ### Example Usage
 
 ```
-Waiting State → Type: "1234" then press Enter
+Waiting State → Press: "1" (first digit)
                 ↓
-                Triggers: PinEntryStarted → PinEntry → 'A' → PinEntered
+                Triggers: PinEntryStarted → moves to PinEntry state
+                
+PinEntry State → Press: "2", "3", "4" (remaining digits)
+                → Press: "A" (to confirm)
+                ↓
+                Triggers: PinEntered → moves to Authorization
+```
+
+**Note:** In Waiting state, pressing the first digit automatically switches from Command Mode to Key Mode and triggers PIN entry.
