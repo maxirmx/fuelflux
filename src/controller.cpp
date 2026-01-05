@@ -150,6 +150,9 @@ void Controller::setFlowMeter(std::unique_ptr<peripherals::IFlowMeter> flowMeter
 void Controller::handleKeyPress(KeyCode key) {
     LOG_CTRL_DEBUG("Key pressed: {}", static_cast<char>(key));
     
+    // Reset inactivity timer on any key press
+    stateMachine_.updateActivityTime();
+    
     switch (key) {
         case KeyCode::Key0: case KeyCode::Key1: case KeyCode::Key2:
         case KeyCode::Key3: case KeyCode::Key4: case KeyCode::Key5:

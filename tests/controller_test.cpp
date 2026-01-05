@@ -234,22 +234,42 @@ TEST_F(ControllerTest, InitializationFailure) {
 TEST_F(ControllerTest, HandleKeyPressDigit) {
     controller->initialize();
     
+    // Start controller event loop in background thread
+    std::thread controllerThread([this]() {
+        controller->run();
+    });
+    
+    // Small delay to let event loop start
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    
     // Verify initial state
     EXPECT_EQ(controller->getStateMachine().getCurrentState(), SystemState::Waiting);
     
     // First digit should trigger PinEntry state
     controller->handleKeyPress(KeyCode::Key1);
+    
+    // Give time for event to be processed
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    
     EXPECT_EQ(controller->getCurrentInput(), "1");
     EXPECT_EQ(controller->getStateMachine().getCurrentState(), SystemState::PinEntry);
     
     // Subsequent digits should stay in PinEntry
     controller->handleKeyPress(KeyCode::Key2);
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
     EXPECT_EQ(controller->getCurrentInput(), "12");
     EXPECT_EQ(controller->getStateMachine().getCurrentState(), SystemState::PinEntry);
     
     controller->handleKeyPress(KeyCode::Key3);
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
     EXPECT_EQ(controller->getCurrentInput(), "123");
     EXPECT_EQ(controller->getStateMachine().getCurrentState(), SystemState::PinEntry);
+    
+    // Shutdown to stop event loop
+    controller->shutdown();
+    if (controllerThread.joinable()) {
+        controllerThread.join();
+    }
 }
 
 // Test key press handling - clear
@@ -490,27 +510,62 @@ TEST_F(ControllerTest, VolumeValidationExceedsAllowance) {
 TEST_F(ControllerTest, PinEntryStartedEvent) {
     controller->initialize();
     
+    // Start controller event loop in background thread
+    std::thread controllerThread([this]() {
+        controller->run();
+    });
+    
+    // Small delay to let event loop start
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    
     EXPECT_EQ(controller->getStateMachine().getCurrentState(), SystemState::Waiting);
     
     // First digit should trigger PinEntryStarted event
     controller->handleKeyPress(KeyCode::Key5);
     
+    // Give time for event to be processed
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    
     EXPECT_EQ(controller->getStateMachine().getCurrentState(), SystemState::PinEntry);
     EXPECT_EQ(controller->getCurrentInput(), "5");
+    
+    // Shutdown to stop event loop
+    controller->shutdown();
+    if (controllerThread.joinable()) {
+        controllerThread.join();
+    }
 }
 
 // Test card presentation during PIN entry
 TEST_F(ControllerTest, CardPresentedDuringPinEntry) {
     controller->initialize();
     
+    // Start controller event loop in background thread
+    std::thread controllerThread([this]() {
+        controller->run();
+    });
+    
+    // Small delay to let event loop start
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    
     // Start PIN entry
     controller->handleKeyPress(KeyCode::Key1);
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    
     controller->handleKeyPress(KeyCode::Key2);
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    
     EXPECT_EQ(controller->getStateMachine().getCurrentState(), SystemState::PinEntry);
     
     // Present card - should switch to authorization
     mockCardReader->simulateCardPresented("test-card-123");
     
     // Small delay for async processing
-    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    
+    // Shutdown to stop event loop
+    controller->shutdown();
+    if (controllerThread.joinable()) {
+        controllerThread.join();
+    }
 }

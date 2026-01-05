@@ -288,7 +288,6 @@ In the console emulator (for testing), the following key mappings apply:
 | # | # | Clear |
 | A or a | 'A' | Start/Enter |
 | B or b | 'B' | Stop/Cancel |
-| **Enter/Return** | **'A'** | **Start/Enter (auto-mapped)** |
 
 **Important:** When using the console emulator:
 - In **Command Mode** (Waiting state): Type full commands like `card 2222-2222-2222-2222`
@@ -301,4 +300,4 @@ In the console emulator (for testing), the following key mappings apply:
 ```
 Waiting State → Type: "1234" then press Enter
                 ↓
-                Triggers: PinEntryStarted → PinEntry → (auto-map Enter to 'A') → PinEntered
+                Triggers: PinEntryStarted → PinEntry → 'A' → PinEntered

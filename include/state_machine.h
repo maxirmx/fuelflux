@@ -37,6 +37,9 @@ public:
     
     // Reset to initial state
     void reset();
+    
+    // Reset inactivity timer (call on user activity)
+    void updateActivityTime();
 
 private:
     // State transition table
@@ -78,7 +81,6 @@ private:
     static constexpr std::chrono::seconds TIMEOUT_DURATION{30};
     
     bool isTimeoutEnabled() const;
-    void updateActivityTime();
 
     // Concurrency
     mutable std::recursive_mutex mutex_;

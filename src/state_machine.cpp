@@ -428,8 +428,7 @@ void StateMachine::onError() {
 bool StateMachine::isTimeoutEnabled() const {
     std::scoped_lock lock(mutex_);
     return currentState_ != SystemState::Waiting && 
-           currentState_ != SystemState::Refueling &&
-           currentState_ != SystemState::Error;
+           currentState_ != SystemState::Refueling;
 }
 
 void StateMachine::updateActivityTime() {
@@ -453,9 +452,9 @@ void StateMachine::timeoutThreadFunction() {
         }
 
         // If timeouts are disabled for this state, skip checking (no lock held here)
+        // Only Waiting and Refueling states have timeout disabled
         if (stateCopy == SystemState::Waiting ||
-            stateCopy == SystemState::Refueling ||
-            stateCopy == SystemState::Error) {
+            stateCopy == SystemState::Refueling) {
             continue;
         }
 
