@@ -474,36 +474,21 @@ TEST_F(ControllerTest, InputLengthLimit) {
 // Test volume validation - invalid volume
 TEST_F(ControllerTest, VolumeValidationInvalid) {
     controller->initialize();
-    
-    // Set up a customer user with allowance
-    UserInfo user;
-    user.uid = "test-user";
-    user.role = UserRole::Customer;
-    user.allowance = 50.0;
-    
-    // Manually set user (bypassing authorization for test)
-    // Note: This requires making currentUser_ accessible or adding a test setter
-    
-    // Try to enter invalid (zero) volume
-    controller->enterVolume(0.0);
-    
-    // Should show error and clear input
-    EXPECT_TRUE(controller->getCurrentInput().empty());
+
+    // This test is not fully implemented: it requires a way to set the current
+    // user context (e.g., exposing currentUser_ or providing a test-only setter
+    // or full authorization flow). Mark it as skipped to avoid a misleading pass.
+    GTEST_SKIP() << "VolumeValidationInvalid is not implemented: requires current user context setup.";
 }
 
 // Test volume validation - exceeds allowance
 TEST_F(ControllerTest, VolumeValidationExceedsAllowance) {
     controller->initialize();
-    
-    // Set up a customer user with allowance of 50L
-    // Try to enter 100L - should fail
-    // This test demonstrates the validation logic
-    
-    // Try to enter volume exceeding allowance
-    controller->enterVolume(100.0);
-    
-    // Should show error and clear input
-    EXPECT_TRUE(controller->getCurrentInput().empty());
+
+    // This test is not fully implemented: it requires a way to set the current
+    // user context with a specific allowance before calling enterVolume.
+    // Mark it as skipped until such a mechanism is available in tests.
+    GTEST_SKIP() << "VolumeValidationExceedsAllowance is not implemented: requires current user context setup.";
 }
 
 // Test PIN entry started event

@@ -135,7 +135,7 @@ Confirms the current input and advances to the next state:
 - `VolumeEntry`: Confirm volume → Refueling (if valid)
 - `IntakeVolumeEntry`: Confirm intake volume → IntakeComplete
 
-**Note:** In the console emulator, the physical Enter/Return key is automatically mapped to 'A'.
+**Note:** In the console emulator's key mode, the physical Enter/Return key is not mapped to 'A' and is ignored; use the 'A' key to confirm input.
 
 ### Timeout Behavior
 
