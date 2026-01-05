@@ -48,12 +48,12 @@ private:
     
     // Transition actions
     void onCardPresented();
+    void onPinEntryStarted();
     void onPinEntered();
     void onAuthorizationSuccess();
     void onAuthorizationFailed();
     void onTankSelected();
     void onVolumeEntered();
-    void onAmountEntered();
     void onRefuelingStarted();
     void onRefuelingStopped();
     void onRefuelingComplete();

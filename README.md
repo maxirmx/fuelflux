@@ -65,6 +65,8 @@ If you use MSVC toolchain instead of Ninja/gcc, change the `-G "Ninja"` to your 
 
 ## Documentation
 
+- [Keyboard Reference](docs/keyboard_reference.md) - Complete keyboard operation guide
+- [State Machine](docs/state_machine.md) - Complete state machine workflow and transitions
 - [Logging System](docs/logging.md) - Detailed logging configuration and usage
 - [Installation Guide](docs/installation.md) - Complete installation instructions
 

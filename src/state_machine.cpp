@@ -131,6 +131,7 @@ void StateMachine::setupTransitions() {
     
     // From Waiting state
     transitions_[{SystemState::Waiting, Event::CardPresented}]        = {SystemState::Authorization,     [this]() { onCardPresented();        }};
+    transitions_[{SystemState::Waiting, Event::PinEntryStarted}]      = {SystemState::PinEntry,          [this]() { onPinEntryStarted();      }};
     transitions_[{SystemState::Waiting, Event::PinEntered}]           = {SystemState::Authorization,     [this]() { onPinEntered();           }};
     transitions_[{SystemState::Waiting, Event::AuthorizationSuccess}] = {SystemState::Waiting,           noOp};
     transitions_[{SystemState::Waiting, Event::AuthorizationFailed}]  = {SystemState::Waiting,           noOp};
@@ -148,7 +149,8 @@ void StateMachine::setupTransitions() {
     transitions_[{SystemState::Waiting, Event::Error}]                = {SystemState::Error,             [this]() { onError();                }};
 
     // From PinEntry state
-    transitions_[{SystemState::PinEntry, Event::CardPresented}]       = {SystemState::PinEntry,          noOp};
+    transitions_[{SystemState::PinEntry, Event::CardPresented}]       = {SystemState::Authorization,     [this]() { onCardPresented();        }};
+    transitions_[{SystemState::PinEntry, Event::PinEntryStarted}]     = {SystemState::PinEntry,          noOp};
     transitions_[{SystemState::PinEntry, Event::PinEntered}]          = {SystemState::Authorization,     [this]() { onPinEntered();           }};
     transitions_[{SystemState::PinEntry, Event::AuthorizationSuccess}]= {SystemState::PinEntry,          noOp};
     transitions_[{SystemState::PinEntry, Event::AuthorizationFailed}] = {SystemState::PinEntry,          noOp};
@@ -327,10 +329,24 @@ void StateMachine::onExitState(SystemState state) {
 // Transition action implementations
 void StateMachine::onCardPresented() {
     LOG_SM_INFO("Card presented");
+    // Process card authentication - currentInput_ already contains card UID
+    if (controller_) {
+        controller_->requestAuthorization(controller_->getCurrentInput());
+        controller_->clearInput();  // Clear after using the card UID
+    }
+}
+
+void StateMachine::onPinEntryStarted() {
+    LOG_SM_INFO("PIN entry started");
 }
 
 void StateMachine::onPinEntered() {
     LOG_SM_INFO("PIN entered");
+    // Process PIN authentication - currentInput_ already contains PIN
+    if (controller_) {
+        controller_->requestAuthorization(controller_->getCurrentInput());
+        controller_->clearInput();  // Clear after using the PIN
+    }
 }
 
 void StateMachine::onAuthorizationSuccess() {
@@ -343,15 +359,19 @@ void StateMachine::onAuthorizationFailed() {
 
 void StateMachine::onTankSelected() {
     LOG_SM_INFO("Tank selected");
+    if (controller_) {
+        controller_->clearInput();  // Clear after tank selection
+    }
 }
 
 void StateMachine::onVolumeEntered() {
     LOG_SM_INFO("Volume entered");
+    if (controller_) {
+        controller_->startRefueling();
+        controller_->clearInput();  // Clear after volume entry
+    }
 }
 
-void StateMachine::onAmountEntered() {
-    LOG_SM_INFO("Amount entered");
-}
 
 void StateMachine::onRefuelingStarted() {
     LOG_SM_INFO("Refueling started");
@@ -363,14 +383,24 @@ void StateMachine::onRefuelingStopped() {
 
 void StateMachine::onRefuelingComplete() {
     LOG_SM_INFO("Refueling complete");
+    if (controller_) {
+        controller_->completeRefueling();
+    }
 }
 
 void StateMachine::onIntakeSelected() {
     LOG_SM_INFO("Intake operation selected");
+    if (controller_) {
+        controller_->clearInput();  // Clear after intake tank selection
+    }
 }
 
 void StateMachine::onIntakeVolumeEntered() {
     LOG_SM_INFO("Intake volume entered");
+    if (controller_) {
+        controller_->completeIntakeOperation();
+        controller_->clearInput();  // Clear after intake volume entry
+    }
 }
 
 void StateMachine::onIntakeComplete() {

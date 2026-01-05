@@ -172,13 +172,16 @@ KeyCode ConsoleKeyboard::charToKeyCode(char c) const {
 }
 
 void ConsoleKeyboard::printKeyboardHelp() const {
-    std::cout << "\n=== KEYBOARD HELP ===\n";
+    std::cout << "\n=== KEYBOARD MAPPINGS ===\n";
     std::cout << "0-9: Number keys\n";
-    std::cout << "*  : Max (maximum volume/amount)\n";
-    std::cout << "#  : Clear (clear last digit)\n";
-    std::cout << "A  : Start/Enter\n";
-    std::cout << "B  : Stop/Cancel\n";
-    std::cout << "====================\n\n";
+    std::cout << "*  : Max (maximum volume)\n";
+    std::cout << "#  : Clear (delete last digit)\n";
+    std::cout << "A  : Start/Enter (confirm input)\n";
+    std::cout << "B  : Stop/Cancel (cancel operation)\n";
+    std::cout << "\n=== IMPORTANT ===\n";
+    std::cout << "In KEY mode: You must press 'A' (not Enter)\n";
+    std::cout << "Press Tab to switch between command/key modes\n";
+    std::cout << "=========================\n\n";
 }
 
 // ConsoleCardReader implementation
@@ -514,8 +517,13 @@ void ConsoleEmulator::printHelp() const {
     std::cout << "=== CONSOLE COMMANDS ===\n";
     std::cout << "card <user_id>  : Simulate card presentation\n";
     std::cout << "flow <volume>   : Simulate fuel flow\n";
+    std::cout << "keymode        : Switch to key input mode\n";
     std::cout << "help           : Show this help\n";
     std::cout << "quit           : Exit application\n";
+    std::cout << "\n=== MODE SWITCHING ===\n";
+    std::cout << "Tab            : Switch between command/key modes\n";
+    std::cout << "  Command mode : Type full commands, press Enter\n";
+    std::cout << "  Key mode     : Press individual keys (A, B, 0-9, *, #)\n";
     std::cout << "\nTest Users:\n";
     std::cout << "  1111-1111-1111-1111 (Operator)\n";
     std::cout << "  2222-2222-2222-2222 (Customer)\n";
