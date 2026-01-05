@@ -48,6 +48,7 @@ enum class SystemState {
 // Events that trigger state transitions
 enum class Event {
     CardPresented,
+    PinEntryStarted,
     PinEntered,
     AuthorizationSuccess,
     AuthorizationFailed,
@@ -56,7 +57,6 @@ enum class Event {
     AmountEntered,
     RefuelingStarted,
     RefuelingStopped,
-    RefuelingComplete,
     IntakeSelected,
     IntakeVolumeEntered,
     IntakeComplete,
@@ -86,9 +86,6 @@ struct UserInfo {
 // Tank information
 struct TankInfo {
     TankNumber number;
-    Volume capacity;
-    Volume currentVolume;
-    std::string fuelType;
 };
 
 // Refueling transaction

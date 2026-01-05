@@ -3,6 +3,7 @@
 // This file is a part of fuelflux application
 
 #include "controller.h"
+#include "console_emulator.h"
 #include "config.h"
 #include "logger.h"
 #include <sstream>
@@ -150,11 +151,25 @@ void Controller::setFlowMeter(std::unique_ptr<peripherals::IFlowMeter> flowMeter
 void Controller::handleKeyPress(KeyCode key) {
     LOG_CTRL_DEBUG("Key pressed: {}", static_cast<char>(key));
     
+    // Reset inactivity timer on any key press
+    stateMachine_.updateActivityTime();
+    
     switch (key) {
-        case KeyCode::Key0: case KeyCode::Key1: case KeyCode::Key2:
-        case KeyCode::Key3: case KeyCode::Key4: case KeyCode::Key5:
-        case KeyCode::Key6: case KeyCode::Key7: case KeyCode::Key8:
+        case KeyCode::Key0: 
+        case KeyCode::Key1: 
+        case KeyCode::Key2:
+        case KeyCode::Key3: 
+        case KeyCode::Key4: 
+        case KeyCode::Key5:
+        case KeyCode::Key6: 
+        case KeyCode::Key7: 
+        case KeyCode::Key8:
         case KeyCode::Key9:
+            // Detect first digit in Waiting state -> transition to PinEntry
+            if (stateMachine_.getCurrentState() == SystemState::Waiting && 
+                currentInput_.empty()) {
+                postEvent(Event::PinEntryStarted);
+            }
             addDigitToInput(static_cast<char>(key));
             break;
             
@@ -171,7 +186,7 @@ void Controller::handleKeyPress(KeyCode key) {
             break;
             
         case KeyCode::KeyStop:
-            stateMachine_.processEvent(Event::CancelPressed);
+            postEvent(Event::CancelPressed);
             break;
             
     }
@@ -181,23 +196,38 @@ void Controller::handleKeyPress(KeyCode key) {
 
 void Controller::handleCardPresented(const UserId& userId) {
     LOG_CTRL_INFO("Card presented: {}", userId);
-    requestAuthorization(userId);
+    // Store the user ID and let state machine handle authorization
+    currentInput_ = userId;
+    postEvent(Event::CardPresented);
 }
 
 void Controller::handlePumpStateChanged(bool isRunning) {
     LOG_CTRL_INFO("Pump state changed: {}", isRunning ? "Running" : "Stopped");
     
-    if (isRunning && stateMachine_.isInState(SystemState::Refueling)) {
+    if (isRunning) {
         if (flowMeter_) {
-            flowMeter_->startMeasurement();
             flowMeter_->resetCounter();
+            flowMeter_->startMeasurement();
+            
+            // For console emulator, automatically start the flow simulation
+            // This is safe because the interface doesn't expose simulateFlow, 
+            // so we need to cast to the concrete type for console emulation
+            auto* consoleFlowMeter = dynamic_cast<ConsoleFlowMeter*>(flowMeter_.get());
+            if (consoleFlowMeter && targetRefuelVolume_ > 0.0) {
+                LOG_CTRL_INFO("Starting automatic flow simulation for {} liters", targetRefuelVolume_);
+                consoleFlowMeter->simulateFlow(targetRefuelVolume_);
+            } else if (consoleFlowMeter) {
+                LOG_CTRL_WARN("Target volume is {}, cannot start flow simulation", targetRefuelVolume_);
+            } else {
+                LOG_CTRL_DEBUG("Using hardware flow meter (not console emulator)");
+            }
         }
         refuelStartTime_ = std::chrono::steady_clock::now();
-    } else if (!isRunning && stateMachine_.isInState(SystemState::Refueling)) {
+    } else if (!isRunning) {
         if (flowMeter_) {
             flowMeter_->stopMeasurement();
         }
-        stateMachine_.processEvent(Event::RefuelingStopped);
+        postEvent(Event::RefuelingStopped);
     }
 }
 
@@ -209,7 +239,6 @@ void Controller::handleFlowUpdate(Volume currentVolume) {
         if (pump_) {
             pump_->stop();
         }
-        stateMachine_.processEvent(Event::RefuelingComplete);
     }
     
     updateDisplay();
@@ -229,7 +258,7 @@ void Controller::showError(const std::string& message) {
         DisplayMessage errorMsg;
         errorMsg.line1 = "ERROR";
         errorMsg.line2 = message;
-        errorMsg.line3 = "Press Cancel to continue";
+        errorMsg.line3 = "Press Cancel (B) to continue";
         errorMsg.line4 = getCurrentTimeString();
         errorMsg.line5 = getDeviceSerialNumber();
         display_->showMessage(errorMsg);
@@ -298,8 +327,7 @@ void Controller::setMaxValue() {
 
 // Authorization
 void Controller::requestAuthorization(const UserId& userId) {
-    stateMachine_.processEvent(Event::CardPresented);
-
+    // This method handles the actual authorization for both card and PIN
     if (backend_.Authorize(userId)) {
         currentUser_.uid = userId;
         currentUser_.role = static_cast<UserRole>(backend_.GetRoleId());
@@ -310,15 +338,14 @@ void Controller::requestAuthorization(const UserId& userId) {
         for (const auto& tank : backend_.GetFuelTanks()) {
             TankInfo info;
             info.number = tank.idTank;
-            info.capacity = 0.0;
-            info.currentVolume = 0.0;
-            info.fuelType = tank.nameTank;
             availableTanks_.push_back(info);
         }
-        stateMachine_.processEvent(Event::AuthorizationSuccess);
+        // Post event instead of processing it directly to maintain sequential event processing
+        postEvent(Event::AuthorizationSuccess);
     } else {
         showError(backend_.GetLastError());
-        stateMachine_.processEvent(Event::AuthorizationFailed);
+        // Post event instead of processing it directly to maintain sequential event processing
+        postEvent(Event::AuthorizationFailed);
     }
 }
 
@@ -328,9 +355,9 @@ void Controller::selectTank(TankNumber tankNumber) {
         selectedTank_ = tankNumber;
         
         if (currentUser_.role == UserRole::Operator) {
-            stateMachine_.processEvent(Event::IntakeSelected);
+            postEvent(Event::IntakeSelected);
         } else {
-            stateMachine_.processEvent(Event::TankSelected);
+            postEvent(Event::TankSelected);
         }
     }
 }
@@ -346,9 +373,25 @@ bool Controller::isTankValid(TankNumber tankNumber) const {
 
 // Volume/Amount operations
 void Controller::enterVolume(Volume volume) {
+    // Validate volume
+    if (volume <= 0.0) {
+        showError("Invalid volume");
+        clearInput();
+        return;
+    }
+    
+    // Validate volume against allowance for customers
+    if (currentUser_.role == UserRole::Customer) {
+        if (volume > currentUser_.allowance) {
+            showError("Volume exceeds allowance");
+            clearInput();
+            return;
+        }
+    }
+    
     enteredVolume_ = volume;
     targetRefuelVolume_ = volume;
-    stateMachine_.processEvent(Event::VolumeEntered);
+    postEvent(Event::VolumeEntered);
 }
 
 // Refueling operations
@@ -356,14 +399,14 @@ void Controller::startRefueling() {
     if (pump_) {
         pump_->start();
     }
-    stateMachine_.processEvent(Event::RefuelingStarted);
+    postEvent(Event::RefuelingStarted);
 }
 
 void Controller::stopRefueling() {
     if (pump_) {
         pump_->stop();
     }
-    stateMachine_.processEvent(Event::RefuelingStopped);
+    postEvent(Event::RefuelingStopped);
 }
 
 void Controller::completeRefueling() {
@@ -381,12 +424,12 @@ void Controller::completeRefueling() {
 // Fuel intake operations
 void Controller::startFuelIntake() {
     // For operators - fuel intake operation
-    stateMachine_.processEvent(Event::IntakeSelected);
+    postEvent(Event::IntakeSelected);
 }
 
 void Controller::enterIntakeVolume(Volume volume) {
     enteredVolume_ = volume;
-    stateMachine_.processEvent(Event::IntakeVolumeEntered);
+    postEvent(Event::IntakeVolumeEntered);
 }
 
 void Controller::completeIntakeOperation() {
@@ -398,7 +441,7 @@ void Controller::completeIntakeOperation() {
     transaction.timestamp = std::chrono::system_clock::now();
     
     logIntakeTransaction(transaction);
-    stateMachine_.processEvent(Event::IntakeComplete);
+    postEvent(Event::IntakeComplete);
 }
 
 // Transaction logging
@@ -467,14 +510,22 @@ void Controller::processNumericInput() {
     switch (stateMachine_.getCurrentState()) {
         case SystemState::PinEntry:
             // PIN entered - trigger authorization
-            stateMachine_.processEvent(Event::PinEntered);
+            postEvent(Event::PinEntered);
             break;
             
         case SystemState::TankSelection:
             {
                 TankNumber tank = parseTankFromInput();
                 if (tank > 0) {
-                    selectTank(tank);
+                    if (isTankValid(tank)) {
+                        selectTank(tank);
+                    } else {
+                        showError("Invalid tank number");
+                        clearInput();
+                    }
+                } else {
+                    showError("Invalid tank number");
+                    clearInput();
                 }
             }
             break;
@@ -483,6 +534,9 @@ void Controller::processNumericInput() {
             volume = parseVolumeFromInput();
             if (volume > 0.0) {
                 enterVolume(volume);
+            } else {
+                showError("Invalid volume");
+                clearInput();
             }
             break;
             
@@ -491,6 +545,9 @@ void Controller::processNumericInput() {
             volume = parseVolumeFromInput();
             if (volume > 0.0) {
                 enterIntakeVolume(volume);
+            } else {
+                showError("Invalid volume");
+                clearInput();
             }
             break;
             
@@ -526,75 +583,75 @@ void Controller::resetSessionData() {
 
 DisplayMessage Controller::createDisplayMessage() const {
     DisplayMessage message;
-    
+
+    // Use state machine provided first line to keep UI text centralized
+    message.line1 = stateMachine_.getStateLine1();
+
     switch (stateMachine_.getCurrentState()) {
         case SystemState::Waiting:
-            message.line1 = "Present card or enter PIN";
             message.line2 = getCurrentTimeString();
             message.line3 = getDeviceSerialNumber();
             break;
-            
+
         case SystemState::PinEntry:
-            message.line1 = "Enter PIN and press Start";
             message.line2 = std::string(currentInput_.length(), '*');
             message.line3 = getCurrentTimeString();
             break;
-            
+
         case SystemState::Authorization:
-            message.line1 = "Authorization in progress...";
             message.line2 = "Please wait";
             message.line3 = getDeviceSerialNumber();
             break;
-            
+
         case SystemState::TankSelection:
-            message.line1 = "Select tank number";
             message.line2 = currentInput_;
             message.line3 = "Available tanks: ";
             for (const auto& tank : availableTanks_) {
                 message.line3 += std::to_string(tank.number) + " ";
             }
             break;
-            
+
         case SystemState::VolumeEntry:
-            message.line1 = "Enter volume in liters";
             message.line2 = currentInput_;
             if (currentUser_.role == UserRole::Customer) {
                 message.line3 = "Max: " + formatVolume(currentUser_.allowance);
             }
+            message.line4 = "Press * for max, # to clear";
             break;
-            
+
         case SystemState::Refueling:
-            message.line1 = "Refueling " + formatVolume(targetRefuelVolume_);
+            // Append target volume to the generic 'Refueling' stateLine1
+            if (!message.line1.empty()) {
+                message.line1 += " " + formatVolume(targetRefuelVolume_);
+            } else {
+                message.line1 = "Refueling " + formatVolume(targetRefuelVolume_);
+            }
             message.line2 = formatVolume(currentRefuelVolume_);
             break;
-            
+
         case SystemState::RefuelingComplete:
-            message.line1 = "Refueling complete";
             message.line2 = formatVolume(currentRefuelVolume_);
             message.line4 = "Present card or enter PIN";
             break;
-            
+
         case SystemState::IntakeVolumeEntry:
-            message.line1 = "Enter intake volume";
             message.line2 = currentInput_;
             message.line3 = "Tank " + std::to_string(selectedTank_);
             break;
-            
+
         case SystemState::IntakeComplete:
-            message.line1 = "Intake complete";
             message.line2 = formatVolume(enteredVolume_);
             message.line3 = "Tank " + std::to_string(selectedTank_);
-            message.line4 = "Press Cancel to continue";
+            message.line4 = "Press Cancel (B) to continue";
             break;
-            
+
         case SystemState::Error:
-            message.line1 = "ERROR";
             message.line2 = lastErrorMessage_;
-            message.line3 = "Press Cancel to continue";
+            message.line3 = "Press Cancel (B) to continue";
             message.line4 = getCurrentTimeString();
             break;
     }
-    
+
     return message;
 }
 

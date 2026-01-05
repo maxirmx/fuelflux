@@ -101,10 +101,32 @@ nlohmann::json Backend::HttpRequestWrapper(const std::string& endpoint,
         }
         
         // Extract host and port
-        size_t portPos = urlToParse.find(':');
+        // Handle IPv6 addresses in brackets [::1] or [2001:db8::1]
+        size_t portPos = std::string::npos;
         size_t pathPos = urlToParse.find('/');
+        bool isIPv6 = false;
         
-        if (portPos != std::string::npos && (pathPos == std::string::npos || portPos < pathPos)) {
+        if (!urlToParse.empty() && urlToParse[0] == '[') {
+            // IPv6 address in brackets
+            isIPv6 = true;
+            size_t bracketEnd = urlToParse.find(']');
+            if (bracketEnd != std::string::npos) {
+                host = urlToParse.substr(1, bracketEnd - 1); // Extract without brackets
+                // Check for port after the closing bracket
+                if (bracketEnd + 1 < urlToParse.size() && urlToParse[bracketEnd + 1] == ':') {
+                    portPos = bracketEnd + 1;
+                }
+            } else {
+                // Malformed IPv6 address - missing closing bracket
+                LOG_BCK_WARN("Malformed IPv6 address in URL: {}", urlToParse);
+                host = urlToParse.substr(1); // Try to use what we have
+            }
+        } else {
+            // IPv4 or hostname - look for port after last colon before path
+            portPos = urlToParse.find(':');
+        }
+        
+        if (!isIPv6 && portPos != std::string::npos && (pathPos == std::string::npos || portPos < pathPos)) {
             host = urlToParse.substr(0, portPos);
             std::string portStr;
             if (pathPos != std::string::npos) {
@@ -115,20 +137,48 @@ nlohmann::json Backend::HttpRequestWrapper(const std::string& endpoint,
             }
             port = std::stoi(portStr);
         } 
-        else if (pathPos != std::string::npos) {
+        else if (isIPv6 && portPos != std::string::npos) {
+            // IPv6 with port: already extracted host, now extract port
+            std::string portStr;
+            if (pathPos != std::string::npos) {
+                portStr = urlToParse.substr(portPos + 1, pathPos - portPos - 1);
+            } else {
+                portStr = urlToParse.substr(portPos + 1);
+            }
+            port = std::stoi(portStr);
+        }
+        else if (!isIPv6 && pathPos != std::string::npos) {
             host = urlToParse.substr(0, pathPos);
         } 
-        else {
+        else if (!isIPv6 && host.empty()) {
             host = urlToParse;
+        }
+        
+        // Validate that we have a host
+        if (host.empty()) {
+            LOG_BCK_ERROR("Failed to parse host from URL: {}", baseAPI_);
+            return BuildWrapperErrorResponse();
         }
         
         LOG_BCK_DEBUG("Connecting to {}:{} for endpoint: {} (scheme={})", host, port, endpoint, scheme);
         
         // Prepare headers
-        httplib::Headers headers= {
+        std::string hostHeader;
+        // IPv6 addresses must be enclosed in brackets in the Host header
+        if (isIPv6) {
+            hostHeader = "[" + host + "]";
+        } else {
+            hostHeader = host;
+        }
+        // Include port in Host header only when it is non-default for the scheme
+        if (!((scheme == "http" && port == 80) || (scheme == "https" && port == 443))) {
+            hostHeader += ":" + std::to_string(port);
+        }
+
+        httplib::Headers headers = {
             {"User-Agent", "fuelflux/0.1.0"},
             {"Accept", "*/*"},
-			{"Host", "ttft.uxp.ru"}
+            {"Host", hostHeader}
         };
         
         if (useBearerToken && !token_.empty()) {
