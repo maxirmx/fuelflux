@@ -131,7 +131,7 @@ nlohmann::json Backend::HttpRequestWrapper(const std::string& endpoint,
             hostHeader += ":" + std::to_string(port);
         }
 
-        httplib::Headers headers= {
+        httplib::Headers headers = {
             {"User-Agent", "fuelflux/0.1.0"},
             {"Accept", "*/*"},
             {"Host", hostHeader}
