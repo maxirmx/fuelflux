@@ -115,7 +115,8 @@
              └─── 'B' (Stop/Cancel) ──→ CancelPressed Event
                                         → End session, return to Waiting
 
-Note: In console emulator, physical Enter key is mapped to 'A'
+Note: In console emulator key mode, the physical Enter key is ignored;
+      users must press 'A' to trigger the Start/Enter action.
 ```
 
 ## Volume Validation Flow
