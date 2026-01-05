@@ -65,8 +65,13 @@ bool StateMachine::processEvent(Event event) {
         previousState_ = fromState;
     }
 
-    // Call exit action for the current state without holding the lock
-    onExitState(fromState);
+    // Only call exit/enter if state actually changes
+    bool stateChanged = (fromState != toState);
+    
+    if (stateChanged) {
+        // Call exit action for the current state without holding the lock
+        onExitState(fromState);
+    }
 
     // Execute transition action
     if (action) {
@@ -86,20 +91,16 @@ bool StateMachine::processEvent(Event event) {
         lastActivityTime_ = std::chrono::steady_clock::now();
     }
 
-    // Enter new state without holding the lock
-    onEnterState(toState);
+    if (stateChanged) {
+        // Enter new state without holding the lock
+        onEnterState(toState);
+    }
 
     LOG_SM_INFO("Transition: {} -> {} (event: {})", 
                static_cast<int>(previousState_), static_cast<int>(currentState_), 
                static_cast<int>(event));
 
     return true;
-}
-
-bool StateMachine::canProcessEvent(Event event) const {
-    std::scoped_lock lock(mutex_);
-    auto key = std::make_pair(currentState_, event);
-    return transitions_.find(key) != transitions_.end();
 }
 
 void StateMachine::reset() {
@@ -112,89 +113,201 @@ void StateMachine::reset() {
         previousState_ = SystemState::Waiting;
         lastActivityTime_ = std::chrono::steady_clock::now();
     }
-    onExitState(old); 
-    onEnterState(SystemState::Waiting);
+    if (old != SystemState::Waiting) {
+        onExitState(old); 
+        onEnterState(SystemState::Waiting);
+    }
     LOG_SM_INFO("State machine reset to Waiting state");
 }
 
 void StateMachine::setupTransitions() {
+    // Default no-op handler
+    auto noOp = [this]() { 
+        LOG_SM_DEBUG("No operation for this transition"); 
+    };
+
+    // Total state machine transition table
+    // Format: State                    Event                         -> NextState              Action
+    
     // From Waiting state
-    transitions_[{SystemState::Waiting, Event::CardPresented}]  = {SystemState::Authorization, [this]() { onCardPresented(); }};
-    transitions_[{SystemState::Waiting, Event::PinEntered}]     = {SystemState::Authorization, [this]() { onPinEntered();    }};
+    transitions_[{SystemState::Waiting, Event::CardPresented}]        = {SystemState::Authorization,     [this]() { onCardPresented();        }};
+    transitions_[{SystemState::Waiting, Event::PinEntered}]           = {SystemState::Authorization,     [this]() { onPinEntered();           }};
+    transitions_[{SystemState::Waiting, Event::AuthorizationSuccess}] = {SystemState::Waiting,           noOp};
+    transitions_[{SystemState::Waiting, Event::AuthorizationFailed}]  = {SystemState::Waiting,           noOp};
+    transitions_[{SystemState::Waiting, Event::TankSelected}]         = {SystemState::Waiting,           noOp};
+    transitions_[{SystemState::Waiting, Event::VolumeEntered}]        = {SystemState::Waiting,           noOp};
+    transitions_[{SystemState::Waiting, Event::AmountEntered}]        = {SystemState::Waiting,           noOp};
+    transitions_[{SystemState::Waiting, Event::RefuelingStarted}]     = {SystemState::Waiting,           noOp};
+    transitions_[{SystemState::Waiting, Event::RefuelingStopped}]     = {SystemState::Waiting,           noOp};
+    transitions_[{SystemState::Waiting, Event::RefuelingComplete}]    = {SystemState::Waiting,           noOp};
+    transitions_[{SystemState::Waiting, Event::IntakeSelected}]       = {SystemState::Waiting,           noOp};
+    transitions_[{SystemState::Waiting, Event::IntakeVolumeEntered}]  = {SystemState::Waiting,           noOp};
+    transitions_[{SystemState::Waiting, Event::IntakeComplete}]       = {SystemState::Waiting,           noOp};
+    transitions_[{SystemState::Waiting, Event::CancelPressed}]        = {SystemState::Waiting,           noOp};
+    transitions_[{SystemState::Waiting, Event::Timeout}]              = {SystemState::Waiting,           noOp};
+    transitions_[{SystemState::Waiting, Event::Error}]                = {SystemState::Error,             [this]() { onError();                }};
 
     // From PinEntry state
-    transitions_[{SystemState::PinEntry, Event::PinEntered}]    = {SystemState::Authorization, [this]() { onPinEntered();    }};
-    transitions_[{SystemState::PinEntry, Event::CancelPressed}] = {SystemState::Waiting,       [this]() { onCancelPressed(); }};
-    transitions_[{SystemState::PinEntry, Event::Timeout}]       = {SystemState::Waiting,       [this]() { onTimeout();       }};
+    transitions_[{SystemState::PinEntry, Event::CardPresented}]       = {SystemState::PinEntry,          noOp};
+    transitions_[{SystemState::PinEntry, Event::PinEntered}]          = {SystemState::Authorization,     [this]() { onPinEntered();           }};
+    transitions_[{SystemState::PinEntry, Event::AuthorizationSuccess}]= {SystemState::PinEntry,          noOp};
+    transitions_[{SystemState::PinEntry, Event::AuthorizationFailed}] = {SystemState::PinEntry,          noOp};
+    transitions_[{SystemState::PinEntry, Event::TankSelected}]        = {SystemState::PinEntry,          noOp};
+    transitions_[{SystemState::PinEntry, Event::VolumeEntered}]       = {SystemState::PinEntry,          noOp};
+    transitions_[{SystemState::PinEntry, Event::AmountEntered}]       = {SystemState::PinEntry,          noOp};
+    transitions_[{SystemState::PinEntry, Event::RefuelingStarted}]    = {SystemState::PinEntry,          noOp};
+    transitions_[{SystemState::PinEntry, Event::RefuelingStopped}]    = {SystemState::PinEntry,          noOp};
+    transitions_[{SystemState::PinEntry, Event::RefuelingComplete}]   = {SystemState::PinEntry,          noOp};
+    transitions_[{SystemState::PinEntry, Event::IntakeSelected}]      = {SystemState::PinEntry,          noOp};
+    transitions_[{SystemState::PinEntry, Event::IntakeVolumeEntered}] = {SystemState::PinEntry,          noOp};
+    transitions_[{SystemState::PinEntry, Event::IntakeComplete}]      = {SystemState::PinEntry,          noOp};
+    transitions_[{SystemState::PinEntry, Event::CancelPressed}]       = {SystemState::Waiting,           [this]() { onCancelPressed();        }};
+    transitions_[{SystemState::PinEntry, Event::Timeout}]             = {SystemState::Waiting,           [this]() { onTimeout();              }};
+    transitions_[{SystemState::PinEntry, Event::Error}]               = {SystemState::Error,             [this]() { onError();                }};
 
     // From Authorization state
-    transitions_[{SystemState::Authorization, Event::AuthorizationSuccess}] = 
-        {SystemState::TankSelection, [this]() { onAuthorizationSuccess(); }};
-    transitions_[{SystemState::Authorization, Event::AuthorizationFailed}] = 
-        {SystemState::Error, [this]() { onAuthorizationFailed(); }};
+    transitions_[{SystemState::Authorization, Event::CardPresented}]       = {SystemState::Authorization,     noOp};
+    transitions_[{SystemState::Authorization, Event::PinEntered}]          = {SystemState::Authorization,     noOp};
+    transitions_[{SystemState::Authorization, Event::AuthorizationSuccess}]= {SystemState::TankSelection,     [this]() { onAuthorizationSuccess(); }};
+    transitions_[{SystemState::Authorization, Event::AuthorizationFailed}] = {SystemState::Error,             [this]() { onAuthorizationFailed();  }};
+    transitions_[{SystemState::Authorization, Event::TankSelected}]        = {SystemState::Authorization,     noOp};
+    transitions_[{SystemState::Authorization, Event::VolumeEntered}]       = {SystemState::Authorization,     noOp};
+    transitions_[{SystemState::Authorization, Event::AmountEntered}]       = {SystemState::Authorization,     noOp};
+    transitions_[{SystemState::Authorization, Event::RefuelingStarted}]    = {SystemState::Authorization,     noOp};
+    transitions_[{SystemState::Authorization, Event::RefuelingStopped}]    = {SystemState::Authorization,     noOp};
+    transitions_[{SystemState::Authorization, Event::RefuelingComplete}]   = {SystemState::Authorization,     noOp};
+    transitions_[{SystemState::Authorization, Event::IntakeSelected}]      = {SystemState::Authorization,     noOp};
+    transitions_[{SystemState::Authorization, Event::IntakeVolumeEntered}] = {SystemState::Authorization,     noOp};
+    transitions_[{SystemState::Authorization, Event::IntakeComplete}]      = {SystemState::Authorization,     noOp};
+    transitions_[{SystemState::Authorization, Event::CancelPressed}]       = {SystemState::Authorization,     noOp};
+    transitions_[{SystemState::Authorization, Event::Timeout}]             = {SystemState::Authorization,     noOp};
+    transitions_[{SystemState::Authorization, Event::Error}]               = {SystemState::Error,             [this]() { onError();                }};
 
     // From TankSelection state
-    transitions_[{SystemState::TankSelection, Event::TankSelected}] = 
-        {SystemState::VolumeEntry, [this]() { onTankSelected(); }};
-    transitions_[{SystemState::TankSelection, Event::IntakeSelected}] = 
-        {SystemState::IntakeVolumeEntry, [this]() { onIntakeSelected(); }};
-    transitions_[{SystemState::TankSelection, Event::CancelPressed}] = 
-        {SystemState::Waiting, [this]() { onCancelPressed(); }};
-    transitions_[{SystemState::TankSelection, Event::Timeout}] = 
-        {SystemState::Waiting, [this]() { onTimeout(); }};
+    transitions_[{SystemState::TankSelection, Event::CardPresented}]       = {SystemState::TankSelection,     noOp};
+    transitions_[{SystemState::TankSelection, Event::PinEntered}]          = {SystemState::TankSelection,     noOp};
+    transitions_[{SystemState::TankSelection, Event::AuthorizationSuccess}]= {SystemState::TankSelection,     noOp};
+    transitions_[{SystemState::TankSelection, Event::AuthorizationFailed}] = {SystemState::TankSelection,     noOp};
+    transitions_[{SystemState::TankSelection, Event::TankSelected}]        = {SystemState::VolumeEntry,       [this]() { onTankSelected();         }};
+    transitions_[{SystemState::TankSelection, Event::VolumeEntered}]       = {SystemState::TankSelection,     noOp};
+    transitions_[{SystemState::TankSelection, Event::AmountEntered}]       = {SystemState::TankSelection,     noOp};
+    transitions_[{SystemState::TankSelection, Event::RefuelingStarted}]    = {SystemState::TankSelection,     noOp};
+    transitions_[{SystemState::TankSelection, Event::RefuelingStopped}]    = {SystemState::TankSelection,     noOp};
+    transitions_[{SystemState::TankSelection, Event::RefuelingComplete}]   = {SystemState::TankSelection,     noOp};
+    transitions_[{SystemState::TankSelection, Event::IntakeSelected}]      = {SystemState::IntakeVolumeEntry, [this]() { onIntakeSelected();       }};
+    transitions_[{SystemState::TankSelection, Event::IntakeVolumeEntered}] = {SystemState::TankSelection,     noOp};
+    transitions_[{SystemState::TankSelection, Event::IntakeComplete}]      = {SystemState::TankSelection,     noOp};
+    transitions_[{SystemState::TankSelection, Event::CancelPressed}]       = {SystemState::Waiting,           [this]() { onCancelPressed();        }};
+    transitions_[{SystemState::TankSelection, Event::Timeout}]             = {SystemState::Waiting,           [this]() { onTimeout();              }};
+    transitions_[{SystemState::TankSelection, Event::Error}]               = {SystemState::Error,             [this]() { onError();                }};
 
     // From VolumeEntry state
-    transitions_[{SystemState::VolumeEntry, Event::VolumeEntered}] = 
-        {SystemState::Refueling, [this]() { onVolumeEntered(); }};
-    transitions_[{SystemState::VolumeEntry, Event::CancelPressed}] = 
-        {SystemState::Waiting, [this]() { onCancelPressed(); }};
-    transitions_[{SystemState::VolumeEntry, Event::Timeout}] = 
-        {SystemState::Waiting, [this]() { onTimeout(); }};
+    transitions_[{SystemState::VolumeEntry, Event::CardPresented}]       = {SystemState::VolumeEntry,       noOp};
+    transitions_[{SystemState::VolumeEntry, Event::PinEntered}]          = {SystemState::VolumeEntry,       noOp};
+    transitions_[{SystemState::VolumeEntry, Event::AuthorizationSuccess}]= {SystemState::VolumeEntry,       noOp};
+    transitions_[{SystemState::VolumeEntry, Event::AuthorizationFailed}] = {SystemState::VolumeEntry,       noOp};
+    transitions_[{SystemState::VolumeEntry, Event::TankSelected}]        = {SystemState::VolumeEntry,       noOp};
+    transitions_[{SystemState::VolumeEntry, Event::VolumeEntered}]       = {SystemState::Refueling,         [this]() { onVolumeEntered();        }};
+    transitions_[{SystemState::VolumeEntry, Event::AmountEntered}]       = {SystemState::VolumeEntry,       noOp};
+    transitions_[{SystemState::VolumeEntry, Event::RefuelingStarted}]    = {SystemState::VolumeEntry,       noOp};
+    transitions_[{SystemState::VolumeEntry, Event::RefuelingStopped}]    = {SystemState::VolumeEntry,       noOp};
+    transitions_[{SystemState::VolumeEntry, Event::RefuelingComplete}]   = {SystemState::VolumeEntry,       noOp};
+    transitions_[{SystemState::VolumeEntry, Event::IntakeSelected}]      = {SystemState::VolumeEntry,       noOp};
+    transitions_[{SystemState::VolumeEntry, Event::IntakeVolumeEntered}] = {SystemState::VolumeEntry,       noOp};
+    transitions_[{SystemState::VolumeEntry, Event::IntakeComplete}]      = {SystemState::VolumeEntry,       noOp};
+    transitions_[{SystemState::VolumeEntry, Event::CancelPressed}]       = {SystemState::Waiting,           [this]() { onCancelPressed();        }};
+    transitions_[{SystemState::VolumeEntry, Event::Timeout}]             = {SystemState::Waiting,           [this]() { onTimeout();              }};
+    transitions_[{SystemState::VolumeEntry, Event::Error}]               = {SystemState::Error,             [this]() { onError();                }};
 
     // From Refueling state
-    transitions_[{SystemState::Refueling, Event::RefuelingComplete}] = 
-        {SystemState::RefuelingComplete, [this]() { onRefuelingComplete(); }};
-    transitions_[{SystemState::Refueling, Event::RefuelingStopped}] = 
-        {SystemState::RefuelingComplete, [this]() { onRefuelingStopped(); }};
-    transitions_[{SystemState::Refueling, Event::CancelPressed}] = 
-        {SystemState::RefuelingComplete, [this]() { onRefuelingStopped(); }};
+    transitions_[{SystemState::Refueling, Event::CardPresented}]       = {SystemState::Refueling,         noOp};
+    transitions_[{SystemState::Refueling, Event::PinEntered}]          = {SystemState::Refueling,         noOp};
+    transitions_[{SystemState::Refueling, Event::AuthorizationSuccess}]= {SystemState::Refueling,         noOp};
+    transitions_[{SystemState::Refueling, Event::AuthorizationFailed}] = {SystemState::Refueling,         noOp};
+    transitions_[{SystemState::Refueling, Event::TankSelected}]        = {SystemState::Refueling,         noOp};
+    transitions_[{SystemState::Refueling, Event::VolumeEntered}]       = {SystemState::Refueling,         noOp};
+    transitions_[{SystemState::Refueling, Event::AmountEntered}]       = {SystemState::Refueling,         noOp};
+    transitions_[{SystemState::Refueling, Event::RefuelingStarted}]    = {SystemState::Refueling,         noOp};
+    transitions_[{SystemState::Refueling, Event::RefuelingStopped}]    = {SystemState::RefuelingComplete, [this]() { onRefuelingStopped();     }};
+    transitions_[{SystemState::Refueling, Event::RefuelingComplete}]   = {SystemState::RefuelingComplete, [this]() { onRefuelingComplete();    }};
+    transitions_[{SystemState::Refueling, Event::IntakeSelected}]      = {SystemState::Refueling,         noOp};
+    transitions_[{SystemState::Refueling, Event::IntakeVolumeEntered}] = {SystemState::Refueling,         noOp};
+    transitions_[{SystemState::Refueling, Event::IntakeComplete}]      = {SystemState::Refueling,         noOp};
+    transitions_[{SystemState::Refueling, Event::CancelPressed}]       = {SystemState::RefuelingComplete, [this]() { onRefuelingStopped();     }};
+    transitions_[{SystemState::Refueling, Event::Timeout}]             = {SystemState::Refueling,         noOp};
+    transitions_[{SystemState::Refueling, Event::Error}]               = {SystemState::Error,             [this]() { onError();                }};
 
     // From RefuelingComplete state
-    transitions_[{SystemState::RefuelingComplete, Event::CardPresented}] = 
-        {SystemState::Authorization, [this]() { onCardPresented(); }};
-    transitions_[{SystemState::RefuelingComplete, Event::PinEntered}] = 
-        {SystemState::Authorization, [this]() { onPinEntered(); }};
-    transitions_[{SystemState::RefuelingComplete, Event::Timeout}] = 
-        {SystemState::Waiting, [this]() { onTimeout(); }};
+    transitions_[{SystemState::RefuelingComplete, Event::CardPresented}]       = {SystemState::Authorization,     [this]() { onCardPresented();        }};
+    transitions_[{SystemState::RefuelingComplete, Event::PinEntered}]          = {SystemState::Authorization,     [this]() { onPinEntered();           }};
+    transitions_[{SystemState::RefuelingComplete, Event::AuthorizationSuccess}]= {SystemState::RefuelingComplete, noOp};
+    transitions_[{SystemState::RefuelingComplete, Event::AuthorizationFailed}] = {SystemState::RefuelingComplete, noOp};
+    transitions_[{SystemState::RefuelingComplete, Event::TankSelected}]        = {SystemState::RefuelingComplete, noOp};
+    transitions_[{SystemState::RefuelingComplete, Event::VolumeEntered}]       = {SystemState::RefuelingComplete, noOp};
+    transitions_[{SystemState::RefuelingComplete, Event::AmountEntered}]       = {SystemState::RefuelingComplete, noOp};
+    transitions_[{SystemState::RefuelingComplete, Event::RefuelingStarted}]    = {SystemState::RefuelingComplete, noOp};
+    transitions_[{SystemState::RefuelingComplete, Event::RefuelingStopped}]    = {SystemState::RefuelingComplete, noOp};
+    transitions_[{SystemState::RefuelingComplete, Event::RefuelingComplete}]   = {SystemState::RefuelingComplete, noOp};
+    transitions_[{SystemState::RefuelingComplete, Event::IntakeSelected}]      = {SystemState::RefuelingComplete, noOp};
+    transitions_[{SystemState::RefuelingComplete, Event::IntakeVolumeEntered}] = {SystemState::RefuelingComplete, noOp};
+    transitions_[{SystemState::RefuelingComplete, Event::IntakeComplete}]      = {SystemState::RefuelingComplete, noOp};
+    transitions_[{SystemState::RefuelingComplete, Event::CancelPressed}]       = {SystemState::RefuelingComplete, noOp};
+    transitions_[{SystemState::RefuelingComplete, Event::Timeout}]             = {SystemState::Waiting,           [this]() { onTimeout();              }};
+    transitions_[{SystemState::RefuelingComplete, Event::Error}]               = {SystemState::Error,             [this]() { onError();                }};
 
     // From IntakeVolumeEntry state
-    transitions_[{SystemState::IntakeVolumeEntry, Event::IntakeVolumeEntered}] = 
-        {SystemState::IntakeComplete, [this]() { onIntakeVolumeEntered(); }};
-    transitions_[{SystemState::IntakeVolumeEntry, Event::CancelPressed}] = 
-        {SystemState::Waiting, [this]() { onCancelPressed(); }};
-    transitions_[{SystemState::IntakeVolumeEntry, Event::Timeout}] = 
-        {SystemState::Waiting, [this]() { onTimeout(); }};
+    transitions_[{SystemState::IntakeVolumeEntry, Event::CardPresented}]       = {SystemState::IntakeVolumeEntry, noOp};
+    transitions_[{SystemState::IntakeVolumeEntry, Event::PinEntered}]          = {SystemState::IntakeVolumeEntry, noOp};
+    transitions_[{SystemState::IntakeVolumeEntry, Event::AuthorizationSuccess}]= {SystemState::IntakeVolumeEntry, noOp};
+    transitions_[{SystemState::IntakeVolumeEntry, Event::AuthorizationFailed}] = {SystemState::IntakeVolumeEntry, noOp};
+    transitions_[{SystemState::IntakeVolumeEntry, Event::TankSelected}]        = {SystemState::IntakeVolumeEntry, noOp};
+    transitions_[{SystemState::IntakeVolumeEntry, Event::VolumeEntered}]       = {SystemState::IntakeVolumeEntry, noOp};
+    transitions_[{SystemState::IntakeVolumeEntry, Event::AmountEntered}]       = {SystemState::IntakeVolumeEntry, noOp};
+    transitions_[{SystemState::IntakeVolumeEntry, Event::RefuelingStarted}]    = {SystemState::IntakeVolumeEntry, noOp};
+    transitions_[{SystemState::IntakeVolumeEntry, Event::RefuelingStopped}]    = {SystemState::IntakeVolumeEntry, noOp};
+    transitions_[{SystemState::IntakeVolumeEntry, Event::RefuelingComplete}]   = {SystemState::IntakeVolumeEntry, noOp};
+    transitions_[{SystemState::IntakeVolumeEntry, Event::IntakeSelected}]      = {SystemState::IntakeVolumeEntry, noOp};
+    transitions_[{SystemState::IntakeVolumeEntry, Event::IntakeVolumeEntered}] = {SystemState::IntakeComplete,    [this]() { onIntakeVolumeEntered();  }};
+    transitions_[{SystemState::IntakeVolumeEntry, Event::IntakeComplete}]      = {SystemState::IntakeVolumeEntry, noOp};
+    transitions_[{SystemState::IntakeVolumeEntry, Event::CancelPressed}]       = {SystemState::Waiting,           [this]() { onCancelPressed();        }};
+    transitions_[{SystemState::IntakeVolumeEntry, Event::Timeout}]             = {SystemState::Waiting,           [this]() { onTimeout();              }};
+    transitions_[{SystemState::IntakeVolumeEntry, Event::Error}]               = {SystemState::Error,             [this]() { onError();                }};
 
     // From IntakeComplete state
-    transitions_[{SystemState::IntakeComplete, Event::CancelPressed}] = 
-        {SystemState::Waiting, [this]() { onCancelPressed(); }};
-    transitions_[{SystemState::IntakeComplete, Event::Timeout}] = 
-        {SystemState::Waiting, [this]() { onTimeout(); }};
+    transitions_[{SystemState::IntakeComplete, Event::CardPresented}]       = {SystemState::IntakeComplete,    noOp};
+    transitions_[{SystemState::IntakeComplete, Event::PinEntered}]          = {SystemState::IntakeComplete,    noOp};
+    transitions_[{SystemState::IntakeComplete, Event::AuthorizationSuccess}]= {SystemState::IntakeComplete,    noOp};
+    transitions_[{SystemState::IntakeComplete, Event::AuthorizationFailed}] = {SystemState::IntakeComplete,    noOp};
+    transitions_[{SystemState::IntakeComplete, Event::TankSelected}]        = {SystemState::IntakeComplete,    noOp};
+    transitions_[{SystemState::IntakeComplete, Event::VolumeEntered}]       = {SystemState::IntakeComplete,    noOp};
+    transitions_[{SystemState::IntakeComplete, Event::AmountEntered}]       = {SystemState::IntakeComplete,    noOp};
+    transitions_[{SystemState::IntakeComplete, Event::RefuelingStarted}]    = {SystemState::IntakeComplete,    noOp};
+    transitions_[{SystemState::IntakeComplete, Event::RefuelingStopped}]    = {SystemState::IntakeComplete,    noOp};
+    transitions_[{SystemState::IntakeComplete, Event::RefuelingComplete}]   = {SystemState::IntakeComplete,    noOp};
+    transitions_[{SystemState::IntakeComplete, Event::IntakeSelected}]      = {SystemState::IntakeComplete,    noOp};
+    transitions_[{SystemState::IntakeComplete, Event::IntakeVolumeEntered}] = {SystemState::IntakeComplete,    noOp};
+    transitions_[{SystemState::IntakeComplete, Event::IntakeComplete}]      = {SystemState::IntakeComplete,    noOp};
+    transitions_[{SystemState::IntakeComplete, Event::CancelPressed}]       = {SystemState::Waiting,           [this]() { onCancelPressed();        }};
+    transitions_[{SystemState::IntakeComplete, Event::Timeout}]             = {SystemState::Waiting,           [this]() { onTimeout();              }};
+    transitions_[{SystemState::IntakeComplete, Event::Error}]               = {SystemState::Error,             [this]() { onError();                }};
 
     // From Error state
-    transitions_[{SystemState::Error, Event::CancelPressed}] = 
-        {SystemState::Waiting, [this]() { onCancelPressed(); }};
-    transitions_[{SystemState::Error, Event::Timeout}] = 
-        {SystemState::Waiting, [this]() { onTimeout(); }};
-
-    // Global error transitions
-    for (auto state : {SystemState::Waiting, SystemState::PinEntry, SystemState::Authorization,
-                      SystemState::TankSelection, SystemState::VolumeEntry,
-                      SystemState::Refueling, SystemState::RefuelingComplete, SystemState::IntakeVolumeEntry,
-                      SystemState::IntakeComplete}) {
-        transitions_[{state, Event::Error}] = 
-            {SystemState::Error, [this]() { onError(); }};
-    }
+    transitions_[{SystemState::Error, Event::CardPresented}]       = {SystemState::Error,             noOp};
+    transitions_[{SystemState::Error, Event::PinEntered}]          = {SystemState::Error,             noOp};
+    transitions_[{SystemState::Error, Event::AuthorizationSuccess}]= {SystemState::Error,             noOp};
+    transitions_[{SystemState::Error, Event::AuthorizationFailed}] = {SystemState::Error,             noOp};
+    transitions_[{SystemState::Error, Event::TankSelected}]        = {SystemState::Error,             noOp};
+    transitions_[{SystemState::Error, Event::VolumeEntered}]       = {SystemState::Error,             noOp};
+    transitions_[{SystemState::Error, Event::AmountEntered}]       = {SystemState::Error,             noOp};
+    transitions_[{SystemState::Error, Event::RefuelingStarted}]    = {SystemState::Error,             noOp};
+    transitions_[{SystemState::Error, Event::RefuelingStopped}]    = {SystemState::Error,             noOp};
+    transitions_[{SystemState::Error, Event::RefuelingComplete}]   = {SystemState::Error,             noOp};
+    transitions_[{SystemState::Error, Event::IntakeSelected}]      = {SystemState::Error,             noOp};
+    transitions_[{SystemState::Error, Event::IntakeVolumeEntered}] = {SystemState::Error,             noOp};
+    transitions_[{SystemState::Error, Event::IntakeComplete}]      = {SystemState::Error,             noOp};
+    transitions_[{SystemState::Error, Event::CancelPressed}]       = {SystemState::Waiting,           [this]() { onCancelPressed();        }};
+    transitions_[{SystemState::Error, Event::Timeout}]             = {SystemState::Waiting,           [this]() { onTimeout();              }};
+    transitions_[{SystemState::Error, Event::Error}]               = {SystemState::Error,             noOp};
     
     LOG_SM_DEBUG("State machine transitions configured with {} entries", transitions_.size());
 }
