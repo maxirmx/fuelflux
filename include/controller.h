@@ -15,8 +15,8 @@ namespace fuelflux {
 
 // Main controller class that orchestrates the entire system
 class Controller {
-public:
-    Controller(ControllerId controllerId);
+  public:
+    Controller(ControllerId controllerId, std::unique_ptr<IBackend> backend = nullptr);
     ~Controller();
 
     // System lifecycle
@@ -94,7 +94,7 @@ public:
     std::string getCurrentTimeString() const;
     std::string getDeviceSerialNumber() const;
 
-private:
+  private:
     // Core components
     ControllerId controllerId_;
     StateMachine stateMachine_;
@@ -105,14 +105,14 @@ private:
     std::unique_ptr<peripherals::ICardReader> cardReader_;
     std::unique_ptr<peripherals::IPump> pump_;
     std::unique_ptr<peripherals::IFlowMeter> flowMeter_;
-    Backend backend_;
-
+    std::unique_ptr<IBackend> backend_;
     // Current session state
     UserInfo currentUser_;
     std::vector<TankInfo> availableTanks_;
     TankNumber selectedTank_;
     Volume enteredVolume_;
     std::string currentInput_;
+    IntakeDirection selectedIntakeDirection_;
     
     // Refueling state
     Volume currentRefuelVolume_;
@@ -135,6 +135,7 @@ private:
     TankNumber parseTankFromInput() const;
     void resetSessionData();
     DisplayMessage createDisplayMessage() const;
+    void selectIntakeDirection(IntakeDirection direction);
 };
 
 } // namespace fuelflux

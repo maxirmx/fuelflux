@@ -10,6 +10,7 @@
 #include <thread>
 #include <chrono>
 #include <algorithm>
+#include <fmt/format.h>
 
 #ifdef _WIN32
 #include <conio.h>
@@ -20,6 +21,55 @@
 #endif
 
 namespace fuelflux {
+
+namespace {
+size_t utf8CharLength(unsigned char lead) {
+    if ((lead & 0x80) == 0) {
+        return 1;
+    }
+    if ((lead & 0xE0) == 0xC0) {
+        return 2;
+    }
+    if ((lead & 0xF0) == 0xE0) {
+        return 3;
+    }
+    if ((lead & 0xF8) == 0xF0) {
+        return 4;
+    }
+    return 1;
+}
+
+std::string utf8Truncate(const std::string& text, size_t maxChars) {
+    if (maxChars == 0) {
+        return {};
+    }
+
+    size_t bytePos = 0;
+    size_t chars = 0;
+    while (bytePos < text.size() && chars < maxChars) {
+        const auto len = utf8CharLength(static_cast<unsigned char>(text[bytePos]));
+        if (bytePos + len > text.size()) {
+            break; // incomplete code point at the end
+        }
+        bytePos += len;
+        ++chars;
+    }
+    return text.substr(0, bytePos);
+}
+
+size_t utf8Length(const std::string& text) {
+    size_t length = 0;
+    for (size_t i = 0; i < text.size();) {
+        const auto len = utf8CharLength(static_cast<unsigned char>(text[i]));
+        if (i + len > text.size()) {
+            break;
+        }
+        i += len;
+        ++length;
+    }
+    return length;
+}
+} // namespace
 
 // ConsoleDisplay implementation
 ConsoleDisplay::ConsoleDisplay()
@@ -98,15 +148,20 @@ void ConsoleDisplay::printBorder(bool bottom) const {
 }
 
 std::string ConsoleDisplay::padLine(const std::string& line, size_t width) const {
-    if (line.length() >= width) {
-        return line.substr(0, width);
+    if (width == 0) {
+        return {};
     }
-    
-    size_t padding = width - line.length();
-    size_t leftPad = padding / 2;
-    size_t rightPad = padding - leftPad;
-    
-    return std::string(leftPad, ' ') + line + std::string(rightPad, ' ');
+
+    const std::string trimmed = utf8Truncate(line, width);
+    const size_t charCount = utf8Length(trimmed);
+    if (charCount >= width) {
+        return trimmed;
+    }
+
+    const size_t padding = width - charCount;
+    const size_t leftPad = padding / 2;
+    const size_t rightPad = padding - leftPad;
+    return fmt::format("{0}{1}{2}", std::string(leftPad, ' '), trimmed, std::string(rightPad, ' '));
 }
 
 // ConsoleKeyboard implementation
@@ -222,9 +277,8 @@ void ConsoleCardReader::simulateCardPresented(const UserId& userId) {
         std::cout << "[CardReader] Reading disabled, ignoring card: " << userId << std::endl;
         return;
     }
-    
+
     std::cout << "[CardReader] Card presented: " << userId << std::endl;
-    
     std::lock_guard<std::mutex> lock(callbackMutex_);
     if (cardPresentedCallback_) {
         cardPresentedCallback_(userId);
@@ -259,7 +313,7 @@ bool ConsolePump::isConnected() const {
 
 void ConsolePump::start() {
     if (!isConnected_) return;
-    
+
     bool wasRunning = isRunning_.exchange(true);
     if (!wasRunning) {
         std::cout << "[Pump] Started" << std::endl;
@@ -326,7 +380,7 @@ bool ConsoleFlowMeter::isConnected() const {
 
 void ConsoleFlowMeter::startMeasurement() {
     if (!isConnected_) return;
-    
+
     // Use atomic compare_exchange to ensure only one thread prints the message
     bool expected = false;
     if (isMeasuring_.compare_exchange_strong(expected, true)) {
@@ -338,7 +392,7 @@ void ConsoleFlowMeter::stopMeasurement() {
     bool wasMeasuring = isMeasuring_.exchange(false);
     if (wasMeasuring) {
         shouldStop_ = true;
-        
+
         // Only join if we're not being called from the simulation thread itself
         if (simulationThread_.joinable()) {
             // Check if we're on the simulation thread
@@ -349,7 +403,7 @@ void ConsoleFlowMeter::stopMeasurement() {
                 simulationThread_.detach();
             }
         }
-        
+
         shouldStop_ = false;
         std::cout << "[FlowMeter] Stopped measurement" << std::endl;
     }
@@ -385,16 +439,16 @@ void ConsoleFlowMeter::simulateFlow(Volume targetVolume) {
     if (simulationThread_.joinable()) {
         simulationThread_.join();
     }
-    
+
     // Reset the stop flag and start new simulation
     shouldStop_ = false;
-    
+
     // Ensure measurement is active using atomic store
     isMeasuring_.store(true);
-    
+
     // Create and start the simulation thread
     simulationThread_ = std::thread(&ConsoleFlowMeter::simulationThreadFunction, this, targetVolume);
-    
+
     std::cout << "[FlowMeter] Simulation thread started for target: " << std::fixed 
               << std::setprecision(2) << targetVolume << " L" << std::endl;
 }
@@ -402,33 +456,33 @@ void ConsoleFlowMeter::simulateFlow(Volume targetVolume) {
 void ConsoleFlowMeter::simulationThreadFunction(Volume targetVolume) {
     const auto updateInterval = std::chrono::milliseconds(100);
     const Volume volumePerUpdate = flowRate_ * 0.1; // 100ms updates = 0.1 seconds
-    
+
     std::cout << "[FlowMeter] Simulation thread running - Target: " << std::fixed << std::setprecision(2) 
               << targetVolume << " L at " << flowRate_ << " L/s" << std::endl;
     std::cout << "[FlowMeter] Volume per update: " << volumePerUpdate << " L" << std::endl;
-    
+
     int updateCount = 0;
-    
+
     while (!shouldStop_) {
         // Check if measurement is still active
         if (!isMeasuring_) {
             std::cout << "[FlowMeter] Measurement stopped, exiting simulation thread" << std::endl;
             break;
         }
-        
+
         Volume currentVol;
         {
             std::lock_guard<std::mutex> lock(volumeMutex_);
             currentVol = currentVolume_;
         }
-        
+
         // Check if we've reached the target
         if (currentVol >= targetVolume) {
             std::cout << "[FlowMeter] Target volume reached: " << std::fixed << std::setprecision(2) 
                       << currentVol << " L after " << updateCount << " updates" << std::endl;
             break;
         }
-        
+
         // Sleep before updating
         std::this_thread::sleep_for(updateInterval);
 
@@ -457,7 +511,7 @@ void ConsoleFlowMeter::simulationThreadFunction(Volume targetVolume) {
         std::cout << "[FlowMeter] Volume: " << std::fixed << std::setprecision(2) 
                   << newVolume << " L / " << targetVolume << " L (" << updateCount << ")" << std::endl;
     }
-    
+
     std::cout << "[FlowMeter] Simulation thread exiting" << std::endl;
 }
 

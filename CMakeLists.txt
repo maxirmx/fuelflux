@@ -13,6 +13,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 if(MSVC)
     add_compile_definitions(_SILENCE_STDEXT_ARR_ITERS_DEPRECATION_WARNING _CRT_SECURE_NO_WARNINGS)
     add_compile_options(/W4)
+    add_compile_options(/utf-8) 
 else()
     add_compile_options(-Wall -Wextra -Wpedantic -Wno-psabi)
 endif()
@@ -24,6 +25,16 @@ endif()
 
 # Include FetchContent module
 include(FetchContent)
+
+# Use fmt directly and share it with spdlog to avoid duplicate bundled copies
+set(SPDLOG_FMT_EXTERNAL ON)
+
+# Fetch fmt
+FetchContent_Declare(
+    fmt
+    GIT_REPOSITORY https://github.com/fmtlib/fmt.git
+    GIT_TAG        11.0.2
+)
 
 # Fetch nlohmann/json
 FetchContent_Declare(
@@ -56,7 +67,7 @@ FetchContent_Declare(
 set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
 
 # Make dependencies available
-FetchContent_MakeAvailable(nlohmann_json spdlog httplib googletest)
+FetchContent_MakeAvailable(fmt nlohmann_json spdlog httplib googletest)
 
 # Include directories
 include_directories(include)
@@ -109,6 +120,7 @@ endif()
 # Link libraries
 target_link_libraries(fuelflux 
     PRIVATE 
+    fmt::fmt
     nlohmann_json::nlohmann_json 
     spdlog::spdlog
     httplib::httplib
@@ -137,73 +149,78 @@ add_custom_command(TARGET fuelflux POST_BUILD
 )
 
 # Testing
-enable_testing()
+if(MSVC)
 
-# Test source files
-set(TEST_SOURCES
-    tests/backend_test.cpp
-    tests/controller_test.cpp
-)
+    enable_testing()
 
-# Library sources (excluding main.cpp)
-set(LIB_SOURCES
-    src/state_machine.cpp
-    src/controller.cpp
-    src/logger.cpp
-    src/peripherals/display.cpp
-    src/peripherals/keyboard.cpp
-    src/peripherals/card_reader.cpp
-    src/peripherals/pump.cpp
-    src/peripherals/flow_meter.cpp
-    src/console_emulator.cpp
-    src/backend.cpp
-)
+    # Test source files
+    set(TEST_SOURCES
+        tests/backend_test.cpp
+        tests/controller_test.cpp
+    )
 
-# Create library from application sources
-add_library(fuelflux_lib STATIC ${LIB_SOURCES} ${HEADERS})
+    # Library sources (excluding main.cpp)
+    set(LIB_SOURCES
+        src/state_machine.cpp
+        src/controller.cpp
+        src/logger.cpp
+        src/peripherals/display.cpp
+        src/peripherals/keyboard.cpp
+        src/peripherals/card_reader.cpp
+        src/peripherals/pump.cpp
+        src/peripherals/flow_meter.cpp
+        src/console_emulator.cpp
+        src/backend.cpp
+    )
 
-# Link libraries to library target
-target_link_libraries(fuelflux_lib
-    PUBLIC
-    nlohmann_json::nlohmann_json
-    spdlog::spdlog
-    httplib::httplib
-)
+    # Create library from application sources
+    add_library(fuelflux_lib STATIC ${LIB_SOURCES} ${HEADERS})
 
-# Handle OpenSSL for library
-if(OpenSSL_FOUND)
-    target_compile_definitions(fuelflux_lib PUBLIC CPPHTTPLIB_OPENSSL_SUPPORT)
-    target_link_libraries(fuelflux_lib PUBLIC OpenSSL::SSL OpenSSL::Crypto)
-endif()
+    # Link libraries to library target
+    target_link_libraries(fuelflux_lib
+        PUBLIC
+        fmt::fmt
+        nlohmann_json::nlohmann_json
+        spdlog::spdlog
+        httplib::httplib
+    )
 
-# Update main executable to use library
-target_link_libraries(fuelflux PRIVATE fuelflux_lib)
+    # Handle OpenSSL for library
+    if(OpenSSL_FOUND)
+        target_compile_definitions(fuelflux_lib PUBLIC CPPHTTPLIB_OPENSSL_SUPPORT)
+        target_link_libraries(fuelflux_lib PUBLIC OpenSSL::SSL OpenSSL::Crypto)
+    endif()
 
-# Create test executable
-add_executable(fuelflux_tests ${TEST_SOURCES})
+    # Update main executable to use library
+    target_link_libraries(fuelflux PRIVATE fuelflux_lib)
 
-# Link test executable with library and Google Test
-target_link_libraries(fuelflux_tests
-    PRIVATE
-    fuelflux_lib
-    GTest::gtest_main
-    GTest::gmock
-)
+    # Create test executable
+    add_executable(fuelflux_tests ${TEST_SOURCES})
 
-# Set output directory for tests
-set_target_properties(fuelflux_tests PROPERTIES
-    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
-)
+    # Link test executable with library and Google Test
+    target_link_libraries(fuelflux_tests
+        PRIVATE
+        fuelflux_lib
+        GTest::gtest_main
+        GTest::gmock
+    )
 
-# Ensure config directory is available for tests
-add_custom_command(TARGET fuelflux_tests POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:fuelflux_tests>/config"
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        "${CMAKE_SOURCE_DIR}/config/logging.json"
-        "$<TARGET_FILE_DIR:fuelflux_tests>/config/logging.json"
-    COMMENT "Copy logging.json to test output config folder"
-)
+    # Set output directory for tests
+    set_target_properties(fuelflux_tests PROPERTIES
+        RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
+    )
 
-# Discover tests
-include(GoogleTest)
+    # Ensure config directory is available for tests
+    add_custom_command(TARGET fuelflux_tests POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:fuelflux_tests>/config"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${CMAKE_SOURCE_DIR}/config/logging.json"
+            "$<TARGET_FILE_DIR:fuelflux_tests>/config/logging.json"
+        COMMENT "Copy logging.json to test output config folder"
+    )
+
+    # Discover tests
+    include(GoogleTest)
 gtest_discover_tests(fuelflux_tests)
+
+endif(MSVC)

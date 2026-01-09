@@ -39,7 +39,7 @@ enum class SystemState {
     VolumeEntry,
     Refueling,
     RefuelingComplete,
-    FuelIntake,
+    IntakeDirectionSelection,
     IntakeVolumeEntry,
     IntakeComplete,
     Error
@@ -58,6 +58,7 @@ enum class Event {
     RefuelingStarted,
     RefuelingStopped,
     IntakeSelected,
+    IntakeDirectionSelected,
     IntakeVolumeEntered,
     IntakeComplete,
     CancelPressed,
@@ -102,6 +103,7 @@ struct IntakeTransaction {
     UserId operatorId;
     TankNumber tankNumber;
     Volume volume;
+    IntakeDirection direction = IntakeDirection::In;
     std::chrono::system_clock::time_point timestamp;
 };
 

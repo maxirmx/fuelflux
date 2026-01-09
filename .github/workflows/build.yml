@@ -90,6 +90,7 @@ jobs:
               apt-get update
               apt-get install -y --no-install-recommends \
                 build-essential cmake ninja-build g++ ca-certificates git libssl-dev
+              git config --global --add safe.directory /work/build-armhf/_deps/fmt-src
               git config --global --add safe.directory /work/build-armhf/_deps/nlohmann_json-src
               git config --global --add safe.directory /work/build-armhf/_deps/spdlog-src
               git config --global --add safe.directory /work/build-armhf/_deps/httplib-src
