@@ -610,15 +610,6 @@ TankNumber Controller::parseTankFromInput() const {
     }
 }
 
-// This function is not is not required - customer or operators cannot 
-// enter fractional  number of liters because input device does not allow it
-//
-// bool Controller::isWholeNumber(Volume volume) const {
-//    double intPart = 0.0;
-//    double fractional = std::modf(volume, &intPart);
-//    return std::fabs(fractional) < 1e-9;
-// }
-
 void Controller::resetSessionData() {
     currentUser_ = UserInfo{};
     availableTanks_.clear();
