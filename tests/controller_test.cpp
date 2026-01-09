@@ -4,6 +4,7 @@
 
 #include <gtest/gtest.h>
 #include <gmock/gmock.h>
+#include "backend.h"
 #include "controller.h"
 #include "peripherals/display.h"
 #include "peripherals/keyboard.h"
@@ -15,7 +16,32 @@ using namespace fuelflux;
 using namespace fuelflux::peripherals;
 using ::testing::_;
 using ::testing::Return;
+using ::testing::ReturnPointee;
+using ::testing::ReturnRef;
 using ::testing::NiceMock;
+
+// Mock Backend
+class MockBackend : public IBackend {
+public:
+    MOCK_METHOD(bool, Authorize, (const std::string& uid), (override));
+    MOCK_METHOD(bool, Deauthorize, (), (override));
+    MOCK_METHOD(bool, Refuel, (TankNumber tankNumber, Volume volume), (override));
+    MOCK_METHOD(bool, Intake, (TankNumber tankNumber, Volume volume, IntakeDirection direction), (override));
+    MOCK_METHOD(bool, IsAuthorized, (), (const, override));
+    MOCK_METHOD(const std::string&, GetToken, (), (const, override));
+    MOCK_METHOD(int, GetRoleId, (), (const, override));
+    MOCK_METHOD(double, GetAllowance, (), (const, override));
+    MOCK_METHOD(double, GetPrice, (), (const, override));
+    MOCK_METHOD(const std::vector<BackendTankInfo>&, GetFuelTanks, (), (const, override));
+    MOCK_METHOD(const std::string&, GetLastError, (), (const, override));
+
+    std::string tokenStorage_;
+    std::vector<BackendTankInfo> tanksStorage_;
+    std::string lastErrorStorage_;
+    int roleId_ = static_cast<int>(UserRole::Unknown);
+    double allowance_ = 0.0;
+    double price_ = 0.0;
+};
 
 // Mock Display
 class MockDisplay : public IDisplay {
@@ -150,6 +176,7 @@ public:
 class ControllerTest : public ::testing::Test {
 protected:
     std::unique_ptr<Controller> controller;
+    MockBackend* mockBackend;
     MockDisplay* mockDisplay;
     MockKeyboard* mockKeyboard;
     MockCardReader* mockCardReader;
@@ -157,7 +184,9 @@ protected:
     MockFlowMeter* mockFlowMeter;
 
     void SetUp() override {
-        controller = std::make_unique<Controller>("test-controller-001");
+        auto backend = std::make_unique<NiceMock<MockBackend>>();
+        mockBackend = backend.get();
+        controller = std::make_unique<Controller>("test-controller-001", std::move(backend));
         
         // Create mocks (use raw pointers as Controller takes ownership)
         auto display = std::make_unique<NiceMock<MockDisplay>>();
@@ -179,6 +208,17 @@ protected:
         ON_CALL(*mockCardReader, initialize()).WillByDefault(Return(true));
         ON_CALL(*mockPump, initialize()).WillByDefault(Return(true));
         ON_CALL(*mockFlowMeter, initialize()).WillByDefault(Return(true));
+        ON_CALL(*mockBackend, Authorize(_)).WillByDefault(Return(false));
+        ON_CALL(*mockBackend, Deauthorize()).WillByDefault(Return(true));
+        ON_CALL(*mockBackend, Refuel(_, _)).WillByDefault(Return(true));
+        ON_CALL(*mockBackend, Intake(_, _, _)).WillByDefault(Return(true));
+        ON_CALL(*mockBackend, IsAuthorized()).WillByDefault(Return(false));
+        ON_CALL(*mockBackend, GetToken()).WillByDefault(ReturnRef(mockBackend->tokenStorage_));
+        ON_CALL(*mockBackend, GetRoleId()).WillByDefault(ReturnPointee(&mockBackend->roleId_));
+        ON_CALL(*mockBackend, GetAllowance()).WillByDefault(ReturnPointee(&mockBackend->allowance_));
+        ON_CALL(*mockBackend, GetPrice()).WillByDefault(ReturnPointee(&mockBackend->price_));
+        ON_CALL(*mockBackend, GetFuelTanks()).WillByDefault(ReturnRef(mockBackend->tanksStorage_));
+        ON_CALL(*mockBackend, GetLastError()).WillByDefault(ReturnRef(mockBackend->lastErrorStorage_));
         
         ON_CALL(*mockDisplay, isConnected()).WillByDefault(Return(true));
         ON_CALL(*mockKeyboard, isConnected()).WillByDefault(Return(true));
@@ -198,6 +238,18 @@ protected:
         if (controller) {
             controller->shutdown();
         }
+    }
+
+    bool waitForState(SystemState expected,
+                      std::chrono::milliseconds timeout = std::chrono::milliseconds(500)) {
+        const auto deadline = std::chrono::steady_clock::now() + timeout;
+        while (std::chrono::steady_clock::now() < deadline) {
+            if (controller->getStateMachine().getCurrentState() == expected) {
+                return true;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+        return controller->getStateMachine().getCurrentState() == expected;
     }
 };
 
@@ -589,17 +641,6 @@ TEST_F(ControllerTest, InvalidVolumeEntry) {
     // Should show error and stay in current state
 }
 
-// Test volume parsing errors
-TEST_F(ControllerTest, VolumeParsingErrors) {
-    controller->initialize();
-    
-    // These methods are private, but we can test via processNumericInput
-    // by setting up the state and input
-    
-    // We'd need to be in VolumeEntry state to test this properly
-    // which requires going through the full flow including authorization
-}
-
 // Test tank selection with invalid tank number (integration test)
 TEST_F(ControllerTest, TankSelectionInvalidNumber) {
     controller->initialize();
@@ -675,4 +716,84 @@ TEST_F(ControllerTest, InputClearedAfterValidationError) {
     EXPECT_EQ(controller->getCurrentInput(), "1");
     controller->enterVolume(-1.0);
     EXPECT_TRUE(controller->getCurrentInput().empty());
+}
+
+TEST_F(ControllerTest, OperatorIntakeWorkflow) {
+    mockBackend->roleId_ = static_cast<int>(UserRole::Operator);
+    mockBackend->tanksStorage_ = {BackendTankInfo{1, "Tank A"}};
+
+    EXPECT_CALL(*mockBackend, Authorize("operator-card"))
+        .WillOnce(Return(true));
+    EXPECT_CALL(*mockBackend, Intake(1, 100.0, IntakeDirection::In))
+        .WillOnce(Return(true));
+
+    controller->initialize();
+
+    std::thread controllerThread([this]() {
+        controller->run();
+    });
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+
+    controller->handleCardPresented("operator-card");
+    ASSERT_TRUE(waitForState(SystemState::TankSelection));
+
+    controller->selectTank(1);
+    ASSERT_TRUE(waitForState(SystemState::IntakeDirectionSelection));
+
+    controller->addDigitToInput('1');
+    controller->handleKeyPress(KeyCode::KeyStart);
+    ASSERT_TRUE(waitForState(SystemState::IntakeVolumeEntry));
+
+    controller->addDigitToInput('1');
+    controller->addDigitToInput('0');
+    controller->addDigitToInput('0');
+    controller->handleKeyPress(KeyCode::KeyStart);
+    ASSERT_TRUE(waitForState(SystemState::IntakeComplete));
+
+    controller->shutdown();
+    if (controllerThread.joinable()) {
+        controllerThread.join();
+    }
+}
+
+TEST_F(ControllerTest, CustomerRefuelWorkflow) {
+    mockBackend->roleId_ = static_cast<int>(UserRole::Customer);
+    mockBackend->allowance_ = 200.0;
+    mockBackend->price_ = 45.5;
+    mockBackend->tanksStorage_ = {BackendTankInfo{1, "Tank A"}};
+
+    EXPECT_CALL(*mockBackend, Authorize("customer-card"))
+        .WillOnce(Return(true));
+    EXPECT_CALL(*mockBackend, Refuel(1, 50.0))
+        .WillOnce(Return(true));
+    EXPECT_CALL(*mockBackend, IsAuthorized())
+        .WillRepeatedly(Return(true));
+    EXPECT_CALL(*mockBackend, Deauthorize())
+        .WillOnce(Return(true));
+
+    controller->initialize();
+
+    std::thread controllerThread([this]() {
+        controller->run();
+    });
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+
+    controller->handleCardPresented("customer-card");
+    ASSERT_TRUE(waitForState(SystemState::TankSelection));
+
+    controller->selectTank(1);
+    ASSERT_TRUE(waitForState(SystemState::VolumeEntry));
+
+    controller->addDigitToInput('5');
+    controller->addDigitToInput('0');
+    controller->handleKeyPress(KeyCode::KeyStart);
+    ASSERT_TRUE(waitForState(SystemState::Refueling));
+
+    controller->handleFlowUpdate(50.0);
+    ASSERT_TRUE(waitForState(SystemState::RefuelingComplete));
+
+    controller->shutdown();
+    if (controllerThread.joinable()) {
+        controllerThread.join();
+    }
 }
