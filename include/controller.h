@@ -15,7 +15,7 @@ namespace fuelflux {
 
 // Main controller class that orchestrates the entire system
 class Controller {
- public:
+  public:
     Controller(ControllerId controllerId, std::unique_ptr<IBackend> backend = nullptr);
     ~Controller();
 
@@ -94,7 +94,7 @@ class Controller {
     std::string getCurrentTimeString() const;
     std::string getDeviceSerialNumber() const;
 
- private:
+  private:
     // Core components
     ControllerId controllerId_;
     StateMachine stateMachine_;
