@@ -18,8 +18,25 @@ struct BackendTankInfo {
     std::string nameTank = "";
 };
 
+// Interface for backend communication to enable mocking in tests
+class IBackend {
+public:
+    virtual ~IBackend() = default;
+    virtual bool Authorize(const std::string& uid) = 0;
+    virtual bool Deauthorize() = 0;
+    virtual bool Refuel(TankNumber tankNumber, Volume volume) = 0;
+    virtual bool Intake(TankNumber tankNumber, Volume volume, IntakeDirection direction) = 0;
+    virtual bool IsAuthorized() const = 0;
+    virtual const std::string& GetToken() const = 0;
+    virtual int GetRoleId() const = 0;
+    virtual double GetAllowance() const = 0;
+    virtual double GetPrice() const = 0;
+    virtual const std::vector<BackendTankInfo>& GetFuelTanks() const = 0;
+    virtual const std::string& GetLastError() const = 0;
+};
+
 // Backend class for real REST API communication
-class Backend {
+class Backend : public IBackend {
 public:
     // Constructor
     // Parameters:
@@ -27,23 +44,23 @@ public:
     //   controllerUid - UID of controller
     Backend(const std::string& baseAPI, const std::string& controllerUid);
     
-    ~Backend();
+    ~Backend() override;
 
     // Authorize method
     // Parameter: uid - card UID
     // Returns: true on success, false on failure
-    bool Authorize(const std::string& uid);
+    bool Authorize(const std::string& uid) override;
 
     // Deauthorize method
     // Returns: true on success, false on failure
-    bool Deauthorize();
+    bool Deauthorize() override;
 
     // Refuel method
     // Parameters:
     //   tankNumber - fuel tank number
     //   volume - fuel volume to refuel
     // Returns: true on success, false on failure
-    bool Refuel(TankNumber tankNumber, Volume volume);
+    bool Refuel(TankNumber tankNumber, Volume volume) override;
 
     // Fuel intake method
     // Parameters:
@@ -51,16 +68,16 @@ public:
     //   volume - intake volume
     //   direction - intake direction (in/out)
     // Returns: true on success, false on failure
-    bool Intake(TankNumber tankNumber, Volume volume, IntakeDirection direction);
+    bool Intake(TankNumber tankNumber, Volume volume, IntakeDirection direction) override;
 
     // Getters for authorized state
-    bool IsAuthorized() const { return isAuthorized_; }
-    const std::string& GetToken() const { return token_; }
-    int GetRoleId() const { return roleId_; }
-    double GetAllowance() const { return allowance_; }
-    double GetPrice() const { return price_; }
-    const std::vector<BackendTankInfo>& GetFuelTanks() const { return fuelTanks_; }
-    const std::string& GetLastError() const { return lastError_; }
+    bool IsAuthorized() const override { return isAuthorized_; }
+    const std::string& GetToken() const override { return token_; }
+    int GetRoleId() const override { return roleId_; }
+    double GetAllowance() const override { return allowance_; }
+    double GetPrice() const override { return price_; }
+    const std::vector<BackendTankInfo>& GetFuelTanks() const override { return fuelTanks_; }
+    const std::string& GetLastError() const override { return lastError_; }
 
 private:
     // Private method for common parsing of responses from the backend

@@ -11,15 +11,17 @@
 #include <ctime>
 #include <thread>
 #include <chrono>
+#include <cmath>
 
 namespace fuelflux {
 
-Controller::Controller(ControllerId controllerId)
+Controller::Controller(ControllerId controllerId, std::unique_ptr<IBackend> backend)
     : controllerId_(std::move(controllerId))
     , stateMachine_(this)
-    , backend_(BACKEND_API_URL, CONTROLLER_UID)
+    , backend_(backend ? std::move(backend) : std::make_unique<Backend>(BACKEND_API_URL, CONTROLLER_UID))
     , selectedTank_(0)
     , enteredVolume_(0.0)
+    , selectedIntakeDirection_(IntakeDirection::In)
     , currentRefuelVolume_(0.0)
     , targetRefuelVolume_(0.0)
     , isRunning_(false)
@@ -154,6 +156,18 @@ void Controller::handleKeyPress(KeyCode key) {
     // Reset inactivity timer on any key press
     stateMachine_.updateActivityTime();
     
+    const auto currentState = stateMachine_.getCurrentState();
+    if (currentState == SystemState::IntakeDirectionSelection) {
+        if (key == KeyCode::Key1) {
+            selectIntakeDirection(IntakeDirection::In);
+            return;
+        }
+        if (key == KeyCode::Key2) {
+            selectIntakeDirection(IntakeDirection::Out);
+            return;
+        }
+    }
+     
     switch (key) {
         case KeyCode::Key0: 
         case KeyCode::Key1: 
@@ -166,7 +180,7 @@ void Controller::handleKeyPress(KeyCode key) {
         case KeyCode::Key8:
         case KeyCode::Key9:
             // Detect first digit in Waiting state -> transition to PinEntry
-            if (stateMachine_.getCurrentState() == SystemState::Waiting && 
+            if (currentState == SystemState::Waiting && 
                 currentInput_.empty()) {
                 postEvent(Event::PinEntryStarted);
             }
@@ -295,8 +309,8 @@ void Controller::endCurrentSession() {
     if (flowMeter_) {
         flowMeter_->stopMeasurement();
     }
-    if (backend_.IsAuthorized()) {
-        (void)backend_.Deauthorize();
+    if (backend_ && backend_->IsAuthorized()) {
+        (void)backend_->Deauthorize();
     }
     updateDisplay();
 }
@@ -327,15 +341,21 @@ void Controller::setMaxValue() {
 
 // Authorization
 void Controller::requestAuthorization(const UserId& userId) {
+    if (!backend_) {
+        showError("Backend unavailable");
+        postEvent(Event::AuthorizationFailed);
+        return;
+    }
+
     // This method handles the actual authorization for both card and PIN
-    if (backend_.Authorize(userId)) {
+    if (backend_->Authorize(userId)) {
         currentUser_.uid = userId;
-        currentUser_.role = static_cast<UserRole>(backend_.GetRoleId());
-        currentUser_.allowance = backend_.GetAllowance();
-        currentUser_.price = backend_.GetPrice();
+        currentUser_.role = static_cast<UserRole>(backend_->GetRoleId());
+        currentUser_.allowance = backend_->GetAllowance();
+        currentUser_.price = backend_->GetPrice();
 
         availableTanks_.clear();
-        for (const auto& tank : backend_.GetFuelTanks()) {
+        for (const auto& tank : backend_->GetFuelTanks()) {
             TankInfo info;
             info.number = tank.idTank;
             availableTanks_.push_back(info);
@@ -343,7 +363,7 @@ void Controller::requestAuthorization(const UserId& userId) {
         // Post event instead of processing it directly to maintain sequential event processing
         postEvent(Event::AuthorizationSuccess);
     } else {
-        showError(backend_.GetLastError());
+        showError(backend_->GetLastError());
         // Post event instead of processing it directly to maintain sequential event processing
         postEvent(Event::AuthorizationFailed);
     }
@@ -428,8 +448,26 @@ void Controller::startFuelIntake() {
 }
 
 void Controller::enterIntakeVolume(Volume volume) {
+    if (volume <= 0.0) {
+        showError("Invalid volume");
+        clearInput();
+        return;
+    }
+
+    if (!isWholeNumber(volume)) {
+        showError("Use whole liters only");
+        clearInput();
+        return;
+    }
+
     enteredVolume_ = volume;
     postEvent(Event::IntakeVolumeEntered);
+}
+
+void Controller::selectIntakeDirection(IntakeDirection direction) {
+    selectedIntakeDirection_ = direction;
+    clearInput();
+    postEvent(Event::IntakeDirectionSelected);
 }
 
 void Controller::completeIntakeOperation() {
@@ -438,6 +476,7 @@ void Controller::completeIntakeOperation() {
     transaction.operatorId = currentUser_.uid;
     transaction.tankNumber = selectedTank_;
     transaction.volume = enteredVolume_;
+    transaction.direction = selectedIntakeDirection_;
     transaction.timestamp = std::chrono::system_clock::now();
     
     logIntakeTransaction(transaction);
@@ -446,11 +485,15 @@ void Controller::completeIntakeOperation() {
 
 // Transaction logging
 void Controller::logRefuelTransaction(const RefuelTransaction& transaction) {
-    (void)backend_.Refuel(transaction.tankNumber, transaction.volume);
+    if (backend_) {
+        (void)backend_->Refuel(transaction.tankNumber, transaction.volume);
+    }
 }
 
 void Controller::logIntakeTransaction(const IntakeTransaction& transaction) {
-    (void)backend_.Intake(transaction.tankNumber, transaction.volume, IntakeDirection::In);
+    if (backend_) {
+        (void)backend_->Intake(transaction.tankNumber, transaction.volume, transaction.direction);
+    }
 }
 
 // Utility functions
@@ -530,7 +573,18 @@ void Controller::processNumericInput() {
             }
             break;
             
-        case SystemState::VolumeEntry:
+        case SystemState::IntakeDirectionSelection:
+            if (currentInput_ == "1") {
+                selectIntakeDirection(IntakeDirection::In);
+            } else if (currentInput_ == "2") {
+                selectIntakeDirection(IntakeDirection::Out);
+            } else {
+                showError("Invalid direction");
+                clearInput();
+            }
+            break;
+            
+         case SystemState::VolumeEntry:
             volume = parseVolumeFromInput();
             if (volume > 0.0) {
                 enterVolume(volume);
@@ -572,11 +626,18 @@ TankNumber Controller::parseTankFromInput() const {
     }
 }
 
+bool Controller::isWholeNumber(Volume volume) const {
+    double intPart = 0.0;
+    double fractional = std::modf(volume, &intPart);
+    return std::fabs(fractional) < 1e-9;
+}
+
 void Controller::resetSessionData() {
     currentUser_ = UserInfo{};
     availableTanks_.clear();
     selectedTank_ = 0;
     enteredVolume_ = 0.0;
+    selectedIntakeDirection_ = IntakeDirection::In;
     currentRefuelVolume_ = 0.0;
     targetRefuelVolume_ = 0.0;
 }
@@ -634,15 +695,27 @@ DisplayMessage Controller::createDisplayMessage() const {
             message.line4 = "Present card or enter PIN";
             break;
 
+        case SystemState::IntakeDirectionSelection:
+            message.line2 = "1 - Приём топлива";
+            message.line3 = "2 - Слив топлива";
+            message.line4 = "Цистерна " + std::to_string(selectedTank_);
+            break;
+
         case SystemState::IntakeVolumeEntry:
             message.line2 = currentInput_;
             message.line3 = "Tank " + std::to_string(selectedTank_);
+            message.line4 = (selectedIntakeDirection_ == IntakeDirection::In)
+                ? "Приём топлива"
+                : "Слив топлива";
             break;
 
         case SystemState::IntakeComplete:
             message.line2 = formatVolume(enteredVolume_);
             message.line3 = "Tank " + std::to_string(selectedTank_);
             message.line4 = "Press Cancel (B) to continue";
+            message.line5 = (selectedIntakeDirection_ == IntakeDirection::In)
+                ? "Приём топлива"
+                : "Слив топлива";
             break;
 
         case SystemState::Error:
