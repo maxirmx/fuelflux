@@ -444,11 +444,14 @@ void Controller::enterIntakeVolume(Volume volume) {
         return;
     }
 
-    if (!isWholeNumber(volume)) {
-        showError("Use whole liters only");
-        clearInput();
-        return;
-    }
+// This test is not required - operators cannot enter fractional 
+// liters because input device does not allow it
+//    if (!isWholeNumber(volume)) {
+//        showError("Use whole liters only");
+//        clearInput();
+//        return;
+//    }
+// It is also true for refuel scenario 
 
     enteredVolume_ = volume;
     postEvent(Event::IntakeVolumeEntered);
@@ -616,11 +619,14 @@ TankNumber Controller::parseTankFromInput() const {
     }
 }
 
-bool Controller::isWholeNumber(Volume volume) const {
-    double intPart = 0.0;
-    double fractional = std::modf(volume, &intPart);
-    return std::fabs(fractional) < 1e-9;
-}
+// This function is not is not required - customer or operators cannot 
+// enter fractional  number of liters because input device does not allow it
+//
+// bool Controller::isWholeNumber(Volume volume) const {
+//    double intPart = 0.0;
+//    double fractional = std::modf(volume, &intPart);
+//    return std::fabs(fractional) < 1e-9;
+// }
 
 void Controller::resetSessionData() {
     currentUser_ = UserInfo{};
