@@ -279,7 +279,6 @@ void ConsoleCardReader::simulateCardPresented(const UserId& userId) {
     }
 
     std::cout << "[CardReader] Card presented: " << userId << std::endl;
-
     std::lock_guard<std::mutex> lock(callbackMutex_);
     if (cardPresentedCallback_) {
         cardPresentedCallback_(userId);
