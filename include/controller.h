@@ -106,7 +106,6 @@ class Controller {
     std::unique_ptr<peripherals::IPump> pump_;
     std::unique_ptr<peripherals::IFlowMeter> flowMeter_;
     std::unique_ptr<IBackend> backend_;
- 
     // Current session state
     UserInfo currentUser_;
     std::vector<TankInfo> availableTanks_;
