@@ -196,6 +196,7 @@ void StateMachine::setupTransitions() {
     transitions_[{SystemState::TankSelection, Event::RefuelingStarted}]    = {SystemState::TankSelection,     noOp};
     transitions_[{SystemState::TankSelection, Event::RefuelingStopped}]    = {SystemState::TankSelection,     noOp};
     transitions_[{SystemState::TankSelection, Event::IntakeSelected}]      = {SystemState::IntakeDirectionSelection, [this]() { onIntakeSelected();       }};
+    transitions_[{SystemState::TankSelection, Event::IntakeDirectionSelected}] = {SystemState::TankSelection,     noOp};
     transitions_[{SystemState::TankSelection, Event::IntakeVolumeEntered}] = {SystemState::TankSelection,     noOp};
     transitions_[{SystemState::TankSelection, Event::IntakeComplete}]      = {SystemState::TankSelection,     noOp};
     transitions_[{SystemState::TankSelection, Event::CancelPressed}]       = {SystemState::Waiting,           [this]() { onCancelPressed();        }};
