@@ -444,15 +444,6 @@ void Controller::enterIntakeVolume(Volume volume) {
         return;
     }
 
-// This test is not required - operators cannot enter fractional 
-// liters because input device does not allow it
-//    if (!isWholeNumber(volume)) {
-//        showError("Use whole liters only");
-//        clearInput();
-//        return;
-//    }
-// It is also true for refuel scenario 
-
     enteredVolume_ = volume;
     postEvent(Event::IntakeVolumeEntered);
 }
