@@ -13,6 +13,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 if(MSVC)
     add_compile_definitions(_SILENCE_STDEXT_ARR_ITERS_DEPRECATION_WARNING _CRT_SECURE_NO_WARNINGS)
     add_compile_options(/W4)
+    add_compile_options(/utf-8) 
 else()
     add_compile_options(-Wall -Wextra -Wpedantic -Wno-psabi)
 endif()
@@ -24,6 +25,16 @@ endif()
 
 # Include FetchContent module
 include(FetchContent)
+
+# Use fmt directly and share it with spdlog to avoid duplicate bundled copies
+set(SPDLOG_FMT_EXTERNAL ON)
+
+# Fetch fmt
+FetchContent_Declare(
+    fmt
+    GIT_REPOSITORY https://github.com/fmtlib/fmt.git
+    GIT_TAG        11.0.2
+)
 
 # Fetch nlohmann/json
 FetchContent_Declare(
@@ -56,7 +67,7 @@ FetchContent_Declare(
 set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
 
 # Make dependencies available
-FetchContent_MakeAvailable(nlohmann_json spdlog httplib googletest)
+FetchContent_MakeAvailable(fmt nlohmann_json spdlog httplib googletest)
 
 # Include directories
 include_directories(include)
@@ -109,6 +120,7 @@ endif()
 # Link libraries
 target_link_libraries(fuelflux 
     PRIVATE 
+    fmt::fmt
     nlohmann_json::nlohmann_json 
     spdlog::spdlog
     httplib::httplib
@@ -165,6 +177,7 @@ add_library(fuelflux_lib STATIC ${LIB_SOURCES} ${HEADERS})
 # Link libraries to library target
 target_link_libraries(fuelflux_lib
     PUBLIC
+    fmt::fmt
     nlohmann_json::nlohmann_json
     spdlog::spdlog
     httplib::httplib

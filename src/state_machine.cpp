@@ -337,7 +337,7 @@ void StateMachine::onEnterState(SystemState state) {
         { SystemState::VolumeEntry,        "Enter volume and press Start (A)" },
         { SystemState::Refueling,          "Refueling" },
         { SystemState::RefuelingComplete,  "Refueling complete" },
-        { SystemState::IntakeDirectionSelection, "Select intake direction (1/2)" },
+        { SystemState::IntakeDirectionSelection, "Select direction (1/2) and press Start (A)" },
         { SystemState::IntakeVolumeEntry,  "Enter intake and press Start (A)" },
         { SystemState::IntakeComplete,     "Intake complete" },
         { SystemState::Error,              "ERROR" }

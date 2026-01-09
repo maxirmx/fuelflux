@@ -157,16 +157,6 @@ void Controller::handleKeyPress(KeyCode key) {
     stateMachine_.updateActivityTime();
     
     const auto currentState = stateMachine_.getCurrentState();
-    if (currentState == SystemState::IntakeDirectionSelection) {
-        if (key == KeyCode::Key1) {
-            selectIntakeDirection(IntakeDirection::In);
-            return;
-        }
-        if (key == KeyCode::Key2) {
-            selectIntakeDirection(IntakeDirection::Out);
-            return;
-        }
-    }
      
     switch (key) {
         case KeyCode::Key0: 
@@ -696,17 +686,17 @@ DisplayMessage Controller::createDisplayMessage() const {
             break;
 
         case SystemState::IntakeDirectionSelection:
-            message.line2 = "1 - Приём топлива";
-            message.line3 = "2 - Слив топлива";
-            message.line4 = "Цистерна " + std::to_string(selectedTank_);
+            message.line2 = "1 - РџСЂРёС‘Рј С‚РѕРїР»РёРІР°";
+            message.line3 = "2 - РЎР»РёРІ С‚РѕРїР»РёРІР°";
+            message.line4 = "Р¦РёСЃС‚РµСЂРЅР° " + std::to_string(selectedTank_);
             break;
 
         case SystemState::IntakeVolumeEntry:
             message.line2 = currentInput_;
             message.line3 = "Tank " + std::to_string(selectedTank_);
             message.line4 = (selectedIntakeDirection_ == IntakeDirection::In)
-                ? "Приём топлива"
-                : "Слив топлива";
+                ? "РџСЂРёС‘Рј С‚РѕРїР»РёРІР°"
+                : "РЎР»РёРІ С‚РѕРїР»РёРІР°";
             break;
 
         case SystemState::IntakeComplete:
@@ -714,8 +704,8 @@ DisplayMessage Controller::createDisplayMessage() const {
             message.line3 = "Tank " + std::to_string(selectedTank_);
             message.line4 = "Press Cancel (B) to continue";
             message.line5 = (selectedIntakeDirection_ == IntakeDirection::In)
-                ? "Приём топлива"
-                : "Слив топлива";
+                ? "РџСЂРёС‘Рј С‚РѕРїР»РёРІР°"
+                : "РЎР»РёРІ С‚РѕРїР»РёРІР°";
             break;
 
         case SystemState::Error:
