@@ -574,7 +574,7 @@ void Controller::processNumericInput() {
             }
             break;
             
-         case SystemState::VolumeEntry:
+        case SystemState::VolumeEntry:
             volume = parseVolumeFromInput();
             if (volume > 0.0) {
                 enterVolume(volume);
