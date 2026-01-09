@@ -136,6 +136,6 @@ class Controller {
     void resetSessionData();
     DisplayMessage createDisplayMessage() const;
     void selectIntakeDirection(IntakeDirection direction);
- };
- 
- } // namespace fuelflux
+};
+
+} // namespace fuelflux
