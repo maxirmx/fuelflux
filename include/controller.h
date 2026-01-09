@@ -107,13 +107,13 @@ class Controller {
     std::unique_ptr<peripherals::IFlowMeter> flowMeter_;
     std::unique_ptr<IBackend> backend_;
  
-     // Current session state
-     UserInfo currentUser_;
-     std::vector<TankInfo> availableTanks_;
-     TankNumber selectedTank_;
-     Volume enteredVolume_;
-     std::string currentInput_;
-     IntakeDirection selectedIntakeDirection_;
+    // Current session state
+    UserInfo currentUser_;
+    std::vector<TankInfo> availableTanks_;
+    TankNumber selectedTank_;
+    Volume enteredVolume_;
+    std::string currentInput_;
+    IntakeDirection selectedIntakeDirection_;
     
     // Refueling state
     Volume currentRefuelVolume_;
