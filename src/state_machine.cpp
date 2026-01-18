@@ -434,6 +434,14 @@ DisplayMessage StateMachine::getDisplayMessage() const {
             message.line3 = "Press Cancel (B) to continue";
             message.line4 = controller_->getCurrentTimeString();
             break;
+            
+        default:
+            // Unexpected state - show error
+            message.line1 = "System Error";
+            message.line2 = "Unknown state";
+            message.line3 = "";
+            message.line4 = "";
+            break;
     }
 
     return message;
