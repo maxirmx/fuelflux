@@ -149,78 +149,74 @@ add_custom_command(TARGET fuelflux POST_BUILD
 )
 
 # Testing
-if(MSVC)
+enable_testing()
 
-    enable_testing()
+# Test source files
+set(TEST_SOURCES
+    tests/backend_test.cpp
+    tests/controller_test.cpp
+)
 
-    # Test source files
-    set(TEST_SOURCES
-        tests/backend_test.cpp
-        tests/controller_test.cpp
-    )
+# Library sources (excluding main.cpp)
+set(LIB_SOURCES
+    src/state_machine.cpp
+    src/controller.cpp
+    src/logger.cpp
+    src/peripherals/display.cpp
+    src/peripherals/keyboard.cpp
+    src/peripherals/card_reader.cpp
+    src/peripherals/pump.cpp
+    src/peripherals/flow_meter.cpp
+    src/console_emulator.cpp
+    src/backend.cpp
+)
 
-    # Library sources (excluding main.cpp)
-    set(LIB_SOURCES
-        src/state_machine.cpp
-        src/controller.cpp
-        src/logger.cpp
-        src/peripherals/display.cpp
-        src/peripherals/keyboard.cpp
-        src/peripherals/card_reader.cpp
-        src/peripherals/pump.cpp
-        src/peripherals/flow_meter.cpp
-        src/console_emulator.cpp
-        src/backend.cpp
-    )
+# Create library from application sources
+add_library(fuelflux_lib STATIC ${LIB_SOURCES} ${HEADERS})
 
-    # Create library from application sources
-    add_library(fuelflux_lib STATIC ${LIB_SOURCES} ${HEADERS})
+# Link libraries to library target
+target_link_libraries(fuelflux_lib
+    PUBLIC
+    fmt::fmt
+    nlohmann_json::nlohmann_json
+    spdlog::spdlog
+    httplib::httplib
+)
 
-    # Link libraries to library target
-    target_link_libraries(fuelflux_lib
-        PUBLIC
-        fmt::fmt
-        nlohmann_json::nlohmann_json
-        spdlog::spdlog
-        httplib::httplib
-    )
+# Handle OpenSSL for library
+if(OpenSSL_FOUND)
+    target_compile_definitions(fuelflux_lib PUBLIC CPPHTTPLIB_OPENSSL_SUPPORT)
+    target_link_libraries(fuelflux_lib PUBLIC OpenSSL::SSL OpenSSL::Crypto)
+endif()
 
-    # Handle OpenSSL for library
-    if(OpenSSL_FOUND)
-        target_compile_definitions(fuelflux_lib PUBLIC CPPHTTPLIB_OPENSSL_SUPPORT)
-        target_link_libraries(fuelflux_lib PUBLIC OpenSSL::SSL OpenSSL::Crypto)
-    endif()
+# Update main executable to use library
+target_link_libraries(fuelflux PRIVATE fuelflux_lib)
 
-    # Update main executable to use library
-    target_link_libraries(fuelflux PRIVATE fuelflux_lib)
+# Create test executable
+add_executable(fuelflux_tests ${TEST_SOURCES})
 
-    # Create test executable
-    add_executable(fuelflux_tests ${TEST_SOURCES})
+# Link test executable with library and Google Test
+target_link_libraries(fuelflux_tests
+    PRIVATE
+    fuelflux_lib
+    GTest::gtest_main
+    GTest::gmock
+)
 
-    # Link test executable with library and Google Test
-    target_link_libraries(fuelflux_tests
-        PRIVATE
-        fuelflux_lib
-        GTest::gtest_main
-        GTest::gmock
-    )
+# Set output directory for tests
+set_target_properties(fuelflux_tests PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
+)
 
-    # Set output directory for tests
-    set_target_properties(fuelflux_tests PROPERTIES
-        RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
-    )
+# Ensure config directory is available for tests
+add_custom_command(TARGET fuelflux_tests POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:fuelflux_tests>/config"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${CMAKE_SOURCE_DIR}/config/logging.json"
+        "$<TARGET_FILE_DIR:fuelflux_tests>/config/logging.json"
+    COMMENT "Copy logging.json to test output config folder"
+)
 
-    # Ensure config directory is available for tests
-    add_custom_command(TARGET fuelflux_tests POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:fuelflux_tests>/config"
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${CMAKE_SOURCE_DIR}/config/logging.json"
-            "$<TARGET_FILE_DIR:fuelflux_tests>/config/logging.json"
-        COMMENT "Copy logging.json to test output config folder"
-    )
-
-    # Discover tests
-    include(GoogleTest)
+# Discover tests
+include(GoogleTest)
 gtest_discover_tests(fuelflux_tests)
-
-endif(MSVC)

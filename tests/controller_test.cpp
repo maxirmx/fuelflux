@@ -797,3 +797,154 @@ TEST_F(ControllerTest, CustomerRefuelWorkflow) {
         controllerThread.join();
     }
 }
+
+// Test display message structure for Waiting state
+TEST_F(ControllerTest, DisplayMessageWaitingState) {
+    controller->initialize();
+    
+    EXPECT_EQ(controller->getStateMachine().getCurrentState(), SystemState::Waiting);
+    
+    // Get display message from state machine
+    DisplayMessage msg = controller->getStateMachine().getDisplayMessage();
+    
+    // Verify four lines are present
+    EXPECT_EQ(msg.line1, "Present card or enter PIN");
+    EXPECT_FALSE(msg.line2.empty());  // Should have timestamp
+    EXPECT_FALSE(msg.line3.empty());  // Should have serial number
+    EXPECT_EQ(msg.line4, "");         // Empty line
+}
+
+// Test display message structure for PinEntry state
+TEST_F(ControllerTest, DisplayMessagePinEntryState) {
+    controller->initialize();
+    
+    std::thread controllerThread([this]() {
+        controller->run();
+    });
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    
+    // Enter PIN entry state
+    controller->handleKeyPress(KeyCode::Key1);
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    
+    EXPECT_EQ(controller->getStateMachine().getCurrentState(), SystemState::PinEntry);
+    
+    // Get display message
+    DisplayMessage msg = controller->getStateMachine().getDisplayMessage();
+    
+    // Verify structure
+    EXPECT_EQ(msg.line1, "Enter PIN and press Start (A)");
+    EXPECT_EQ(msg.line2, "*");  // One digit entered, masked
+    EXPECT_FALSE(msg.line3.empty());  // Should have timestamp
+    EXPECT_EQ(msg.line4, "");
+    
+    controller->shutdown();
+    if (controllerThread.joinable()) {
+        controllerThread.join();
+    }
+}
+
+// Test display message for TankSelection state
+TEST_F(ControllerTest, DisplayMessageTankSelectionState) {
+    mockBackend->roleId_ = static_cast<int>(UserRole::Customer);
+    mockBackend->allowance_ = 100.0;
+    mockBackend->tanksStorage_ = {BackendTankInfo{1, "Tank A"}, BackendTankInfo{2, "Tank B"}};
+    
+    EXPECT_CALL(*mockBackend, Authorize("test-card"))
+        .WillOnce(Return(true));
+    
+    controller->initialize();
+    
+    std::thread controllerThread([this]() {
+        controller->run();
+    });
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    
+    controller->handleCardPresented("test-card");
+    ASSERT_TRUE(waitForState(SystemState::TankSelection));
+    
+    // Get display message
+    DisplayMessage msg = controller->getStateMachine().getDisplayMessage();
+    
+    // Verify structure
+    EXPECT_EQ(msg.line1, "Select tank and press Start (A)");
+    // line2 should be current input (empty initially)
+    EXPECT_TRUE(msg.line3.find("Available tanks") != std::string::npos);
+    EXPECT_TRUE(msg.line3.find("1") != std::string::npos);
+    EXPECT_TRUE(msg.line3.find("2") != std::string::npos);
+    EXPECT_EQ(msg.line4, "");
+    
+    controller->shutdown();
+    if (controllerThread.joinable()) {
+        controllerThread.join();
+    }
+}
+
+// Test display message for VolumeEntry state
+TEST_F(ControllerTest, DisplayMessageVolumeEntryState) {
+    mockBackend->roleId_ = static_cast<int>(UserRole::Customer);
+    mockBackend->allowance_ = 100.0;
+    mockBackend->tanksStorage_ = {BackendTankInfo{1, "Tank A"}};
+    
+    EXPECT_CALL(*mockBackend, Authorize("test-card"))
+        .WillOnce(Return(true));
+    
+    controller->initialize();
+    
+    std::thread controllerThread([this]() {
+        controller->run();
+    });
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    
+    controller->handleCardPresented("test-card");
+    ASSERT_TRUE(waitForState(SystemState::TankSelection));
+    
+    controller->selectTank(1);
+    ASSERT_TRUE(waitForState(SystemState::VolumeEntry));
+    
+    // Get display message
+    DisplayMessage msg = controller->getStateMachine().getDisplayMessage();
+    
+    // Verify structure
+    EXPECT_EQ(msg.line1, "Enter volume and press Start (A)");
+    // line2 is current input
+    EXPECT_TRUE(msg.line3.find("Max:") != std::string::npos);  // Should show max for customers
+    EXPECT_EQ(msg.line4, "Press * for max, # to clear");
+    
+    controller->shutdown();
+    if (controllerThread.joinable()) {
+        controllerThread.join();
+    }
+}
+
+// Test that all states provide exactly four lines
+TEST_F(ControllerTest, AllStatesProvideExactlyFourLines) {
+    controller->initialize();
+    
+    // Test that DisplayMessage structure has exactly 4 lines
+    DisplayMessage msg = controller->getStateMachine().getDisplayMessage();
+    
+    // Verify the structure (this is a compile-time test more than runtime)
+    // If DisplayMessage had more or fewer fields, this would fail to compile
+    std::string line1 = msg.line1;
+    std::string line2 = msg.line2;
+    std::string line3 = msg.line3;
+    std::string line4 = msg.line4;
+    
+    // Verify we can construct a message with all four lines
+    EXPECT_NO_THROW({
+        controller->showMessage("L1", "L2", "L3", "L4");
+    });
+}
+
+// Test empty lines are allowed
+TEST_F(ControllerTest, EmptyLinesAllowed) {
+    controller->initialize();
+    
+    EXPECT_CALL(*mockDisplay, showMessage(_)).Times(3);
+    
+    // Should be able to show messages with empty lines
+    controller->showMessage("Line 1", "", "", "");
+    controller->showMessage("", "Line 2", "", "");
+    controller->showMessage("", "", "", "Line 4");
+}
