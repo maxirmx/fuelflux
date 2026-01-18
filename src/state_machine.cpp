@@ -329,28 +329,6 @@ void StateMachine::setupTransitions() {
 void StateMachine::onEnterState(SystemState state) {
     LOG_SM_INFO("Entering state: {}", static_cast<int>(state));
 
-    // Table-based mapping for state -> display line1
-    static const std::map<SystemState, std::string> stateLineMap = {
-        { SystemState::Waiting,            "Present card or enter PIN" },
-        { SystemState::PinEntry,           "Enter PIN and press Start (A)" },
-        { SystemState::Authorization,      "Authorization in progress..." },
-        { SystemState::TankSelection,      "Select tank and press Start (A)" },
-        { SystemState::VolumeEntry,        "Enter volume and press Start (A)" },
-        { SystemState::Refueling,          "Refueling" },
-        { SystemState::RefuelingComplete,  "Refueling complete" },
-        { SystemState::IntakeDirectionSelection, "Select direction (1/2) and press Start (A)" },
-        { SystemState::IntakeVolumeEntry,  "Enter intake and press Start (A)" },
-        { SystemState::IntakeComplete,     "Intake complete" },
-        { SystemState::Error,              "ERROR" }
-    };
-
-    auto it = stateLineMap.find(state);
-    if (it != stateLineMap.end()) {
-        stateLine1_ = it->second;
-    } else {
-        stateLine1_.clear();
-    }
-
     if (controller_) {
         controller_->updateDisplay();
     }
@@ -358,6 +336,107 @@ void StateMachine::onEnterState(SystemState state) {
 
 void StateMachine::onExitState(SystemState state) {
     LOG_SM_DEBUG("Exiting state: {}", static_cast<int>(state));
+}
+
+DisplayMessage StateMachine::getDisplayMessage() const {
+    if (!controller_) {
+        return DisplayMessage{};
+    }
+
+    DisplayMessage message;
+    std::scoped_lock lock(mutex_);
+    
+    switch (currentState_) {
+        case SystemState::Waiting:
+            message.line1 = "Present card or enter PIN";
+            message.line2 = controller_->getCurrentTimeString();
+            message.line3 = controller_->getDeviceSerialNumber();
+            message.line4 = "";
+            break;
+
+        case SystemState::PinEntry:
+            message.line1 = "Enter PIN and press Start (A)";
+            message.line2 = std::string(controller_->getCurrentInput().length(), '*');
+            message.line3 = controller_->getCurrentTimeString();
+            message.line4 = "";
+            break;
+
+        case SystemState::Authorization:
+            message.line1 = "Authorization in progress...";
+            message.line2 = "Please wait";
+            message.line3 = controller_->getDeviceSerialNumber();
+            message.line4 = "";
+            break;
+
+        case SystemState::TankSelection:
+            message.line1 = "Select tank and press Start (A)";
+            message.line2 = controller_->getCurrentInput();
+            message.line3 = "Available tanks: ";
+            for (const auto& tank : controller_->getAvailableTanks()) {
+                message.line3 += std::to_string(tank.number) + " ";
+            }
+            message.line4 = "";
+            break;
+
+        case SystemState::VolumeEntry:
+            message.line1 = "Enter volume and press Start (A)";
+            message.line2 = controller_->getCurrentInput();
+            if (controller_->getCurrentUser().role == UserRole::Customer) {
+                message.line3 = "Max: " + controller_->formatVolume(controller_->getCurrentUser().allowance);
+            } else {
+                message.line3 = "";
+            }
+            message.line4 = "Press * for max, # to clear";
+            break;
+
+        case SystemState::Refueling:
+            message.line1 = "Refueling " + controller_->formatVolume(controller_->getEnteredVolume());
+            message.line2 = controller_->formatVolume(controller_->getCurrentRefuelVolume());
+            message.line3 = "";
+            message.line4 = "";
+            break;
+
+        case SystemState::RefuelingComplete:
+            message.line1 = "Refueling complete";
+            message.line2 = controller_->formatVolume(controller_->getCurrentRefuelVolume());
+            message.line3 = "";
+            message.line4 = "Present card or enter PIN";
+            break;
+
+        case SystemState::IntakeDirectionSelection:
+            message.line1 = "Select direction (1/2) and press Start (A)";
+            message.line2 = "1 - Приём топлива";
+            message.line3 = "2 - Слив топлива";
+            message.line4 = "Цистерна " + std::to_string(controller_->getSelectedTank());
+            break;
+
+        case SystemState::IntakeVolumeEntry:
+            message.line1 = "Enter intake and press Start (A)";
+            message.line2 = controller_->getCurrentInput();
+            message.line3 = "Tank " + std::to_string(controller_->getSelectedTank());
+            message.line4 = (controller_->getSelectedIntakeDirection() == IntakeDirection::In)
+                ? "Приём топлива"
+                : "Слив топлива";
+            break;
+
+        case SystemState::IntakeComplete:
+            message.line1 = "Intake complete";
+            message.line2 = controller_->formatVolume(controller_->getEnteredVolume());
+            message.line3 = "Tank " + std::to_string(controller_->getSelectedTank());
+            message.line4 = (controller_->getSelectedIntakeDirection() == IntakeDirection::In)
+                ? "Приём топлива"
+                : "Слив топлива";
+            break;
+
+        case SystemState::Error:
+            message.line1 = "ERROR";
+            message.line2 = controller_->getLastErrorMessage();
+            message.line3 = "Press Cancel (B) to continue";
+            message.line4 = controller_->getCurrentTimeString();
+            break;
+    }
+
+    return message;
 }
 
 // Transition action implementations

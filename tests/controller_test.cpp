@@ -370,7 +370,7 @@ TEST_F(ControllerTest, ShowMessage) {
     
     EXPECT_CALL(*mockDisplay, showMessage(_)).Times(1);
     
-    controller->showMessage("Line 1", "Line 2", "Line 3", "Line 4", "Line 5");
+    controller->showMessage("Line 1", "Line 2", "Line 3", "Line 4");
 }
 
 // Test start new session

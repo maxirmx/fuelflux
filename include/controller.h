@@ -43,6 +43,9 @@ class Controller {
     TankNumber getSelectedTank() const { return selectedTank_; }
     Volume getEnteredVolume() const { return enteredVolume_; }
     const std::string& getCurrentInput() const { return currentInput_; }
+    IntakeDirection getSelectedIntakeDirection() const { return selectedIntakeDirection_; }
+    Volume getCurrentRefuelVolume() const { return currentRefuelVolume_; }
+    const std::string& getLastErrorMessage() const { return lastErrorMessage_; }
 
     // Input handling
     void handleKeyPress(KeyCode key);
@@ -54,8 +57,7 @@ class Controller {
     void updateDisplay();
     void showError(const std::string& message);
     void showMessage(const std::string& line1, const std::string& line2 = "", 
-                    const std::string& line3 = "", const std::string& line4 = "", 
-                    const std::string& line5 = "");
+                    const std::string& line3 = "", const std::string& line4 = "");
 
     // Session management
     void startNewSession();
@@ -134,7 +136,6 @@ class Controller {
     Volume parseVolumeFromInput() const;
     TankNumber parseTankFromInput() const;
     void resetSessionData();
-    DisplayMessage createDisplayMessage() const;
     void selectIntakeDirection(IntakeDirection direction);
 };
 
