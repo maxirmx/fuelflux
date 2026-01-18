@@ -252,7 +252,7 @@ void Controller::handleFlowUpdate(Volume currentVolume) {
 void Controller::updateDisplay() {
     if (!display_) return;
     
-    DisplayMessage message = createDisplayMessage();
+    DisplayMessage message = stateMachine_.getDisplayMessage();
     display_->showMessage(message);
 }
 
@@ -264,21 +264,18 @@ void Controller::showError(const std::string& message) {
         errorMsg.line2 = message;
         errorMsg.line3 = "Press Cancel (B) to continue";
         errorMsg.line4 = getCurrentTimeString();
-        errorMsg.line5 = getDeviceSerialNumber();
         display_->showMessage(errorMsg);
     }
 }
 
 void Controller::showMessage(const std::string& line1, const std::string& line2,
-                           const std::string& line3, const std::string& line4,
-                           const std::string& line5) {
+                           const std::string& line3, const std::string& line4) {
     if (display_) {
         DisplayMessage message;
         message.line1 = line1;
         message.line2 = line2;
         message.line3 = line3;
         message.line4 = line4;
-        message.line5 = line5;
         display_->showMessage(message);
     }
 }
@@ -618,92 +615,6 @@ void Controller::resetSessionData() {
     selectedIntakeDirection_ = IntakeDirection::In;
     currentRefuelVolume_ = 0.0;
     targetRefuelVolume_ = 0.0;
-}
-
-DisplayMessage Controller::createDisplayMessage() const {
-    DisplayMessage message;
-
-    // Use state machine provided first line to keep UI text centralized
-    message.line1 = stateMachine_.getStateLine1();
-
-    switch (stateMachine_.getCurrentState()) {
-        case SystemState::Waiting:
-            message.line2 = getCurrentTimeString();
-            message.line3 = getDeviceSerialNumber();
-            break;
-
-        case SystemState::PinEntry:
-            message.line2 = std::string(currentInput_.length(), '*');
-            message.line3 = getCurrentTimeString();
-            break;
-
-        case SystemState::Authorization:
-            message.line2 = "Please wait";
-            message.line3 = getDeviceSerialNumber();
-            break;
-
-        case SystemState::TankSelection:
-            message.line2 = currentInput_;
-            message.line3 = "Available tanks: ";
-            for (const auto& tank : availableTanks_) {
-                message.line3 += std::to_string(tank.number) + " ";
-            }
-            break;
-
-        case SystemState::VolumeEntry:
-            message.line2 = currentInput_;
-            if (currentUser_.role == UserRole::Customer) {
-                message.line3 = "Max: " + formatVolume(currentUser_.allowance);
-            }
-            message.line4 = "Press * for max, # to clear";
-            break;
-
-        case SystemState::Refueling:
-            // Append target volume to the generic 'Refueling' stateLine1
-            if (!message.line1.empty()) {
-                message.line1 += " " + formatVolume(targetRefuelVolume_);
-            } else {
-                message.line1 = "Refueling " + formatVolume(targetRefuelVolume_);
-            }
-            message.line2 = formatVolume(currentRefuelVolume_);
-            break;
-
-        case SystemState::RefuelingComplete:
-            message.line2 = formatVolume(currentRefuelVolume_);
-            message.line4 = "Present card or enter PIN";
-            break;
-
-        case SystemState::IntakeDirectionSelection:
-            message.line2 = "1 - Приём топлива";
-            message.line3 = "2 - Слив топлива";
-            message.line4 = "Цистерна " + std::to_string(selectedTank_);
-            break;
-
-        case SystemState::IntakeVolumeEntry:
-            message.line2 = currentInput_;
-            message.line3 = "Tank " + std::to_string(selectedTank_);
-            message.line4 = (selectedIntakeDirection_ == IntakeDirection::In)
-                ? "Приём топлива"
-                : "Слив топлива";
-            break;
-
-        case SystemState::IntakeComplete:
-            message.line2 = formatVolume(enteredVolume_);
-            message.line3 = "Tank " + std::to_string(selectedTank_);
-            message.line4 = "Press Cancel (B) to continue";
-            message.line5 = (selectedIntakeDirection_ == IntakeDirection::In)
-                ? "Приём топлива"
-                : "Слив топлива";
-            break;
-
-        case SystemState::Error:
-            message.line2 = lastErrorMessage_;
-            message.line3 = "Press Cancel (B) to continue";
-            message.line4 = getCurrentTimeString();
-            break;
-    }
-
-    return message;
 }
 
 } // namespace fuelflux
