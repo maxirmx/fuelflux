@@ -808,7 +808,7 @@ TEST_F(ControllerTest, DisplayMessageWaitingState) {
     DisplayMessage msg = controller->getStateMachine().getDisplayMessage();
     
     // Verify four lines are present
-    EXPECT_EQ(msg.line1, "Present card or enter PIN");
+    EXPECT_EQ(msg.line1, "Поднесите карту или введите PIN");
     EXPECT_FALSE(msg.line2.empty());  // Should have timestamp
     EXPECT_FALSE(msg.line3.empty());  // Should have serial number
     EXPECT_EQ(msg.line4, "");         // Empty line
@@ -833,7 +833,7 @@ TEST_F(ControllerTest, DisplayMessagePinEntryState) {
     DisplayMessage msg = controller->getStateMachine().getDisplayMessage();
     
     // Verify structure
-    EXPECT_EQ(msg.line1, "Enter PIN and press Start (A)");
+    EXPECT_EQ(msg.line1, "Введите PIN и нажмите Старт (A)");
     EXPECT_EQ(msg.line2, "*");  // One digit entered, masked
     EXPECT_FALSE(msg.line3.empty());  // Should have timestamp
     EXPECT_EQ(msg.line4, "");
@@ -867,9 +867,9 @@ TEST_F(ControllerTest, DisplayMessageTankSelectionState) {
     DisplayMessage msg = controller->getStateMachine().getDisplayMessage();
     
     // Verify structure
-    EXPECT_EQ(msg.line1, "Select tank and press Start (A)");
+    EXPECT_EQ(msg.line1, "Выберите цистерну и нажмите Старт (A)");
     // line2 should be current input (empty initially)
-    EXPECT_TRUE(msg.line3.find("Available tanks") != std::string::npos);
+    EXPECT_TRUE(msg.line3.find("Доступные цистерны") != std::string::npos);
     EXPECT_TRUE(msg.line3.find("1") != std::string::npos);
     EXPECT_TRUE(msg.line3.find("2") != std::string::npos);
     EXPECT_EQ(msg.line4, "");
@@ -906,10 +906,10 @@ TEST_F(ControllerTest, DisplayMessageVolumeEntryState) {
     DisplayMessage msg = controller->getStateMachine().getDisplayMessage();
     
     // Verify structure
-    EXPECT_EQ(msg.line1, "Enter volume and press Start (A)");
+    EXPECT_EQ(msg.line1, "Введите объём и нажмите Старт (A)");
     // line2 is current input
-    EXPECT_TRUE(msg.line3.find("Max:") != std::string::npos);  // Should show max for customers
-    EXPECT_EQ(msg.line4, "Press * for max, # to clear");
+    EXPECT_TRUE(msg.line3.find("Макс:") != std::string::npos);  // Should show max for customers
+    EXPECT_EQ(msg.line4, "Нажмите * для макс, # для очистки");
     
     controller->shutdown();
     if (controllerThread.joinable()) {

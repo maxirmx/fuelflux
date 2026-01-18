@@ -339,39 +339,44 @@ void StateMachine::onExitState(SystemState state) {
 }
 
 DisplayMessage StateMachine::getDisplayMessage() const {
-    if (!controller_) {
-        return DisplayMessage{};
-    }
-
     DisplayMessage message;
     std::scoped_lock lock(mutex_);
     
+    if (!controller_) {
+        // No controller means error
+        message.line1 = "ОШИБКА";
+        message.line2 = "Контроллер не доступен";
+        message.line3 = "";
+        message.line4 = "";
+        return message;
+    }
+    
     switch (currentState_) {
         case SystemState::Waiting:
-            message.line1 = "Present card or enter PIN";
+            message.line1 = "Поднесите карту или введите PIN";
             message.line2 = controller_->getCurrentTimeString();
             message.line3 = controller_->getDeviceSerialNumber();
             message.line4 = "";
             break;
 
         case SystemState::PinEntry:
-            message.line1 = "Enter PIN and press Start (A)";
+            message.line1 = "Введите PIN и нажмите Старт (A)";
             message.line2 = std::string(controller_->getCurrentInput().length(), '*');
             message.line3 = controller_->getCurrentTimeString();
             message.line4 = "";
             break;
 
         case SystemState::Authorization:
-            message.line1 = "Authorization in progress...";
-            message.line2 = "Please wait";
+            message.line1 = "Авторизация...";
+            message.line2 = "Пожалуйста подождите";
             message.line3 = controller_->getDeviceSerialNumber();
             message.line4 = "";
             break;
 
         case SystemState::TankSelection:
-            message.line1 = "Select tank and press Start (A)";
+            message.line1 = "Выберите цистерну и нажмите Старт (A)";
             message.line2 = controller_->getCurrentInput();
-            message.line3 = "Available tanks: ";
+            message.line3 = "Доступные цистерны: ";
             for (const auto& tank : controller_->getAvailableTanks()) {
                 message.line3 += std::to_string(tank.number) + " ";
             }
@@ -379,66 +384,66 @@ DisplayMessage StateMachine::getDisplayMessage() const {
             break;
 
         case SystemState::VolumeEntry:
-            message.line1 = "Enter volume and press Start (A)";
+            message.line1 = "Введите объём и нажмите Старт (A)";
             message.line2 = controller_->getCurrentInput();
             if (controller_->getCurrentUser().role == UserRole::Customer) {
-                message.line3 = "Max: " + controller_->formatVolume(controller_->getCurrentUser().allowance);
+                message.line3 = "Макс: " + controller_->formatVolume(controller_->getCurrentUser().allowance);
             } else {
                 message.line3 = "";
             }
-            message.line4 = "Press * for max, # to clear";
+            message.line4 = "Нажмите * для макс, # для очистки";
             break;
 
         case SystemState::Refueling:
-            message.line1 = "Refueling " + controller_->formatVolume(controller_->getEnteredVolume());
+            message.line1 = "Заправка " + controller_->formatVolume(controller_->getEnteredVolume());
             message.line2 = controller_->formatVolume(controller_->getCurrentRefuelVolume());
             message.line3 = "";
             message.line4 = "";
             break;
 
         case SystemState::RefuelingComplete:
-            message.line1 = "Refueling complete";
+            message.line1 = "Заправка завершена";
             message.line2 = controller_->formatVolume(controller_->getCurrentRefuelVolume());
             message.line3 = "";
-            message.line4 = "Present card or enter PIN";
+            message.line4 = "Поднесите карту или введите PIN";
             break;
 
         case SystemState::IntakeDirectionSelection:
-            message.line1 = "Select direction (1/2) and press Start (A)";
+            message.line1 = "Выберите направление (1/2) и нажмите Старт (A)";
             message.line2 = "1 - Приём топлива";
             message.line3 = "2 - Слив топлива";
             message.line4 = "Цистерна " + std::to_string(controller_->getSelectedTank());
             break;
 
         case SystemState::IntakeVolumeEntry:
-            message.line1 = "Enter intake and press Start (A)";
+            message.line1 = "Введите объём приёма и нажмите Старт (A)";
             message.line2 = controller_->getCurrentInput();
-            message.line3 = "Tank " + std::to_string(controller_->getSelectedTank());
+            message.line3 = "Цистерна " + std::to_string(controller_->getSelectedTank());
             message.line4 = (controller_->getSelectedIntakeDirection() == IntakeDirection::In)
                 ? "Приём топлива"
                 : "Слив топлива";
             break;
 
         case SystemState::IntakeComplete:
-            message.line1 = "Intake complete";
+            message.line1 = "Приём завершён";
             message.line2 = controller_->formatVolume(controller_->getEnteredVolume());
-            message.line3 = "Tank " + std::to_string(controller_->getSelectedTank());
+            message.line3 = "Цистерна " + std::to_string(controller_->getSelectedTank());
             message.line4 = (controller_->getSelectedIntakeDirection() == IntakeDirection::In)
                 ? "Приём топлива"
                 : "Слив топлива";
             break;
 
         case SystemState::Error:
-            message.line1 = "ERROR";
+            message.line1 = "ОШИБКА";
             message.line2 = controller_->getLastErrorMessage();
-            message.line3 = "Press Cancel (B) to continue";
+            message.line3 = "Нажмите Отмена (B) для продолжения";
             message.line4 = controller_->getCurrentTimeString();
             break;
             
         default:
             // Unexpected state - show error
-            message.line1 = "System Error";
-            message.line2 = "Unknown state";
+            message.line1 = "ОШИБКА СИСТЕМЫ";
+            message.line2 = "Неизвестное состояние";
             message.line3 = "";
             message.line4 = "";
             break;
