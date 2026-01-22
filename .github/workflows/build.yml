@@ -58,56 +58,56 @@ jobs:
           path: build/bin/fuelflux
           if-no-files-found: error
 
-  build-armhf:
+  build-arm64:
     if: ${{ github.event_name == 'push' }}
-    name: Build Ubuntu ARMhf (Docker + QEMU, Ubuntu 22.04)
+    name: Build Ubuntu ARM64 (Docker + QEMU, Ubuntu 22.04)
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Restore CMake deps cache (armhf)
+      - name: Restore CMake deps cache (arm64)
         uses: actions/cache@v4
         with:
-          path: build-armhf/_deps
-          key: ${{ runner.os }}-fuelflux-cmake-deps-armhf-${{ hashFiles('CMakeLists.txt') }}
+          path: build-arm64/_deps
+          key: ${{ runner.os }}-fuelflux-cmake-deps-arm64-${{ hashFiles('CMakeLists.txt') }}
           restore-keys: |
-            ${{ runner.os }}-fuelflux-cmake-deps-armhf-
+            ${{ runner.os }}-fuelflux-cmake-deps-arm64-
 
       - name: Set up QEMU emulation
         uses: docker/setup-qemu-action@v2
         with:
-          platforms: linux/arm/v7
+          platforms: linux/arm64
 
-      - name: Run build in armhf container (Ubuntu 22.04)
+      - name: Run build in arm64 container (Ubuntu 22.04)
         run: |
-          # Run a container built for armhf using QEMU; mount the repo and build inside
-          docker run --rm --platform linux/arm/v7 \
+          # Run a container built for arm64 using QEMU; mount the repo and build inside
+          docker run --rm --platform linux/arm64 \
             -v "${{ github.workspace }}:/work" -w /work \
             ubuntu:22.04 bash -lc "
               set -euo pipefail
               apt-get update
               apt-get install -y --no-install-recommends \
                 build-essential cmake ninja-build g++ ca-certificates git libssl-dev
-              git config --global --add safe.directory /work/build-armhf/_deps/fmt-src
-              git config --global --add safe.directory /work/build-armhf/_deps/nlohmann_json-src
-              git config --global --add safe.directory /work/build-armhf/_deps/spdlog-src
-              git config --global --add safe.directory /work/build-armhf/_deps/httplib-src
-              git config --global --add safe.directory /work/build-armhf/_deps/googletest-src
-              mkdir -p build-armhf
-              cd build-armhf
+              git config --global --add safe.directory /work/build-arm64/_deps/fmt-src
+              git config --global --add safe.directory /work/build-arm64/_deps/nlohmann_json-src
+              git config --global --add safe.directory /work/build-arm64/_deps/spdlog-src
+              git config --global --add safe.directory /work/build-arm64/_deps/httplib-src
+              git config --global --add safe.directory /work/build-arm64/_deps/googletest-src
+              mkdir -p build-arm64
+              cd build-arm64
               cmake .. -G Ninja -DCMAKE_BUILD_TYPE=Release
               cmake --build . --config Release -j\$(nproc)
               ctest --output-on-failure -C Release
             "
 
       - name: List built files
-        run: ls -lah build-armhf/bin/ || true
+        run: ls -lah build-arm64/bin/ || true
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: fuelflux-ubuntu-armhf
-          path: build-armhf/bin/fuelflux
+          name: fuelflux-ubuntu-arm64
+          path: build-arm64/bin/fuelflux
           if-no-files-found: error
