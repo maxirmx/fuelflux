@@ -1,6 +1,9 @@
 #include "controller.h"
 #include "console_emulator.h"
 #include "logger.h"
+#ifdef TARGET_REAL_HARDWARE
+#include "peripherals/display.h"
+#endif
 #include <iostream>
 #include <string>
 #include <thread>
@@ -251,11 +254,25 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
         Controller controller(controllerId);
         
         // Create and setup peripherals
+#ifdef TARGET_REAL_HARDWARE
+        // Use real hardware display
+        LOG_INFO("Using real hardware display (NHD-C12864A1Z-FSW-FBW-HTT)");
+        auto display = std::make_unique<peripherals::RealDisplay>();
+        controller.setDisplay(std::move(display));
+        // For other peripherals, still use console emulation for now
+        controller.setKeyboard(emulator.createKeyboard());
+        controller.setCardReader(emulator.createCardReader());
+        controller.setPump(emulator.createPump());
+        controller.setFlowMeter(emulator.createFlowMeter());
+#else
+        // Use console emulation for all peripherals
+        LOG_INFO("Using console emulation for all peripherals");
         controller.setDisplay(emulator.createDisplay());
         controller.setKeyboard(emulator.createKeyboard());
         controller.setCardReader(emulator.createCardReader());
         controller.setPump(emulator.createPump());
         controller.setFlowMeter(emulator.createFlowMeter());
+#endif
         
         // Initialize controller
         if (!controller.initialize()) {
