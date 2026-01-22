@@ -11,6 +11,15 @@ class FourLineDisplay;
 class SpiLinux;
 class GpioLine;
 class St7565;
+
+// Default hardware configuration for NHD display on Orange Pi Zero 2W
+namespace nhd_defaults {
+    constexpr const char* SPI_DEVICE = "/dev/spidev1.0";
+    constexpr const char* GPIO_CHIP = "/dev/gpiochip0";
+    constexpr int DC_PIN = 262;   // Data/Command GPIO line offset
+    constexpr int RST_PIN = 226;  // Reset GPIO line offset
+    constexpr const char* FONT_PATH = "/usr/share/fonts/truetype/ubuntu/UbuntuMono-B.ttf";
+}
 #endif
 
 namespace fuelflux::peripherals {
@@ -19,11 +28,11 @@ namespace fuelflux::peripherals {
 // Real hardware display implementation using NHD-C12864A1Z-FSW-FBW-HTT
 class RealDisplay : public IDisplay {
 public:
-    RealDisplay(const std::string& spiDevice = "/dev/spidev1.0",
-                const std::string& gpioChip = "/dev/gpiochip0",
-                int dcPin = 262,
-                int rstPin = 226,
-                const std::string& fontPath = "/usr/share/fonts/truetype/ubuntu/UbuntuMono-B.ttf");
+    RealDisplay(const std::string& spiDevice = nhd_defaults::SPI_DEVICE,
+                const std::string& gpioChip = nhd_defaults::GPIO_CHIP,
+                int dcPin = nhd_defaults::DC_PIN,
+                int rstPin = nhd_defaults::RST_PIN,
+                const std::string& fontPath = nhd_defaults::FONT_PATH);
     ~RealDisplay() override;
 
     // IPeripheral implementation
