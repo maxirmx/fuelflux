@@ -345,7 +345,7 @@ DisplayMessage StateMachine::getDisplayMessage() const {
     if (!controller_) {
         // No controller means error
         message.line1 = "ОШИБКА";
-        message.line2 = "Контроллер не доступен";
+        message.line2 = "Контроллер недоступен";
         message.line3 = "";
         message.line4 = "";
         return message;
