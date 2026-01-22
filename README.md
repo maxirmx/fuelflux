@@ -4,7 +4,8 @@ FuelFlux Controller Software - A modern fuel station management system with comp
 ## Features
 
 - **State Machine Architecture**: Robust state management for fuel station operations
-- **Peripheral Management**: Support for displays, keyboards, card readers, pumps, and flow meters  
+- **Peripheral Management**: Support for displays, keyboards, card readers, pumps, and flow meters
+- **Hardware Display Support**: Native integration with NHD-C12864A1Z-FSW-FBW-HTT LCD display on ARM platforms
 - **Backend Integration**: Real API integration for user authentication and transaction reporting
 - **Advanced Logging**: Multi-level, multi-sink logging with JSON configuration
 - **Console Emulation**: Full console-based testing and simulation environment
@@ -66,6 +67,7 @@ If you use MSVC toolchain instead of Ninja/gcc, change the `-G "Ninja"` to your 
 ## Documentation
 
 - [State Machine](docs/state_machine.md) - Complete state machine workflow and transitions
+- [Hardware Display](docs/hardware_display.md) - NHD-C12864A1Z-FSW-FBW-HTT LCD integration
 - [Logging System](docs/logging.md) - Detailed logging configuration and usage
 - [Installation Guide](docs/installation.md) - Complete installation instructions
 
@@ -75,5 +77,7 @@ If you use MSVC toolchain instead of Ninja/gcc, change the `-G "Ninja"` to your 
 - **CMake 3.16+** 
 - **spdlog** - High performance logging library
 - **nlohmann/json** - JSON parsing and configuration
+- **libgpiod** (ARM/Linux only) - GPIO control for real hardware display
+- **freetype2** (ARM/Linux only) - Font rendering for real hardware display
 
-All dependencies are automatically fetched via CMake FetchContent
+Core dependencies are automatically fetched via CMake FetchContent. Hardware dependencies (libgpiod, freetype2) are only required when building with `TARGET_REAL_HARDWARE=ON`.
