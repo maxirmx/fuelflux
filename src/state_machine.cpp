@@ -368,7 +368,7 @@ DisplayMessage StateMachine::getDisplayMessage() const {
 
         case SystemState::Authorization:
             message.line1 = "Авторизация...";
-            message.line2 = "Пожалуйста подождите";
+            message.line2 = "Пожалуйста, подождите";
             message.line3 = controller_->getDeviceSerialNumber();
             message.line4 = "";
             break;
