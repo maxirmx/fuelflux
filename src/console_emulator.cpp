@@ -127,7 +127,7 @@ void ConsoleDisplay::printDisplay() const {
     std::cout << std::flush;
 }
 
-void ConsoleDisplay::printBorder(bool bottom) const {
+void ConsoleDisplay::printBorder(bool bottom [[maybe_unused]] ) const {
     const size_t displayWidth = 40;
 #ifdef _WIN32
     // Use Unicode box drawing characters now that console is UTF-8 enabled
@@ -621,7 +621,9 @@ void ConsoleEmulator::printWelcome() const {
 
 void ConsoleEmulator::printHelp() const {
     std::cout << "=== CONSOLE COMMANDS ===\n";
+#ifndef TARGET_REAL_CARD_READER
     std::cout << "card <user_id>  : Simulate card presentation\n";
+#endif
     std::cout << "flow <volume>   : Manually simulate fuel flow (for testing)\n";
     std::cout << "keymode         : Switch to key input mode\n";
     std::cout << "help            : Show this help\n";
@@ -693,7 +695,11 @@ void ConsoleEmulator::simulateCard(const UserId& userId) {
 }
 
 void ConsoleEmulator::printAvailableCommands() const {
+#ifndef TARGET_REAL_CARD_READER
     std::cout << "Available commands: card, flow, keymode, help, quit\n";
+#else
+    std::cout << "Available commands: flow, keymode, help, quit\n";
+#endif
     std::cout << "Type 'help' for detailed information\n";
 }
 

@@ -28,7 +28,7 @@ if(MSVC)
 else()
     option(TARGET_REAL_DISPLAY "Use real NHD display hardware" OFF)   # OFF for now
     option(TARGET_REAL_KEYBOARD "Use real keyboard hardware" OFF)
-    option(TARGET_REAL_CARD_READER "Use real card reader hardware" OFF)
+    option(TARGET_REAL_CARD_READER "Use real card reader hardware" ON)
     option(TARGET_REAL_PUMP "Use real pump hardware" OFF)
     option(TARGET_REAL_FLOW_METER "Use real flow meter hardware" OFF)
 endif()
@@ -93,17 +93,8 @@ FetchContent_Declare(
     GIT_TAG        v0.15.3
 )
 
-# Fetch Google Test
-FetchContent_Declare(
-    googletest
-    GIT_REPOSITORY https://github.com/google/googletest.git
-    GIT_TAG        v1.14.0
-)
-# For Windows: Prevent overriding the parent project's compiler/linker settings
-set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
-
 # Make dependencies available
-FetchContent_MakeAvailable(fmt nlohmann_json spdlog httplib googletest)
+FetchContent_MakeAvailable(fmt nlohmann_json spdlog httplib)
 
 # Conditional dependencies for real hardware
 if(TARGET_REAL_DISPLAY OR TARGET_REAL_CARD_READER)
@@ -245,6 +236,17 @@ add_custom_command(TARGET fuelflux POST_BUILD
 
 # Testing
 if(MSVC)
+
+    # Fetch Google Test (MSVC only)
+    FetchContent_Declare(
+        googletest
+        GIT_REPOSITORY https://github.com/google/googletest.git
+        GIT_TAG        v1.14.0
+    )
+    # For Windows: Prevent overriding the parent project's compiler/linker settings
+    set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
+
+    FetchContent_MakeAvailable(googletest)
 
     enable_testing()
 

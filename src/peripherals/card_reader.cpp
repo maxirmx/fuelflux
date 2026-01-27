@@ -22,8 +22,8 @@ constexpr auto kReadCooldown = std::chrono::milliseconds(500);
 std::string toHex(const uint8_t* data, size_t len) {
     std::ostringstream oss;
     for (size_t i = 0; i < len; ++i) {
-        oss << std::hex << std::setw(2) << std::setfill('0')
-            << static_cast<int>(data[i]);
+        //    if (i) oss << ":";
+        oss << std::hex << std::setw(2) << std::setfill('0') << static_cast<int>(data[i]);
     }
     return oss.str();
 }
@@ -158,6 +158,7 @@ void HardwareCardReader::pollingLoop() {
 
         auto uid = pollForUid(device_);
         if (uid.has_value()) {
+			LOG_INFO("Card presented with UID: {}", *uid);
             CardPresentedCallback callback;
             {
                 std::lock_guard<std::mutex> lock(callbackMutex_);
