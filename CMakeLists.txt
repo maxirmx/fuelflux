@@ -221,6 +221,6 @@ if(MSVC)
 
     # Discover tests
     include(GoogleTest)
-gtest_discover_tests(fuelflux_tests)
+    gtest_discover_tests(fuelflux_tests)
 
 endif(MSVC)
