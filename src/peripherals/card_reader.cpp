@@ -29,7 +29,9 @@ std::string toHex(const uint8_t* data, size_t len) {
 }
 
 std::optional<std::string> pollForUid(nfc_device* device) {
-    const nfc_modulation nm = { .nmt = NMT_ISO14443A, .nbr = NBR_106 };
+    nfc_modulation nm{};
+    nm.nmt = NMT_ISO14443A;
+    nm.nbr = NBR_106;
     nfc_target target{};
 
     int res = nfc_initiator_poll_target(device, &nm, 1, 20, 2, &target);
