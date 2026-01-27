@@ -67,7 +67,7 @@ If you use MSVC toolchain instead of Ninja/gcc, change the `-G "Ninja"` to your 
 ## Documentation
 
 - [State Machine](docs/state_machine.md) - Complete state machine workflow and transitions
-- [Hardware Display](docs/hardware_display.md) - NHD-C12864A1Z-FSW-FBW-HTT LCD integration
+- [Hardware Integration](docs/hardware.md) - Display and NFC wiring/configuration
 - [Logging System](docs/logging.md) - Detailed logging configuration and usage
 - [Installation Guide](docs/installation.md) - Complete installation instructions
 
