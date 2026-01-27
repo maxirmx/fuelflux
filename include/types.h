@@ -113,7 +113,6 @@ struct DisplayMessage {
     std::string line2;
     std::string line3;
     std::string line4;
-    std::string line5;
 };
 
 } // namespace fuelflux

@@ -32,7 +32,9 @@ public:
     void initialize();
     bool processEvent(Event event);
     SystemState getCurrentState() const { std::scoped_lock lock(mutex_); return currentState_; }
-    std::string getStateLine1() const { std::scoped_lock lock(mutex_); return stateLine1_; }
+    
+    // Display management - get display message for current state
+    DisplayMessage getDisplayMessage() const;
     
     // State queries
     bool isInState(SystemState state) const { std::scoped_lock lock(mutex_); return currentState_ == state; }
@@ -73,7 +75,6 @@ private:
     Controller* controller_;
     SystemState currentState_;
     SystemState previousState_;
-    std::string stateLine1_;
     
     // Transition table: (current_state, event) -> (next_state, action)
     std::unordered_map<std::pair<SystemState, Event>, 

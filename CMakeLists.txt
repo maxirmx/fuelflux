@@ -18,6 +18,51 @@ else()
     add_compile_options(-Wall -Wextra -Wpedantic -Wno-psabi)
 endif()
 
+# Real hardware peripheral flags: set by default on ARM, unset on Windows
+if(MSVC)
+    option(TARGET_REAL_DISPLAY "Use real NHD display hardware" OFF)
+    option(TARGET_REAL_KEYBOARD "Use real keyboard hardware" OFF)
+    option(TARGET_REAL_CARD_READER "Use real card reader hardware" OFF)
+    option(TARGET_REAL_PUMP "Use real pump hardware" OFF)
+    option(TARGET_REAL_FLOW_METER "Use real flow meter hardware" OFF)
+else()
+    # Check if we're on ARM platform
+    if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(arm|aarch64)")
+        option(TARGET_REAL_DISPLAY "Use real NHD display hardware" ON)
+        option(TARGET_REAL_KEYBOARD "Use real keyboard hardware" OFF)
+        option(TARGET_REAL_CARD_READER "Use real card reader hardware" OFF)
+        option(TARGET_REAL_PUMP "Use real pump hardware" OFF)
+        option(TARGET_REAL_FLOW_METER "Use real flow meter hardware" OFF)
+    else()
+        option(TARGET_REAL_DISPLAY "Use real NHD display hardware" OFF)
+        option(TARGET_REAL_KEYBOARD "Use real keyboard hardware" OFF)
+        option(TARGET_REAL_CARD_READER "Use real card reader hardware" OFF)
+        option(TARGET_REAL_PUMP "Use real pump hardware" OFF)
+        option(TARGET_REAL_FLOW_METER "Use real flow meter hardware" OFF)
+    endif()
+endif()
+
+if(TARGET_REAL_DISPLAY)
+    message(STATUS "TARGET_REAL_DISPLAY enabled - using real display hardware")
+    add_compile_definitions(TARGET_REAL_DISPLAY)
+else()
+    message(STATUS "TARGET_REAL_DISPLAY disabled - using console display emulation")
+endif()
+
+# Note: Other TARGET_REAL_* flags are placeholders for future implementation
+if(TARGET_REAL_KEYBOARD)
+    message(STATUS "TARGET_REAL_KEYBOARD enabled (placeholder - not yet implemented)")
+endif()
+if(TARGET_REAL_CARD_READER)
+    message(STATUS "TARGET_REAL_CARD_READER enabled (placeholder - not yet implemented)")
+endif()
+if(TARGET_REAL_PUMP)
+    message(STATUS "TARGET_REAL_PUMP enabled (placeholder - not yet implemented)")
+endif()
+if(TARGET_REAL_FLOW_METER)
+    message(STATUS "TARGET_REAL_FLOW_METER enabled (placeholder - not yet implemented)")
+endif()
+
 # Set default install prefix to a more reasonable location
 if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
     set(CMAKE_INSTALL_PREFIX "${CMAKE_BINARY_DIR}/install" CACHE PATH "Install prefix" FORCE)
@@ -69,6 +114,15 @@ set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
 # Make dependencies available
 FetchContent_MakeAvailable(fmt nlohmann_json spdlog httplib googletest)
 
+# Conditional dependencies for real hardware
+if(TARGET_REAL_DISPLAY)
+    find_package(PkgConfig REQUIRED)
+    pkg_check_modules(GPIOD REQUIRED libgpiod)
+    pkg_check_modules(FREETYPE REQUIRED freetype2)
+    message(STATUS "Found libgpiod: ${GPIOD_LIBRARIES}")
+    message(STATUS "Found freetype2: ${FREETYPE_LIBRARIES}")
+endif()
+
 # Include directories
 include_directories(include)
 
@@ -87,6 +141,18 @@ set(SOURCES
     src/backend.cpp
 )
 
+# Add NHD library sources if TARGET_REAL_DISPLAY is enabled
+if(TARGET_REAL_DISPLAY)
+    list(APPEND SOURCES
+        src/nhd/st7565.cpp
+        src/nhd/four_line_display.cpp
+        src/nhd/graphics.cpp
+        src/nhd/ft_text.cpp
+        src/nhd/spi_linux.cpp
+        src/nhd/gpio_gpiod.cpp
+    )
+endif()
+
 # Headers
 set(HEADERS
     include/config.h
@@ -104,8 +170,25 @@ set(HEADERS
     include/types.h
 )
 
+# Add NHD library headers if TARGET_REAL_DISPLAY is enabled
+if(TARGET_REAL_DISPLAY)
+    list(APPEND HEADERS
+        include/nhd/st7565.h
+        include/nhd/four_line_display.h
+        include/nhd/graphics.h
+        include/nhd/ft_text.h
+        include/nhd/spi_linux.h
+        include/nhd/gpio_gpiod.h
+    )
+endif()
+
 # Create executable
 add_executable(fuelflux ${SOURCES} ${HEADERS})
+
+# Add include directories for real hardware libraries
+if(TARGET_REAL_DISPLAY)
+    target_include_directories(fuelflux PRIVATE ${GPIOD_INCLUDE_DIRS} ${FREETYPE_INCLUDE_DIRS})
+endif()
 
 # Try to find OpenSSL and enable cpp-httplib SSL support (optional)
 find_package(OpenSSL)
@@ -125,6 +208,11 @@ target_link_libraries(fuelflux
     spdlog::spdlog
     httplib::httplib
 )
+
+# Link real hardware libraries if TARGET_REAL_DISPLAY is enabled
+if(TARGET_REAL_DISPLAY)
+    target_link_libraries(fuelflux PRIVATE ${GPIOD_LIBRARIES} ${FREETYPE_LIBRARIES})
+endif()
 
 # Set output directory
 set_target_properties(fuelflux PROPERTIES
@@ -172,9 +260,26 @@ if(MSVC)
         src/console_emulator.cpp
         src/backend.cpp
     )
+    
+    # Add NHD library sources if TARGET_REAL_DISPLAY is enabled
+    if(TARGET_REAL_DISPLAY)
+        list(APPEND LIB_SOURCES
+            src/nhd/st7565.cpp
+            src/nhd/four_line_display.cpp
+            src/nhd/graphics.cpp
+            src/nhd/ft_text.cpp
+            src/nhd/spi_linux.cpp
+            src/nhd/gpio_gpiod.cpp
+        )
+    endif()
 
     # Create library from application sources
     add_library(fuelflux_lib STATIC ${LIB_SOURCES} ${HEADERS})
+    
+    # Add include directories for real hardware libraries
+    if(TARGET_REAL_DISPLAY)
+        target_include_directories(fuelflux_lib PUBLIC ${GPIOD_INCLUDE_DIRS} ${FREETYPE_INCLUDE_DIRS})
+    endif()
 
     # Link libraries to library target
     target_link_libraries(fuelflux_lib
@@ -184,6 +289,11 @@ if(MSVC)
         spdlog::spdlog
         httplib::httplib
     )
+    
+    # Link real hardware libraries if TARGET_REAL_DISPLAY is enabled
+    if(TARGET_REAL_DISPLAY)
+        target_link_libraries(fuelflux_lib PUBLIC ${GPIOD_LIBRARIES} ${FREETYPE_LIBRARIES})
+    endif()
 
     # Handle OpenSSL for library
     if(OpenSSL_FOUND)

@@ -123,7 +123,6 @@ void ConsoleDisplay::printDisplay() const {
     std::cout << "│" << padLine(currentMessage_.line2, displayWidth) << "│\n";
     std::cout << "│" << padLine(currentMessage_.line3, displayWidth) << "│\n";
     std::cout << "│" << padLine(currentMessage_.line4, displayWidth) << "│\n";
-    std::cout << "│" << padLine(currentMessage_.line5, displayWidth) << "│\n";
     printBorder(true);
     std::cout << std::flush;
 }
