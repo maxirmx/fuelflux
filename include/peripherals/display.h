@@ -2,7 +2,7 @@
 
 #include "peripheral_interface.h"
 
-#ifdef TARGET_REAL_HARDWARE
+#ifdef TARGET_REAL_DISPLAY
 #include <memory>
 #include <string>
 
@@ -24,7 +24,7 @@ namespace nhd_defaults {
 
 namespace fuelflux::peripherals {
 
-#ifdef TARGET_REAL_HARDWARE
+#ifdef TARGET_REAL_DISPLAY
 // Real hardware display implementation using NHD-C12864A1Z-FSW-FBW-HTT
 class RealDisplay : public IDisplay {
 public:

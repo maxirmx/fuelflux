@@ -18,23 +18,49 @@ else()
     add_compile_options(-Wall -Wextra -Wpedantic -Wno-psabi)
 endif()
 
-# TARGET_REAL_HARDWARE flag: set by default on ARM, unset on Windows
+# Real hardware peripheral flags: set by default on ARM, unset on Windows
 if(MSVC)
-    option(TARGET_REAL_HARDWARE "Use real NHD display hardware" OFF)
+    option(TARGET_REAL_DISPLAY "Use real NHD display hardware" OFF)
+    option(TARGET_REAL_KEYBOARD "Use real keyboard hardware" OFF)
+    option(TARGET_REAL_CARD_READER "Use real card reader hardware" OFF)
+    option(TARGET_REAL_PUMP "Use real pump hardware" OFF)
+    option(TARGET_REAL_FLOW_METER "Use real flow meter hardware" OFF)
 else()
     # Check if we're on ARM platform
     if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(arm|aarch64)")
-        option(TARGET_REAL_HARDWARE "Use real NHD display hardware" ON)
+        option(TARGET_REAL_DISPLAY "Use real NHD display hardware" ON)
+        option(TARGET_REAL_KEYBOARD "Use real keyboard hardware" OFF)
+        option(TARGET_REAL_CARD_READER "Use real card reader hardware" OFF)
+        option(TARGET_REAL_PUMP "Use real pump hardware" OFF)
+        option(TARGET_REAL_FLOW_METER "Use real flow meter hardware" OFF)
     else()
-        option(TARGET_REAL_HARDWARE "Use real NHD display hardware" OFF)
+        option(TARGET_REAL_DISPLAY "Use real NHD display hardware" OFF)
+        option(TARGET_REAL_KEYBOARD "Use real keyboard hardware" OFF)
+        option(TARGET_REAL_CARD_READER "Use real card reader hardware" OFF)
+        option(TARGET_REAL_PUMP "Use real pump hardware" OFF)
+        option(TARGET_REAL_FLOW_METER "Use real flow meter hardware" OFF)
     endif()
 endif()
 
-if(TARGET_REAL_HARDWARE)
-    message(STATUS "TARGET_REAL_HARDWARE enabled - using real display hardware")
-    add_compile_definitions(TARGET_REAL_HARDWARE)
+if(TARGET_REAL_DISPLAY)
+    message(STATUS "TARGET_REAL_DISPLAY enabled - using real display hardware")
+    add_compile_definitions(TARGET_REAL_DISPLAY)
 else()
-    message(STATUS "TARGET_REAL_HARDWARE disabled - using console emulation")
+    message(STATUS "TARGET_REAL_DISPLAY disabled - using console display emulation")
+endif()
+
+# Note: Other TARGET_REAL_* flags are placeholders for future implementation
+if(TARGET_REAL_KEYBOARD)
+    message(STATUS "TARGET_REAL_KEYBOARD enabled (placeholder - not yet implemented)")
+endif()
+if(TARGET_REAL_CARD_READER)
+    message(STATUS "TARGET_REAL_CARD_READER enabled (placeholder - not yet implemented)")
+endif()
+if(TARGET_REAL_PUMP)
+    message(STATUS "TARGET_REAL_PUMP enabled (placeholder - not yet implemented)")
+endif()
+if(TARGET_REAL_FLOW_METER)
+    message(STATUS "TARGET_REAL_FLOW_METER enabled (placeholder - not yet implemented)")
 endif()
 
 # Set default install prefix to a more reasonable location
@@ -89,7 +115,7 @@ set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(fmt nlohmann_json spdlog httplib googletest)
 
 # Conditional dependencies for real hardware
-if(TARGET_REAL_HARDWARE)
+if(TARGET_REAL_DISPLAY)
     find_package(PkgConfig REQUIRED)
     pkg_check_modules(GPIOD REQUIRED libgpiod)
     pkg_check_modules(FREETYPE REQUIRED freetype2)
@@ -115,8 +141,8 @@ set(SOURCES
     src/backend.cpp
 )
 
-# Add NHD library sources if TARGET_REAL_HARDWARE is enabled
-if(TARGET_REAL_HARDWARE)
+# Add NHD library sources if TARGET_REAL_DISPLAY is enabled
+if(TARGET_REAL_DISPLAY)
     list(APPEND SOURCES
         src/nhd/st7565.cpp
         src/nhd/four_line_display.cpp
@@ -144,8 +170,8 @@ set(HEADERS
     include/types.h
 )
 
-# Add NHD library headers if TARGET_REAL_HARDWARE is enabled
-if(TARGET_REAL_HARDWARE)
+# Add NHD library headers if TARGET_REAL_DISPLAY is enabled
+if(TARGET_REAL_DISPLAY)
     list(APPEND HEADERS
         include/nhd/st7565.h
         include/nhd/four_line_display.h
@@ -160,7 +186,7 @@ endif()
 add_executable(fuelflux ${SOURCES} ${HEADERS})
 
 # Add include directories for real hardware libraries
-if(TARGET_REAL_HARDWARE)
+if(TARGET_REAL_DISPLAY)
     target_include_directories(fuelflux PRIVATE ${GPIOD_INCLUDE_DIRS} ${FREETYPE_INCLUDE_DIRS})
 endif()
 
@@ -183,8 +209,8 @@ target_link_libraries(fuelflux
     httplib::httplib
 )
 
-# Link real hardware libraries if TARGET_REAL_HARDWARE is enabled
-if(TARGET_REAL_HARDWARE)
+# Link real hardware libraries if TARGET_REAL_DISPLAY is enabled
+if(TARGET_REAL_DISPLAY)
     target_link_libraries(fuelflux PRIVATE ${GPIOD_LIBRARIES} ${FREETYPE_LIBRARIES})
 endif()
 
@@ -235,8 +261,8 @@ if(MSVC)
         src/backend.cpp
     )
     
-    # Add NHD library sources if TARGET_REAL_HARDWARE is enabled
-    if(TARGET_REAL_HARDWARE)
+    # Add NHD library sources if TARGET_REAL_DISPLAY is enabled
+    if(TARGET_REAL_DISPLAY)
         list(APPEND LIB_SOURCES
             src/nhd/st7565.cpp
             src/nhd/four_line_display.cpp
@@ -251,7 +277,7 @@ if(MSVC)
     add_library(fuelflux_lib STATIC ${LIB_SOURCES} ${HEADERS})
     
     # Add include directories for real hardware libraries
-    if(TARGET_REAL_HARDWARE)
+    if(TARGET_REAL_DISPLAY)
         target_include_directories(fuelflux_lib PUBLIC ${GPIOD_INCLUDE_DIRS} ${FREETYPE_INCLUDE_DIRS})
     endif()
 
@@ -264,8 +290,8 @@ if(MSVC)
         httplib::httplib
     )
     
-    # Link real hardware libraries if TARGET_REAL_HARDWARE is enabled
-    if(TARGET_REAL_HARDWARE)
+    # Link real hardware libraries if TARGET_REAL_DISPLAY is enabled
+    if(TARGET_REAL_DISPLAY)
         target_link_libraries(fuelflux_lib PUBLIC ${GPIOD_LIBRARIES} ${FREETYPE_LIBRARIES})
     endif()
 

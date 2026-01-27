@@ -1,7 +1,7 @@
 #include "peripherals/display.h"
 #include "logger.h"
 
-#ifdef TARGET_REAL_HARDWARE
+#ifdef TARGET_REAL_DISPLAY
 #include "nhd/four_line_display.h"
 #include "nhd/st7565.h"
 #include "nhd/spi_linux.h"

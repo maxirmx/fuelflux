@@ -18,24 +18,32 @@ The FuelFlux controller supports two display modes:
 
 ## Build Configuration
 
-### TARGET_REAL_HARDWARE Flag
+### Hardware Peripheral Flags
 
-The `TARGET_REAL_HARDWARE` compilation flag determines which display implementation is used:
+The FuelFlux controller supports separate compilation flags for each hardware peripheral:
 
-- **ON ARM platforms**: Automatically enabled by default
-- **On Windows/MSVC**: Automatically disabled by default
-- **On other platforms**: Disabled by default (can be enabled manually)
+- `TARGET_REAL_DISPLAY` - Use real NHD display hardware
+- `TARGET_REAL_KEYBOARD` - Use real keyboard hardware (placeholder, not yet implemented)
+- `TARGET_REAL_CARD_READER` - Use real card reader hardware (placeholder, not yet implemented)
+- `TARGET_REAL_PUMP` - Use real pump hardware (placeholder, not yet implemented)
+- `TARGET_REAL_FLOW_METER` - Use real flow meter hardware (placeholder, not yet implemented)
 
-To override the default setting:
+**Platform Defaults:**
+- **ON ARM platforms**: `TARGET_REAL_DISPLAY` is automatically enabled by default
+- **On Windows/MSVC**: All flags are automatically disabled by default
+- **On other platforms**: All flags are disabled by default (can be enabled manually)
+
+To override the default settings:
 
 ```bash
-cmake -DTARGET_REAL_HARDWARE=ON ..  # Force real hardware
-cmake -DTARGET_REAL_HARDWARE=OFF .. # Force console emulation
+cmake -DTARGET_REAL_DISPLAY=ON ..  # Force real hardware display
+cmake -DTARGET_REAL_DISPLAY=OFF .. # Force console display emulation
+cmake -DTARGET_REAL_KEYBOARD=ON .. # Enable real keyboard (when implemented)
 ```
 
 ### Dependencies
 
-When `TARGET_REAL_HARDWARE` is enabled, the following system libraries are required:
+When `TARGET_REAL_DISPLAY` is enabled, the following system libraries are required:
 
 - **libgpiod** (>= 1.6.3): GPIO control via libgpiod
 - **freetype2** (>= 26.1.20): Font rendering
@@ -174,12 +182,18 @@ When developing on a non-ARM platform, you can:
    cmake --build .
    ```
 
-2. Build with real hardware enabled (for testing compilation):
+2. Build with real hardware display enabled (for testing compilation):
    ```bash
-   cmake -DTARGET_REAL_HARDWARE=ON ..
+   cmake -DTARGET_REAL_DISPLAY=ON ..
    cmake --build .
    ```
    Note: This will compile but won't run without actual hardware.
+
+3. Enable multiple hardware peripherals (when implemented):
+   ```bash
+   cmake -DTARGET_REAL_DISPLAY=ON -DTARGET_REAL_KEYBOARD=ON ..
+   cmake --build .
+   ```
 
 ## References
 

@@ -1,7 +1,7 @@
 #include "controller.h"
 #include "console_emulator.h"
 #include "logger.h"
-#ifdef TARGET_REAL_HARDWARE
+#ifdef TARGET_REAL_DISPLAY
 #include "peripherals/display.h"
 #endif
 #include <iostream>
@@ -254,7 +254,7 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
         Controller controller(controllerId);
         
         // Create and setup peripherals
-#ifdef TARGET_REAL_HARDWARE
+#ifdef TARGET_REAL_DISPLAY
         // Use real hardware display with configuration from environment variables
         LOG_INFO("Using real hardware display (NHD-C12864A1Z-FSW-FBW-HTT)");
         
