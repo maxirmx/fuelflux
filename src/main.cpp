@@ -4,6 +4,9 @@
 #ifdef TARGET_REAL_DISPLAY
 #include "peripherals/display.h"
 #endif
+#ifdef TARGET_REAL_CARD_READER
+#include "peripherals/card_reader.h"
+#endif
 #include <iostream>
 #include <string>
 #include <thread>
@@ -257,45 +260,47 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
 #ifdef TARGET_REAL_DISPLAY
         // Use real hardware display with configuration from environment variables
         LOG_INFO("Using real hardware display (NHD-C12864A1Z-FSW-FBW-HTT)");
-        
+
         // Get hardware configuration from environment or use defaults
         std::string spiDevice = "/dev/spidev1.0";
         std::string gpioChip = "/dev/gpiochip0";
         int dcPin = 262;
         int rstPin = 226;
         std::string fontPath = "/usr/share/fonts/truetype/ubuntu/UbuntuMono-B.ttf";
-        
+
         if (const char* env = std::getenv("FUELFLUX_SPI_DEVICE")) spiDevice = env;
         if (const char* env = std::getenv("FUELFLUX_GPIO_CHIP")) gpioChip = env;
         if (const char* env = std::getenv("FUELFLUX_DC_PIN")) dcPin = std::atoi(env);
         if (const char* env = std::getenv("FUELFLUX_RST_PIN")) rstPin = std::atoi(env);
         if (const char* env = std::getenv("FUELFLUX_FONT_PATH")) fontPath = env;
-        
+
         LOG_INFO("Display hardware configuration:");
         LOG_INFO("  SPI Device: {}", spiDevice);
         LOG_INFO("  GPIO Chip: {}", gpioChip);
         LOG_INFO("  D/C Pin: {}", dcPin);
         LOG_INFO("  RST Pin: {}", rstPin);
         LOG_INFO("  Font Path: {}", fontPath);
-        
+
         auto display = std::make_unique<peripherals::RealDisplay>(
             spiDevice, gpioChip, dcPin, rstPin, fontPath
         );
         controller.setDisplay(std::move(display));
-        // For other peripherals, still use console emulation for now
-        controller.setKeyboard(emulator.createKeyboard());
-        controller.setCardReader(emulator.createCardReader());
-        controller.setPump(emulator.createPump());
-        controller.setFlowMeter(emulator.createFlowMeter());
 #else
-        // Use console emulation for all peripherals
-        LOG_INFO("Using console emulation for all peripherals");
         controller.setDisplay(emulator.createDisplay());
+#endif
+
         controller.setKeyboard(emulator.createKeyboard());
+
+#ifdef TARGET_REAL_CARD_READER
+        LOG_INFO("Using real NFC card reader (libnfc)");
+        auto cardReader = std::make_unique<peripherals::HardwareCardReader>();
+        controller.setCardReader(std::move(cardReader));
+#else
         controller.setCardReader(emulator.createCardReader());
+#endif
+
         controller.setPump(emulator.createPump());
         controller.setFlowMeter(emulator.createFlowMeter());
-#endif
         
         // Initialize controller
         if (!controller.initialize()) {

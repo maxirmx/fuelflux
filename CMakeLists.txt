@@ -49,12 +49,12 @@ else()
     message(STATUS "TARGET_REAL_DISPLAY disabled - using console display emulation")
 endif()
 
-# Note: Other TARGET_REAL_* flags are placeholders for future implementation
 if(TARGET_REAL_KEYBOARD)
     message(STATUS "TARGET_REAL_KEYBOARD enabled (placeholder - not yet implemented)")
 endif()
 if(TARGET_REAL_CARD_READER)
-    message(STATUS "TARGET_REAL_CARD_READER enabled (placeholder - not yet implemented)")
+    message(STATUS "TARGET_REAL_CARD_READER enabled - using real NFC card reader")
+    add_compile_definitions(TARGET_REAL_CARD_READER)
 endif()
 if(TARGET_REAL_PUMP)
     message(STATUS "TARGET_REAL_PUMP enabled (placeholder - not yet implemented)")
@@ -115,12 +115,20 @@ set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(fmt nlohmann_json spdlog httplib googletest)
 
 # Conditional dependencies for real hardware
-if(TARGET_REAL_DISPLAY)
+if(TARGET_REAL_DISPLAY OR TARGET_REAL_CARD_READER)
     find_package(PkgConfig REQUIRED)
+endif()
+
+if(TARGET_REAL_DISPLAY)
     pkg_check_modules(GPIOD REQUIRED libgpiod)
     pkg_check_modules(FREETYPE REQUIRED freetype2)
     message(STATUS "Found libgpiod: ${GPIOD_LIBRARIES}")
     message(STATUS "Found freetype2: ${FREETYPE_LIBRARIES}")
+endif()
+
+if(TARGET_REAL_CARD_READER)
+    pkg_check_modules(LIBNFC REQUIRED libnfc)
+    message(STATUS "Found libnfc: ${LIBNFC_LIBRARIES}")
 endif()
 
 # Include directories
@@ -190,6 +198,10 @@ if(TARGET_REAL_DISPLAY)
     target_include_directories(fuelflux PRIVATE ${GPIOD_INCLUDE_DIRS} ${FREETYPE_INCLUDE_DIRS})
 endif()
 
+if(TARGET_REAL_CARD_READER)
+    target_include_directories(fuelflux PRIVATE ${LIBNFC_INCLUDE_DIRS})
+endif()
+
 # Try to find OpenSSL and enable cpp-httplib SSL support (optional)
 find_package(OpenSSL)
 if(OpenSSL_FOUND)
@@ -212,6 +224,10 @@ target_link_libraries(fuelflux
 # Link real hardware libraries if TARGET_REAL_DISPLAY is enabled
 if(TARGET_REAL_DISPLAY)
     target_link_libraries(fuelflux PRIVATE ${GPIOD_LIBRARIES} ${FREETYPE_LIBRARIES})
+endif()
+
+if(TARGET_REAL_CARD_READER)
+    target_link_libraries(fuelflux PRIVATE ${LIBNFC_LIBRARIES})
 endif()
 
 # Set output directory
@@ -280,6 +296,9 @@ if(MSVC)
     if(TARGET_REAL_DISPLAY)
         target_include_directories(fuelflux_lib PUBLIC ${GPIOD_INCLUDE_DIRS} ${FREETYPE_INCLUDE_DIRS})
     endif()
+    if(TARGET_REAL_CARD_READER)
+        target_include_directories(fuelflux_lib PUBLIC ${LIBNFC_INCLUDE_DIRS})
+    endif()
 
     # Link libraries to library target
     target_link_libraries(fuelflux_lib
@@ -293,6 +312,9 @@ if(MSVC)
     # Link real hardware libraries if TARGET_REAL_DISPLAY is enabled
     if(TARGET_REAL_DISPLAY)
         target_link_libraries(fuelflux_lib PUBLIC ${GPIOD_LIBRARIES} ${FREETYPE_LIBRARIES})
+    endif()
+    if(TARGET_REAL_CARD_READER)
+        target_link_libraries(fuelflux_lib PUBLIC ${LIBNFC_LIBRARIES})
     endif()
 
     # Handle OpenSSL for library
