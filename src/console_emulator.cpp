@@ -10,7 +10,9 @@
 #include <thread>
 #include <chrono>
 #include <algorithm>
+#include <array>
 #include <fmt/format.h>
+#include <deque>
 
 #ifdef _WIN32
 #include <conio.h>
@@ -69,6 +71,163 @@ size_t utf8Length(const std::string& text) {
     }
     return length;
 }
+
+class ConsoleUi {
+public:
+    static ConsoleUi& instance() {
+        static ConsoleUi ui;
+        return ui;
+    }
+
+    void initialize() {
+        std::lock_guard<std::mutex> lock(outputMutex_);
+        initializeLocked();
+    }
+
+    void shutdown() {
+        std::lock_guard<std::mutex> lock(outputMutex_);
+        if (!initialized_) {
+            return;
+        }
+        if (useAlternateBuffer_) {
+            std::cout << "\x1b[?1049l";
+        }
+        std::cout << std::flush;
+        initialized_ = false;
+    }
+
+    void renderDisplay(const std::array<std::string, 6>& lines) {
+        std::lock_guard<std::mutex> lock(outputMutex_);
+        initializeLocked();
+        for (size_t i = 0; i < lines.size(); ++i) {
+            writeAt(static_cast<int>(i + 1), 1, lines[i]);
+        }
+        renderLogAreaLocked();
+        renderInputLocked();
+        std::cout << std::flush;
+    }
+
+    void logLine(const std::string& line) {
+        std::lock_guard<std::mutex> lock(outputMutex_);
+        initializeLocked();
+        appendLogLineLocked(line);
+        renderLogAreaLocked();
+        renderInputLocked();
+        std::cout << std::flush;
+    }
+
+    void logBlock(const std::string& block) {
+        std::lock_guard<std::mutex> lock(outputMutex_);
+        initializeLocked();
+        std::istringstream stream(block);
+        std::string line;
+        while (std::getline(stream, line)) {
+            appendLogLineLocked(line);
+        }
+        renderLogAreaLocked();
+        renderInputLocked();
+        std::cout << std::flush;
+    }
+
+    void setInputMode(bool commandMode) {
+        std::lock_guard<std::mutex> lock(outputMutex_);
+        initializeLocked();
+        commandMode_ = commandMode;
+        if (!commandMode_) {
+            inputBuffer_.clear();
+        }
+        renderInputLocked();
+        std::cout << std::flush;
+    }
+
+    void setInputBuffer(const std::string& buffer) {
+        std::lock_guard<std::mutex> lock(outputMutex_);
+        initializeLocked();
+        inputBuffer_ = buffer;
+        renderInputLocked();
+        std::cout << std::flush;
+    }
+
+private:
+    static constexpr int kDisplayHeight = 6;
+    static constexpr int kLogLines = 10;
+    static constexpr int kLogStartRow = kDisplayHeight + 1;
+    static constexpr int kInputRow = kLogStartRow + kLogLines + 1;
+    static constexpr size_t kMaxLogLines = static_cast<size_t>(kLogLines);
+
+    std::mutex outputMutex_;
+    std::deque<std::string> logLines_;
+    std::string inputBuffer_;
+    bool initialized_ = false;
+    bool commandMode_ = true;
+    bool useAlternateBuffer_ = true;
+
+    ConsoleUi() = default;
+
+    void initializeLocked() {
+        if (initialized_) {
+            return;
+        }
+        if (useAlternateBuffer_) {
+            std::cout << "\x1b[?1049h";
+        }
+        std::cout << "\x1b[2J\x1b[H";
+        initialized_ = true;
+        renderLogAreaLocked();
+        renderInputLocked();
+    }
+
+    void appendLogLineLocked(const std::string& line) {
+        if (line.empty()) {
+            logLines_.push_back({});
+        } else {
+            logLines_.push_back(line);
+        }
+        while (logLines_.size() > kMaxLogLines) {
+            logLines_.pop_front();
+        }
+    }
+
+    void renderLogAreaLocked() {
+        for (int i = 0; i < kLogLines; ++i) {
+            const size_t index = logLines_.size() > static_cast<size_t>(kLogLines)
+                ? logLines_.size() - kLogLines + static_cast<size_t>(i)
+                : static_cast<size_t>(i);
+            std::string line;
+            if (index < logLines_.size()) {
+                line = logLines_[index];
+            }
+            writeAt(kLogStartRow + i, 1, line);
+        }
+    }
+
+    void renderInputLocked() {
+        std::string prompt = commandMode_ ? "CMD> " : "KEY MODE (Tab to command)";
+        std::string line = commandMode_ ? prompt + inputBuffer_ : prompt;
+        writeAt(kInputRow, 1, line);
+        moveCursorToInputLocked();
+    }
+
+    void moveCursorToInputLocked() {
+        std::string prompt = commandMode_ ? "CMD> " : "KEY MODE (Tab to command)";
+        const size_t cursorOffset = commandMode_
+            ? utf8Length(prompt) + utf8Length(inputBuffer_)
+            : utf8Length(prompt);
+        std::cout << "\x1b[" << kInputRow << ";" << (cursorOffset + 1) << "H";
+    }
+
+    void writeAt(int row, int col, const std::string& text) {
+        std::cout << "\x1b[" << row << ";" << col << "H\x1b[2K" << text;
+    }
+};
+
+void logLine(const std::string& message) {
+    ConsoleUi::instance().logLine(message);
+}
+
+void logBlock(const std::string& message) {
+    ConsoleUi::instance().logBlock(message);
+}
 } // namespace
 
 // ConsoleDisplay implementation
@@ -84,6 +243,7 @@ ConsoleDisplay::~ConsoleDisplay() {
 
 bool ConsoleDisplay::initialize() {
     isConnected_ = true;
+    ConsoleUi::instance().initialize();
     clear();
     LOG_PERIPH_DEBUG("Console display initialized");
     return true;
@@ -91,6 +251,7 @@ bool ConsoleDisplay::initialize() {
 
 void ConsoleDisplay::shutdown() {
     isConnected_ = false;
+    ConsoleUi::instance().shutdown();
     LOG_PERIPH_DEBUG("Console display shutdown");
 }
 
@@ -117,32 +278,33 @@ void ConsoleDisplay::setBacklight(bool enabled) {
 void ConsoleDisplay::printDisplay() const {
     const size_t displayWidth = 40;
 
-    std::cout << "\n";
-    printBorder(false);
-    std::cout << "│" << padLine(currentMessage_.line1, displayWidth) << "│\n";
-    std::cout << "│" << padLine(currentMessage_.line2, displayWidth) << "│\n";
-    std::cout << "│" << padLine(currentMessage_.line3, displayWidth) << "│\n";
-    std::cout << "│" << padLine(currentMessage_.line4, displayWidth) << "│\n";
-    printBorder(true);
-    std::cout << std::flush;
+    std::array<std::string, 6> lines = {
+        buildBorder(false),
+        fmt::format("│{}│", padLine(currentMessage_.line1, displayWidth)),
+        fmt::format("│{}│", padLine(currentMessage_.line2, displayWidth)),
+        fmt::format("│{}│", padLine(currentMessage_.line3, displayWidth)),
+        fmt::format("│{}│", padLine(currentMessage_.line4, displayWidth)),
+        buildBorder(true)
+    };
+    ConsoleUi::instance().renderDisplay(lines);
 }
 
-void ConsoleDisplay::printBorder(bool bottom [[maybe_unused]] ) const {
+std::string ConsoleDisplay::buildBorder(bool bottom [[maybe_unused]] ) const {
     const size_t displayWidth = 40;
 #ifdef _WIN32
     // Use Unicode box drawing characters now that console is UTF-8 enabled
-    if (!bottom) {
-        std::cout << "┌";
-        for (size_t i = 0; i < displayWidth; ++i) std::cout << "─";
-        std::cout << "┐\n";
-    } else {
-        std::cout << "└";
-        for (size_t i = 0; i < displayWidth; ++i) std::cout << "─";
-        std::cout << "┘\n";
+    std::string line;
+    line.reserve(displayWidth * 3);
+    for (size_t i = 0; i < displayWidth; ++i) {
+        line += "─";
     }
+    if (!bottom) {
+        return fmt::format("┌{}┐", line);
+    }
+    return fmt::format("└{}┘", line);
 #else
     // Use ASCII borders on non-Windows platforms
-    std::cout << "+" << std::string(displayWidth, '-') << "+\n";
+    return fmt::format("+{}+", std::string(displayWidth, '-'));
 #endif
 }
 
@@ -226,16 +388,18 @@ KeyCode ConsoleKeyboard::charToKeyCode(char c) const {
 }
 
 void ConsoleKeyboard::printKeyboardHelp() const {
-    std::cout << "\n=== KEYBOARD MAPPINGS ===\n";
-    std::cout << "0-9: Number keys\n";
-    std::cout << "*  : Max (maximum volume)\n";
-    std::cout << "#  : Clear (delete last digit)\n";
-    std::cout << "A  : Start/Enter (confirm input)\n";
-    std::cout << "B  : Stop/Cancel (cancel operation)\n";
-    std::cout << "\n=== IMPORTANT ===\n";
-    std::cout << "In KEY mode: You must press 'A' (not Enter)\n";
-    std::cout << "Press Tab to switch between command/key modes\n";
-    std::cout << "=========================\n\n";
+    logBlock(
+        "=== KEYBOARD MAPPINGS ===\n"
+        "0-9: Number keys\n"
+        "*  : Max (maximum volume)\n"
+        "#  : Clear (delete last digit)\n"
+        "A  : Start/Enter (confirm input)\n"
+        "B  : Stop/Cancel (cancel operation)\n"
+        "\n=== IMPORTANT ===\n"
+        "In KEY mode: You must press 'A' (not Enter)\n"
+        "Press Tab to switch between command/key modes\n"
+        "========================="
+    );
 }
 
 // ConsoleCardReader implementation
@@ -273,11 +437,11 @@ void ConsoleCardReader::enableReading(bool enabled) {
 
 void ConsoleCardReader::simulateCardPresented(const UserId& userId) {
     if (!readingEnabled_) {
-        std::cout << "[CardReader] Reading disabled, ignoring card: " << userId << std::endl;
+        logLine(fmt::format("[CardReader] Reading disabled, ignoring card: {}", userId));
         return;
     }
 
-    std::cout << "[CardReader] Card presented: " << userId << std::endl;
+    logLine(fmt::format("[CardReader] Card presented: {}", userId));
     std::lock_guard<std::mutex> lock(callbackMutex_);
     if (cardPresentedCallback_) {
         cardPresentedCallback_(userId);
@@ -315,7 +479,7 @@ void ConsolePump::start() {
 
     bool wasRunning = isRunning_.exchange(true);
     if (!wasRunning) {
-        std::cout << "[Pump] Started" << std::endl;
+        logLine("[Pump] Started");
         notifyStateChange();
     }
 }
@@ -323,7 +487,7 @@ void ConsolePump::start() {
 void ConsolePump::stop() {
     bool wasRunning = isRunning_.exchange(false);
     if (wasRunning) {
-        std::cout << "[Pump] Stopped" << std::endl;
+        logLine("[Pump] Stopped");
         notifyStateChange();
     }
 }
@@ -383,7 +547,7 @@ void ConsoleFlowMeter::startMeasurement() {
     // Use atomic compare_exchange to ensure only one thread prints the message
     bool expected = false;
     if (isMeasuring_.compare_exchange_strong(expected, true)) {
-        std::cout << "[FlowMeter] Started measurement at " << flowRate_ << " L/s" << std::endl;
+        logLine(fmt::format("[FlowMeter] Started measurement at {:.2f} L/s", flowRate_));
     }
 }
 
@@ -404,7 +568,7 @@ void ConsoleFlowMeter::stopMeasurement() {
         }
 
         shouldStop_ = false;
-        std::cout << "[FlowMeter] Stopped measurement" << std::endl;
+        logLine("[FlowMeter] Stopped measurement");
     }
 }
 
@@ -413,7 +577,7 @@ void ConsoleFlowMeter::resetCounter() {
         std::lock_guard<std::mutex> lock(volumeMutex_);
         currentVolume_ = 0.0;
     }
-    std::cout << "[FlowMeter] Counter reset" << std::endl;
+    logLine("[FlowMeter] Counter reset");
     notifyFlowUpdate();
 }
 
@@ -448,24 +612,23 @@ void ConsoleFlowMeter::simulateFlow(Volume targetVolume) {
     // Create and start the simulation thread
     simulationThread_ = std::thread(&ConsoleFlowMeter::simulationThreadFunction, this, targetVolume);
 
-    std::cout << "[FlowMeter] Simulation thread started for target: " << std::fixed 
-              << std::setprecision(2) << targetVolume << " L" << std::endl;
+    logLine(fmt::format("[FlowMeter] Simulation thread started for target: {:.2f} L", targetVolume));
 }
 
 void ConsoleFlowMeter::simulationThreadFunction(Volume targetVolume) {
     const auto updateInterval = std::chrono::milliseconds(100);
     const Volume volumePerUpdate = flowRate_ * 0.1; // 100ms updates = 0.1 seconds
 
-    std::cout << "[FlowMeter] Simulation thread running - Target: " << std::fixed << std::setprecision(2) 
-              << targetVolume << " L at " << flowRate_ << " L/s" << std::endl;
-    std::cout << "[FlowMeter] Volume per update: " << volumePerUpdate << " L" << std::endl;
+    logLine(fmt::format("[FlowMeter] Simulation thread running - Target: {:.2f} L at {:.2f} L/s",
+                        targetVolume, flowRate_));
+    logLine(fmt::format("[FlowMeter] Volume per update: {:.2f} L", volumePerUpdate));
 
     int updateCount = 0;
 
     while (!shouldStop_) {
         // Check if measurement is still active
         if (!isMeasuring_) {
-            std::cout << "[FlowMeter] Measurement stopped, exiting simulation thread" << std::endl;
+            logLine("[FlowMeter] Measurement stopped, exiting simulation thread");
             break;
         }
 
@@ -477,8 +640,8 @@ void ConsoleFlowMeter::simulationThreadFunction(Volume targetVolume) {
 
         // Check if we've reached the target
         if (currentVol >= targetVolume) {
-            std::cout << "[FlowMeter] Target volume reached: " << std::fixed << std::setprecision(2) 
-                      << currentVol << " L after " << updateCount << " updates" << std::endl;
+            logLine(fmt::format("[FlowMeter] Target volume reached: {:.2f} L after {} updates",
+                                currentVol, updateCount));
             break;
         }
 
@@ -487,8 +650,8 @@ void ConsoleFlowMeter::simulationThreadFunction(Volume targetVolume) {
 
         // Check flags again after sleep
         if (!isMeasuring_ || shouldStop_) {
-            std::cout << "[FlowMeter] Stopping: isMeasuring=" << isMeasuring_.load() 
-                      << ", shouldStop=" << shouldStop_ << std::endl;
+            logLine(fmt::format("[FlowMeter] Stopping: isMeasuring={}, shouldStop={}",
+                                isMeasuring_.load(), shouldStop_.load()));
             break;
         }
 
@@ -507,11 +670,11 @@ void ConsoleFlowMeter::simulationThreadFunction(Volume targetVolume) {
         updateCount++;
         
         // Print progress every update
-        std::cout << "[FlowMeter] Volume: " << std::fixed << std::setprecision(2) 
-                  << newVolume << " L / " << targetVolume << " L (" << updateCount << ")" << std::endl;
+        logLine(fmt::format("[FlowMeter] Volume: {:.2f} L / {:.2f} L ({})",
+                            newVolume, targetVolume, updateCount));
     }
 
-    std::cout << "[FlowMeter] Simulation thread exiting" << std::endl;
+    logLine("[FlowMeter] Simulation thread exiting");
 }
 
 void ConsoleFlowMeter::notifyFlowUpdate() {
@@ -579,27 +742,34 @@ bool ConsoleEmulator::processKeyboardInput(char c, SystemState state) {
             if (cmd == "quit" || cmd == "exit") {
                 processCommand(cmd);
                 commandBuffer_.clear();
-                std::cout << std::flush;
+                ConsoleUi::instance().setInputBuffer(commandBuffer_);
                 return true;
-            } else if (cmd.rfind("card", 0) == 0) {
+            } else if (!cmd.empty()) {
                 processCommand(cmd);
-            } else if (cmd == "help") {
-                printHelp();
-            } else {
-                if (!cmd.empty()) std::cout << "Unknown command: " << cmd << std::endl;
             }
             commandBuffer_.clear();
-            std::cout << std::flush;
+            ConsoleUi::instance().setInputBuffer(commandBuffer_);
             return false;
         } else if (c == 127 || c == 8) {
             if (!commandBuffer_.empty()) {
-                commandBuffer_.pop_back();
-                std::cout << "\b \b" << std::flush;
+                // Remove the last full UTF-8 code point, not just the last byte
+                std::size_t i = commandBuffer_.size();
+                // Move back over any UTF-8 continuation bytes (10xxxxxx)
+                while (i > 0) {
+                    --i;
+                    unsigned char byte = static_cast<unsigned char>(commandBuffer_[i]);
+                    if ((byte & 0xC0) != 0x80) {
+                        // Found the leading byte of the last UTF-8 character
+                        break;
+                    }
+                }
+                commandBuffer_.erase(i);
             }
+            ConsoleUi::instance().setInputBuffer(commandBuffer_);
             return false;
         } else {
             commandBuffer_.push_back(c);
-            std::cout << c << std::flush;
+            ConsoleUi::instance().setInputBuffer(commandBuffer_);
             return false;
         }
     } else {
@@ -610,33 +780,35 @@ bool ConsoleEmulator::processKeyboardInput(char c, SystemState state) {
 }
 
 void ConsoleEmulator::printWelcome() const {
-    std::cout << "\n";
-    std::cout << "╔══════════════════════════════════════════════════════════════╗\n";
-    std::cout << "║                    FUEL FLUX CONTROLLER                      ║\n";
-    std::cout << "║                    Console Emulator                          ║\n";
-    std::cout << "╚══════════════════════════════════════════════════════════════╝\n";
-    std::cout << "\n";
+    logBlock(
+        "╔══════════════════════════════════════════════════════════════╗\n"
+        "║                    FUEL FLUX CONTROLLER                      ║\n"
+        "║                    Console Emulator                          ║\n"
+        "╚══════════════════════════════════════════════════════════════╝\n"
+        ""
+    );
     printHelp();
 }
 
 void ConsoleEmulator::printHelp() const {
-    std::cout << "=== CONSOLE COMMANDS ===\n";
+    std::string help = "=== CONSOLE COMMANDS ===\n";
 #ifndef TARGET_REAL_CARD_READER
-    std::cout << "card <user_id>  : Simulate card presentation\n";
+    help += "card <user_id>  : Simulate card presentation\n";
 #endif
-    std::cout << "flow <volume>   : Manually simulate fuel flow (for testing)\n";
-    std::cout << "keymode         : Switch to key input mode\n";
-    std::cout << "help            : Show this help\n";
-    std::cout << "quit/exit       : Exit application\n";
-    std::cout << "\n=== MODE SWITCHING ===\n";
-    std::cout << "Tab             : Switch between command/key modes\n";
-    std::cout << "  Command mode  : Type full commands, press Enter\n";
-    std::cout << "  Key mode      : Press individual keys (A, B, 0-9, *, #)\n";
-    std::cout << "\n=== AUTOMATIC FLOW ===\n";
-    std::cout << "When refueling starts, flow automatically runs at 5 L/s\n";
-    std::cout << "until target volume is reached or Cancel (B) is pressed.\n";
-    std::cout << "The 'flow' command is for manual testing only.\n";
-    std::cout << "========================\n\n";
+    help += "flow <volume>   : Manually simulate fuel flow (for testing)\n";
+    help += "keymode         : Switch to key input mode\n";
+    help += "help            : Show this help\n";
+    help += "quit/exit       : Exit application\n";
+    help += "\n=== MODE SWITCHING ===\n";
+    help += "Tab             : Switch between command/key modes\n";
+    help += "  Command mode  : Type full commands, press Enter\n";
+    help += "  Key mode      : Press individual keys (A, B, 0-9, *, #)\n";
+    help += "\n=== AUTOMATIC FLOW ===\n";
+    help += "When refueling starts, flow automatically runs at 5 L/s\n";
+    help += "until target volume is reached or Cancel (B) is pressed.\n";
+    help += "The 'flow' command is for manual testing only.\n";
+    help += "========================\n";
+    logBlock(help);
 }
 
 void ConsoleEmulator::processCommand(const std::string& command) {
@@ -644,14 +816,17 @@ void ConsoleEmulator::processCommand(const std::string& command) {
     std::string cmd;
     iss >> cmd;
 
+    if (cmd == "key" || cmd == "keymode") {
+        requestKeyModeSwitch_.store(true);
+        return;
+    }
     if (cmd == "card") {
         std::string userId;
         iss >> userId;
         if (!userId.empty()) {
             simulateCard(userId);
         } else {
-            std::cout << "Usage: card <user_id>\n";
-            std::cout << "Example: card 2222-2222-2222-2222\n";
+            logBlock("Usage: card <user_id>\nExample: card 2222-2222-2222-2222");
         }
     } else if (cmd == "flow") {
         std::string volumeStr;
@@ -661,27 +836,29 @@ void ConsoleEmulator::processCommand(const std::string& command) {
                 Volume volume = std::stod(volumeStr);
                 if (volume > 0.0) {
                     if (flowMeter_) {
-                        std::cout << "[Command] Manually triggering flow simulation for " 
-                                  << volume << " L\n";
+                        logLine(fmt::format("[Command] Manually triggering flow simulation for {:.2f} L",
+                                            volume));
                         flowMeter_->simulateFlow(volume);
                     } else {
-                        std::cout << "Flow meter not available\n";
+                        logLine("Flow meter not available");
                     }
                 } else {
-                    std::cout << "Volume must be positive\n";
+                    logLine("Volume must be positive");
                 }
             } catch (const std::exception& e) {
-                std::cout << "Invalid volume: " << volumeStr << " (" << e.what() << ")\n";
+                logLine(fmt::format("Invalid volume: {} ({})", volumeStr, e.what()));
             }
         } else {
-            std::cout << "Usage: flow <volume>\n";
-            std::cout << "Example: flow 30\n";
-            std::cout << "Note: During normal operation, flow starts automatically when refueling begins.\n";
+            logBlock(
+                "Usage: flow <volume>\n"
+                "Example: flow 30\n"
+                "Note: During normal operation, flow starts automatically when refueling begins."
+            );
         }
     } else if (cmd == "help") {
         printHelp();
     } else if (!cmd.empty()) {
-        std::cout << "Unknown command: " << cmd << "\n";
+        logLine(fmt::format("Unknown command: {}", cmd));
         printAvailableCommands();
     }
 }
@@ -690,17 +867,39 @@ void ConsoleEmulator::simulateCard(const UserId& userId) {
     if (cardReader_) {
         cardReader_->simulateCardPresented(userId);
     } else {
-        std::cout << "Card reader not available\n";
+        logLine("Card reader not available");
     }
 }
 
 void ConsoleEmulator::printAvailableCommands() const {
 #ifndef TARGET_REAL_CARD_READER
-    std::cout << "Available commands: card, flow, keymode, help, quit\n";
+    logLine("Available commands: card, flow, keymode, help, quit");
 #else
-    std::cout << "Available commands: flow, keymode, help, quit\n";
+    logLine("Available commands: flow, keymode, help, quit");
 #endif
-    std::cout << "Type 'help' for detailed information\n";
+    logLine("Type 'help' for detailed information");
+}
+
+void ConsoleEmulator::setInputMode(bool commandMode) {
+    std::lock_guard<std::mutex> lock(commandMutex_);
+    ConsoleUi::instance().setInputMode(commandMode);
+    if (commandMode) {
+        ConsoleUi::instance().setInputBuffer(commandBuffer_);
+    } else {
+        commandBuffer_.clear();
+    }
+}
+
+void ConsoleEmulator::logLine(const std::string& message) const {
+    ConsoleUi::instance().logLine(message);
+}
+
+void ConsoleEmulator::logBlock(const std::string& message) const {
+    ConsoleUi::instance().logBlock(message);
+}
+
+bool ConsoleEmulator::consumeModeSwitchRequest() {
+    return requestKeyModeSwitch_.exchange(false);
 }
 
 } // namespace fuelflux

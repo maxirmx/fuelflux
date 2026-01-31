@@ -25,12 +25,14 @@ if(MSVC)
     option(TARGET_REAL_CARD_READER "Use real card reader hardware" OFF)
     option(TARGET_REAL_PUMP "Use real pump hardware" OFF)
     option(TARGET_REAL_FLOW_METER "Use real flow meter hardware" OFF)
+    option(ENABLE_TESTING "Enable testing" ON)
 else()
     option(TARGET_REAL_DISPLAY "Use real NHD display hardware" OFF)   # OFF for now
     option(TARGET_REAL_KEYBOARD "Use real keyboard hardware" OFF)
     option(TARGET_REAL_CARD_READER "Use real card reader hardware" ON)
     option(TARGET_REAL_PUMP "Use real pump hardware" OFF)
     option(TARGET_REAL_FLOW_METER "Use real flow meter hardware" OFF)
+    option(ENABLE_TESTING "Enable testing" OFF)
 endif()
 
 if(TARGET_REAL_DISPLAY)
@@ -235,7 +237,7 @@ add_custom_command(TARGET fuelflux POST_BUILD
 )
 
 # Testing
-if(MSVC)
+if(ENABLE_TESTING)
 
     # Fetch Google Test (MSVC only)
     FetchContent_Declare(
@@ -348,4 +350,4 @@ if(MSVC)
     include(GoogleTest)
     gtest_discover_tests(fuelflux_tests)
 
-endif(MSVC)
+endif(ENABLE_TESTING)

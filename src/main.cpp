@@ -12,10 +12,9 @@
 #include <thread>
 #include <atomic>
 #include <cstdlib>
+#include <cerrno>
 #include <signal.h>
 #include <chrono>
-#include <cctype>
-#include <sstream>
 #ifdef _WIN32
 #include <windows.h>
 #include <conio.h>
@@ -36,16 +35,8 @@ void signalHandler(int signal) {
     g_running = false;
 }
 
-// Helper: trim leading/trailing spaces
-static std::string trim(const std::string& s) {
-    size_t a = s.find_first_not_of(" \t\r\n");
-    if (a == std::string::npos) return "";
-    size_t b = s.find_last_not_of(" \t\r\n");
-    return s.substr(a, b - a + 1);
-}
-
 // Dispatcher: Explicit mode switching with Tab key
-void inputDispatcher(ConsoleEmulator& emulator) {
+static void inputDispatcher(ConsoleEmulator& emulator) {
 #ifndef _WIN32
     struct termios origTerm{};
     bool haveTerm = (tcgetattr(STDIN_FILENO, &origTerm) == 0);
@@ -71,33 +62,27 @@ void inputDispatcher(ConsoleEmulator& emulator) {
     };
 
     InputMode currentMode = InputMode::Command;
-    
-    auto printPrompt = [&]() {
-        if (currentMode == InputMode::Command) {
-            std::cout << "\n[CMD] fuelflux> " << std::flush;
-        } else {
-            std::cout << "\n[KEY MODE] Press Tab to return to command mode\n" << std::flush;
-        }
-    };
 
     auto switchMode = [&](InputMode newMode) {
         if (newMode != currentMode) {
             currentMode = newMode;
-            std::cout << "\n";
             if (currentMode == InputMode::Command) {
-                std::cout << "=== Switched to COMMAND mode ===\n";
+                emulator.logLine("=== Switched to COMMAND mode ===");
 #ifndef _WIN32
                 setRawMode(false);
 #endif
+                emulator.setInputMode(true);
             } else {
-                std::cout << "=== Switched to KEY mode ===\n";
-                std::cout << "Press individual keys (0-9, A, B, *, #)\n";
-                std::cout << "Press Tab to return to command mode\n";
+                emulator.logBlock(
+                    "=== Switched to KEY mode ===\n"
+                    "Press individual keys (0-9, A, B, *, #)\n"
+                    "Press Tab to return to command mode"
+                );
 #ifndef _WIN32
                 setRawMode(true);
 #endif
+                emulator.setInputMode(false);
             }
-            printPrompt();
         }
     };
 
@@ -105,104 +90,92 @@ void inputDispatcher(ConsoleEmulator& emulator) {
     switchMode(InputMode::Command);
 
     while (g_running) {
-        if (currentMode == InputMode::Command) {
-            // Command mode: accept commands with Enter to execute
 #ifndef _WIN32
-            setRawMode(false); // ensure canonical mode
-#endif
-            std::string line;
-            if (!std::getline(std::cin, line)) {
-                // EOF or error
-                g_running = false;
-                break;
-            }
-            line = trim(line);
-            
-            // Check for Tab key (though unlikely in line mode)
-            if (!line.empty() && line[0] == '\t') {
-                switchMode(InputMode::Key);
-                continue;
-            }
-            
-            if (line.empty()) {
-                printPrompt();
-                continue;
-            }
-            
-            // Check only for mode switch command here, everything else goes to emulator
-            if (line == "key" || line == "keymode") {
-                switchMode(InputMode::Key);
-                continue;
-            }
-            else if (line == "quit" || line == "exit") {
-                g_running = false;
-                break;
-            }
-            
-            // Let ConsoleEmulator handle ALL other commands including quit/exit
-            emulator.processCommand(line);
-           
-            
-            printPrompt();
-            
-        } else {
-            // Key mode: raw character input, NO Enter mapping
-#ifndef _WIN32
-            setRawMode(true);
-            fd_set readfds;
-            FD_ZERO(&readfds);
-            FD_SET(STDIN_FILENO, &readfds);
-            struct timeval tv;
-            tv.tv_sec = 0;
-            tv.tv_usec = 100000; // 100ms
-            int ret = select(STDIN_FILENO + 1, &readfds, nullptr, nullptr, &tv);
-            if (ret > 0 && FD_ISSET(STDIN_FILENO, &readfds)) {
-                char c = 0;
-                ssize_t r = read(STDIN_FILENO, &c, 1);
-                if (r > 0) {
-                    // Tab key switches to command mode
-                    if (c == '\t') {
-                        switchMode(InputMode::Command);
-                        continue;
-                    }
-                    // NO mapping of Enter to 'A' - user must press 'A' explicitly
-                    // Ignore Enter/Return in key mode
-                    if (c == '\r' || c == '\n') {
-                        std::cout << "\n[Key mode: Press 'A' to confirm, not Enter]\n" << std::flush;
-                        continue;
-                    }
-                    // Forward raw key directly to keyboard
-                    emulator.dispatchKey(c);
+        fd_set readfds;
+        FD_ZERO(&readfds);
+        FD_SET(STDIN_FILENO, &readfds);
+        struct timeval tv;
+        tv.tv_sec = 0;
+        tv.tv_usec = 100000; // 100ms
+        int ret = select(STDIN_FILENO + 1, &readfds, nullptr, nullptr, &tv);
+        if (ret > 0 && FD_ISSET(STDIN_FILENO, &readfds)) {
+            char c = 0;
+            ssize_t r = read(STDIN_FILENO, &c, 1);
+            if (r > 0) {
+                // Tab key switches to command mode
+                if (c == '\t') {
+                    switchMode(InputMode::Command);
+                    continue;
                 }
-            }
-#else
-            if (_kbhit()) {
-                int ch = _getch();
-                if (ch == 0 || ch == 224) {
-                    // extended key: ignore second code
-                    (void)_getch();
+                if (currentMode == InputMode::Command) {
+                    bool shouldQuit = emulator.processKeyboardInput(c, SystemState::Waiting);
+                    if (shouldQuit) {
+                        g_running = false;
+                        break;
+                    }
+                    if (emulator.consumeModeSwitchRequest()) {
+                        switchMode(InputMode::Key);
+                    }
                 } else {
-                    char c = static_cast<char>(ch);
-                    // Tab key (ASCII 9) switches to command mode
-                    if (c == '\t') {
-                        switchMode(InputMode::Command);
-                        continue;
-                    }
                     // NO mapping of Enter to 'A' - user must press 'A' explicitly
                     // Ignore Enter/Return in key mode
                     if (c == '\r' || c == '\n') {
-                        std::cout << "\n[Key mode: Press 'A' to confirm, not Enter]\n" << std::flush;
+                        emulator.logLine("[Key mode: Press 'A' to confirm, not Enter]");
+                        continue;
+                    }
+                    // Forward raw key directly to keyboard
+                    emulator.dispatchKey(c);
+                }
+            } else if (r == 0) {
+                // EOF on stdin - graceful shutdown
+                LOG_INFO("EOF on stdin, shutting down...");
+                g_running = false;
+                break;
+            } else {
+                // Read error - log and shutdown
+                int err = errno;  // Save errno before any other calls
+                LOG_ERROR("Error reading from stdin (errno: {}), shutting down...", err);
+                g_running = false;
+                break;
+            }
+        }
+#else
+        if (_kbhit()) {
+            int ch = _getch();
+            if (ch == 0 || ch == 224) {
+                // extended key: ignore second code
+                (void)_getch();
+            } else {
+                char c = static_cast<char>(ch);
+                // Tab key (ASCII 9) switches to command mode
+                if (c == '\t') {
+                    switchMode(InputMode::Command);
+                    continue;
+                }
+                if (currentMode == InputMode::Command) {
+                    bool shouldQuit = emulator.processKeyboardInput(c, SystemState::Waiting);
+                    if (shouldQuit) {
+                        g_running = false;
+                        break;
+                    }
+                    if (emulator.consumeModeSwitchRequest()) {
+                        switchMode(InputMode::Key);
+                    }
+                } else {
+                    // NO mapping of Enter to 'A' - user must press 'A' explicitly
+                    // Ignore Enter/Return in key mode
+                    if (c == '\r' || c == '\n') {
+                        emulator.logLine("[Key mode: Press 'A' to confirm, not Enter]");
                         continue;
                     }
                     // Forward raw key directly to keyboard
                     emulator.dispatchKey(c);
                 }
             }
-            std::this_thread::sleep_for(std::chrono::milliseconds(50));
-#endif
-            // small sleep to avoid busy loop
-            std::this_thread::sleep_for(std::chrono::milliseconds(10));
         }
+#endif
+        // small sleep to avoid busy loop
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
 
 #ifndef _WIN32
@@ -309,7 +282,7 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
         }
         
         LOG_INFO("Controller initialized successfully");
-        std::cout << "[Main] Type 'help' for available commands" << std::endl;
+        emulator.logLine("[Main] Type 'help' for available commands");
         
         // Start input dispatcher thread (handles both command and key modes)
         std::thread inputThread(inputDispatcher, std::ref(emulator));
