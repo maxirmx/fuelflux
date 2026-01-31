@@ -28,7 +28,7 @@ BacklogStorage::BacklogStorage(const std::string& path) : db_(nullptr) {
     }
     if (!Execute(kCreateTableSql)) {
         LOG_BCK_ERROR("Failed to create backlog table in database: {}", path);
-        sqlite3_close(db_);
+        sqlite3_close_v2(db_);
         db_ = nullptr;
         return;
     }
