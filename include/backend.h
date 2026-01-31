@@ -119,10 +119,10 @@ private:
     double price_;
     std::vector<BackendTankInfo> fuelTanks_;
     
-    // Last error message
-    std::string lastError_;
-    bool lastErrorIsNetwork_ = false;
-    std::string lastRequestPayload_;
+    // Last error message and last request payload are stored per-thread
+    static thread_local std::string lastError_;
+    static thread_local bool lastErrorIsNetwork_;
+    static thread_local std::string lastRequestPayload_;
 
     static std::mutex sendMutex_;
 };
