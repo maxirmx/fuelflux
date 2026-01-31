@@ -209,7 +209,9 @@ private:
 
     void moveCursorToInputLocked() {
         std::string prompt = commandMode_ ? "CMD> " : "KEY MODE (Tab to command)";
-        const size_t cursorOffset = commandMode_ ? prompt.size() + inputBuffer_.size() : prompt.size();
+        const size_t cursorOffset = commandMode_
+            ? utf8Length(prompt) + utf8Length(inputBuffer_)
+            : utf8Length(prompt);
         std::cout << "\x1b[" << kInputRow << ";" << (cursorOffset + 1) << "H";
     }
 
