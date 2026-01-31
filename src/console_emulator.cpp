@@ -670,8 +670,8 @@ void ConsoleFlowMeter::simulationThreadFunction(Volume targetVolume) {
         updateCount++;
         
         // Print progress every update
-        logLine(fmt::format("[FlowMeter] Volume: {:.2f} L / {:.2f} L ({})",
-                            newVolume, targetVolume, updateCount));
+        // logLine(fmt::format("[FlowMeter] Volume: {:.2f} L / {:.2f} L ({})",
+        //                    newVolume, targetVolume, updateCount));
     }
 
     logLine("[FlowMeter] Simulation thread exiting");
@@ -739,7 +739,7 @@ bool ConsoleEmulator::processKeyboardInput(char c, SystemState state) {
         if (c == '\r' || c == '\n') {
             std::string cmd = commandBuffer_;
             // handle command
-            if (cmd == "quit" || cmd == "exit") {
+            if (cmd == "exit") {
                 processCommand(cmd);
                 commandBuffer_.clear();
                 ConsoleUi::instance().setInputBuffer(commandBuffer_);
@@ -795,10 +795,9 @@ void ConsoleEmulator::printHelp() const {
 #ifndef TARGET_REAL_CARD_READER
     help += "card <user_id>  : Simulate card presentation\n";
 #endif
-    help += "flow <volume>   : Manually simulate fuel flow (for testing)\n";
     help += "keymode         : Switch to key input mode\n";
     help += "help            : Show this help\n";
-    help += "quit/exit       : Exit application\n";
+    help += "exit       : Exit application\n";
     help += "\n=== MODE SWITCHING ===\n";
     help += "Tab             : Switch between command/key modes\n";
     help += "  Command mode  : Type full commands, press Enter\n";
@@ -828,33 +827,6 @@ void ConsoleEmulator::processCommand(const std::string& command) {
         } else {
             logBlock("Usage: card <user_id>\nExample: card 2222-2222-2222-2222");
         }
-    } else if (cmd == "flow") {
-        std::string volumeStr;
-        iss >> volumeStr;
-        if (!volumeStr.empty()) {
-            try {
-                Volume volume = std::stod(volumeStr);
-                if (volume > 0.0) {
-                    if (flowMeter_) {
-                        logLine(fmt::format("[Command] Manually triggering flow simulation for {:.2f} L",
-                                            volume));
-                        flowMeter_->simulateFlow(volume);
-                    } else {
-                        logLine("Flow meter not available");
-                    }
-                } else {
-                    logLine("Volume must be positive");
-                }
-            } catch (const std::exception& e) {
-                logLine(fmt::format("Invalid volume: {} ({})", volumeStr, e.what()));
-            }
-        } else {
-            logBlock(
-                "Usage: flow <volume>\n"
-                "Example: flow 30\n"
-                "Note: During normal operation, flow starts automatically when refueling begins."
-            );
-        }
     } else if (cmd == "help") {
         printHelp();
     } else if (!cmd.empty()) {
@@ -873,9 +845,9 @@ void ConsoleEmulator::simulateCard(const UserId& userId) {
 
 void ConsoleEmulator::printAvailableCommands() const {
 #ifndef TARGET_REAL_CARD_READER
-    logLine("Available commands: card, flow, keymode, help, quit");
+    logLine("Available commands: card, flow, keymode, help, exit");
 #else
-    logLine("Available commands: flow, keymode, help, quit");
+    logLine("Available commands: flow, keymode, help, exit");
 #endif
     logLine("Type 'help' for detailed information");
 }

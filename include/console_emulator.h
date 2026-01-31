@@ -182,7 +182,7 @@ public:
 
     // Process a character according to current system state: in Waiting state
     // collect command input (card/help/quit), in other states forward as key
-    // Returns true if a quit/exit command was issued
+    // Returns true if a exit command was issued
     bool processKeyboardInput(char c, SystemState state);
     void setInputMode(bool commandMode);
     void logLine(const std::string& message) const;
