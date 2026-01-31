@@ -23,9 +23,7 @@ constexpr const char* kCreateTableSql =
 BacklogStorage::BacklogStorage(const std::string& path) : db_(nullptr) {
     if (sqlite3_open(path.c_str(), &db_) != SQLITE_OK) {
         LOG_BCK_ERROR("Failed to open backlog database: {}", path);
-        if (db_) {
-            sqlite3_close_v2(db_);
-        }
+        sqlite3_close_v2(db_);
         db_ = nullptr;
         return;
     }
