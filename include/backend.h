@@ -75,8 +75,36 @@ public:
     // Returns: true on success, false on failure
     bool Intake(TankNumber tankNumber, Volume volume, IntakeDirection direction) override;
 
+    // RefuelFromPayload method
+    // Purpose:
+    //   Replays a previously saved refuel transaction using a raw JSON payload,
+    //   for example when processing a backlog of offline transactions.
+    // Parameters:
+    //   payload - JSON string describing the refuel transaction. The payload is
+    //             expected to contain at least the tank identifier, volume and
+    //             original timestamp, and may include additional metadata
+    //             (such as transaction id or operator information) as provided
+    //             by the backend.
+    // Returns:
+    //   true on success, false on failure. Compared to Refuel(), this method
+    //   may skip some client-side validations and preserves the timestamp and
+    //   identifiers embedded in the payload instead of generating new ones.
     bool RefuelFromPayload(const std::string& payload) override;
 
+    // IntakeFromPayload method
+    // Purpose:
+    //   Replays a previously saved fuel intake transaction from a raw JSON
+    //   payload, typically used when applying a backlog of intake operations.
+    // Parameters:
+    //   payload - JSON string describing the intake transaction. The payload is
+    //             expected to contain at least the tank identifier, volume,
+    //             intake direction and original timestamp, and may include
+    //             additional metadata defined by the backend.
+    // Returns:
+    //   true on success, false on failure. In contrast to Intake(), this
+    //   method assumes that the payload has already been validated by the
+    //   backend and preserves the original timestamps and identifiers from
+    //   the payload.
     bool IntakeFromPayload(const std::string& payload) override;
 
     // Getters for authorized state
