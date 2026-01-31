@@ -5,6 +5,7 @@
 #include <gtest/gtest.h>
 #include <gmock/gmock.h>
 #include "backend.h"
+#include "config.h"
 #include "controller.h"
 #include "peripherals/display.h"
 #include "peripherals/keyboard.h"
@@ -41,6 +42,7 @@ public:
     int roleId_ = static_cast<int>(UserRole::Unknown);
     double allowance_ = 0.0;
     double price_ = 0.0;
+    bool authorized_ = false;
 };
 
 // Mock Display
@@ -186,7 +188,7 @@ protected:
     void SetUp() override {
         auto backend = std::make_unique<NiceMock<MockBackend>>();
         mockBackend = backend.get();
-        controller = std::make_unique<Controller>("test-controller-001", std::move(backend));
+        controller = std::make_unique<Controller>(CONTROLLER_UID, std::move(backend));
         
         // Create mocks (use raw pointers as Controller takes ownership)
         auto display = std::make_unique<NiceMock<MockDisplay>>();
@@ -208,11 +210,17 @@ protected:
         ON_CALL(*mockCardReader, initialize()).WillByDefault(Return(true));
         ON_CALL(*mockPump, initialize()).WillByDefault(Return(true));
         ON_CALL(*mockFlowMeter, initialize()).WillByDefault(Return(true));
-        ON_CALL(*mockBackend, Authorize(_)).WillByDefault(Return(false));
-        ON_CALL(*mockBackend, Deauthorize()).WillByDefault(Return(true));
+        ON_CALL(*mockBackend, Authorize(_)).WillByDefault([&]() {
+            mockBackend->authorized_ = true;
+            return true;
+            });
         ON_CALL(*mockBackend, Refuel(_, _)).WillByDefault(Return(true));
         ON_CALL(*mockBackend, Intake(_, _, _)).WillByDefault(Return(true));
-        ON_CALL(*mockBackend, IsAuthorized()).WillByDefault(Return(false));
+        ON_CALL(*mockBackend, IsAuthorized()).WillByDefault(ReturnPointee(&mockBackend->authorized_));
+        ON_CALL(*mockBackend, Deauthorize()).WillByDefault([&]() {
+            mockBackend->authorized_ = false;
+            return true;
+        });
         ON_CALL(*mockBackend, GetToken()).WillByDefault(ReturnRef(mockBackend->tokenStorage_));
         ON_CALL(*mockBackend, GetRoleId()).WillByDefault(ReturnPointee(&mockBackend->roleId_));
         ON_CALL(*mockBackend, GetAllowance()).WillByDefault(ReturnPointee(&mockBackend->allowance_));
@@ -398,6 +406,76 @@ TEST_F(ControllerTest, EndCurrentSession) {
     EXPECT_EQ(controller->getSelectedTank(), 0);
 }
 
+TEST_F(ControllerTest, RefuelingCompletionDisplaysFinalVolume) {
+    // Prepare backend to authorize and provide a tank
+    mockBackend->roleId_ = static_cast<int>(UserRole::Customer);
+    mockBackend->allowance_ = 100.0;
+    mockBackend->price_ = 1.0;
+    mockBackend->tanksStorage_ = { BackendTankInfo{1, "Tank A"} };
+
+    EXPECT_CALL(*mockBackend, Authorize("customer-card")).WillOnce([this]() {
+        mockBackend->authorized_ = true;
+        return true;
+        });
+    EXPECT_CALL(*mockBackend, Refuel(1, 10.0)).WillOnce(Return(true));
+    EXPECT_CALL(*mockBackend, Deauthorize()).WillOnce([this]() {
+        mockBackend->authorized_ = false;
+        return true;
+        });
+
+    controller->initialize();
+
+    // Capture last displayed message
+    DisplayMessage lastMsg;
+    std::mutex msgMutex;
+    EXPECT_CALL(*mockDisplay, showMessage(_)).WillRepeatedly([&](const DisplayMessage& m) {
+        std::lock_guard<std::mutex> lk(msgMutex);
+        lastMsg = m;
+        });
+
+    // Start controller loop
+    std::thread controllerThread([this]() { controller->run(); });
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+
+    // Present card -> Authorization -> TankSelection
+    controller->handleCardPresented("customer-card");
+    ASSERT_TRUE(waitForState(SystemState::TankSelection));
+
+    // Select tank -> VolumeEntry
+    controller->selectTank(1);
+    ASSERT_TRUE(waitForState(SystemState::VolumeEntry));
+
+    // Enter volume "10" and press Start -> Refueling
+    controller->addDigitToInput('1');
+    controller->addDigitToInput('0');
+    controller->handleKeyPress(KeyCode::KeyStart);
+    ASSERT_TRUE(waitForState(SystemState::Refueling));
+
+    // Simulate flow reaching the target
+    mockFlowMeter->simulateFlow(10.0);
+
+    // Wait for final state
+    ASSERT_TRUE(waitForState(SystemState::RefuelingComplete));
+
+    // Verify controller recorded final pumped volume
+    EXPECT_DOUBLE_EQ(controller->getCurrentRefuelVolume(), 10.0);
+
+    // Verify display shows final volume in RefuelingComplete
+    {
+        std::lock_guard<std::mutex> lk(msgMutex);
+        EXPECT_EQ(lastMsg.line1, std::string("Заправка завершена"));
+        EXPECT_EQ(lastMsg.line2, controller->formatVolume(controller->getCurrentRefuelVolume()));
+    }
+
+    // Trigger timeout to clear session and verify clearing
+    controller->postEvent(Event::Timeout);
+    ASSERT_TRUE(waitForState(SystemState::Waiting));
+    EXPECT_DOUBLE_EQ(controller->getCurrentRefuelVolume(), 0.0);
+
+    controller->shutdown();
+    if (controllerThread.joinable()) controllerThread.join();
+}
+
 // Test clear input
 TEST_F(ControllerTest, ClearInput) {
     controller->initialize();
@@ -447,7 +525,7 @@ TEST_F(ControllerTest, GetDeviceSerialNumber) {
     controller->initialize();
     
     std::string sn = controller->getDeviceSerialNumber();
-    EXPECT_EQ(sn, "SN: test-controller-001");
+    EXPECT_EQ(sn, CONTROLLER_UID);
 }
 
 // Test pump state change handling
@@ -789,7 +867,7 @@ TEST_F(ControllerTest, CustomerRefuelWorkflow) {
     controller->handleKeyPress(KeyCode::KeyStart);
     ASSERT_TRUE(waitForState(SystemState::Refueling));
 
-    controller->handleFlowUpdate(50.0);
+    mockFlowMeter->simulateFlow(50.0);
     ASSERT_TRUE(waitForState(SystemState::RefuelingComplete));
 
     controller->shutdown();
@@ -810,8 +888,8 @@ TEST_F(ControllerTest, DisplayMessageWaitingState) {
     // Verify four lines are present
     EXPECT_EQ(msg.line1, "Поднесите карту или введите PIN");
     EXPECT_FALSE(msg.line2.empty());  // Should have timestamp
-    EXPECT_FALSE(msg.line3.empty());  // Should have serial number
-    EXPECT_EQ(msg.line4, "");         // Empty line
+    EXPECT_EQ(msg.line3, "");         // Empty line
+    EXPECT_EQ(msg.line4, CONTROLLER_UID);  // Should have serial number
 }
 
 // Test display message structure for PinEntry state

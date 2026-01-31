@@ -426,6 +426,12 @@ void Controller::completeRefueling() {
     transaction.timestamp = std::chrono::system_clock::now();
     
     logRefuelTransaction(transaction);
+    
+    // After completing refuel, deauthorize the user to close the session
+    // Do not reset session data here so the final pumped volume remains visible
+    if (backend_ && backend_->IsAuthorized()) {
+        (void)backend_->Deauthorize();
+    }
 }
 
 // Fuel intake operations
@@ -495,7 +501,7 @@ std::string Controller::getCurrentTimeString() const {
 }
 
 std::string Controller::getDeviceSerialNumber() const {
-    return "SN: " + controllerId_;
+    return controllerId_;
 }
 
 // Private helper methods

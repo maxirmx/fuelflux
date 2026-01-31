@@ -355,8 +355,8 @@ DisplayMessage StateMachine::getDisplayMessage() const {
         case SystemState::Waiting:
             message.line1 = "Поднесите карту или введите PIN";
             message.line2 = controller_->getCurrentTimeString();
-            message.line3 = controller_->getDeviceSerialNumber();
-            message.line4 = "";
+            message.line3 = "";
+            message.line4 = controller_->getDeviceSerialNumber();
             break;
 
         case SystemState::PinEntry:
@@ -369,8 +369,8 @@ DisplayMessage StateMachine::getDisplayMessage() const {
         case SystemState::Authorization:
             message.line1 = "Авторизация...";
             message.line2 = "Пожалуйста, подождите";
-            message.line3 = controller_->getDeviceSerialNumber();
-            message.line4 = "";
+            message.line3 = "";
+            message.line4 = controller_->getDeviceSerialNumber();
             break;
 
         case SystemState::TankSelection:
@@ -506,8 +506,12 @@ void StateMachine::onRefuelingStarted() {
 void StateMachine::onRefuelingStopped() {
     LOG_SM_INFO("Refueling stopped");
     if (controller_) {
+        // Complete refueling (log transaction) but do not clear session data here.
+        // Clearing the session immediately would reset the displayed pumped
+        // volume to zero when entering RefuelingComplete. Keep the session
+        // active so the actual pumped/intake value remains visible. The
+        // session is cleaned up on timeout or other user interactions.
         controller_->completeRefueling();
-        controller_->endCurrentSession();
     }
 }
 

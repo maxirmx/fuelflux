@@ -1,15 +1,21 @@
+// Copyright (C) 2025 Maxim [maxirmx] Samsonov (www.sw.consulting)
+// All rights reserved.
+// This file is a part of fuelflux application
+
 #pragma once
 
-#include "types.h"
-#include "state_machine.h"
-#include "peripherals/peripheral_interface.h"
-#include "backend.h"
 #include <memory>
 #include <string>
 #include <vector>
 #include <queue>
 #include <mutex>
 #include <condition_variable>
+
+#include "backend.h"
+#include "state_machine.h"
+#include "types.h"
+#include "peripherals/peripheral_interface.h"
+
 
 namespace fuelflux {
 
