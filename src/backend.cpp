@@ -707,14 +707,14 @@ bool Backend::ProcessBacklogOnce() {
         if (item.method == BacklogMethod::Refuel) {
             TankNumber tankNumber = payload.value("TankNumber", -1);
             Volume volume = payload.value("FuelVolume", -1.0);
-            std::int64_t timestampMs = payload.value("TimeAt", -1);
-            actionOk = SendRefuelReport(tankNumber, volume, false, timestampMs);
+            std::int64_t storedTimestampMs = payload.value("TimeAt", -1);
+            actionOk = SendRefuelReport(tankNumber, volume, false, storedTimestampMs);
         } else if (item.method == BacklogMethod::Intake) {
             TankNumber tankNumber = payload.value("TankNumber", -1);
             Volume volume = payload.value("IntakeVolume", -1.0);
             IntakeDirection direction = static_cast<IntakeDirection>(payload.value("Direction", 0));
-            std::int64_t timestampMs = payload.value("TimeAt", -1);
-            actionOk = SendIntakeReport(tankNumber, volume, direction, false, timestampMs);
+            std::int64_t storedTimestampMs = payload.value("TimeAt", -1);
+            actionOk = SendIntakeReport(tankNumber, volume, direction, false, storedTimestampMs);
         }
 
         bool deauthOk = Deauthorize();
