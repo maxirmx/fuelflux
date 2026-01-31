@@ -77,7 +77,11 @@ bool Controller::initialize() {
     // Initialize state machine
     stateMachine_.initialize();
 
-    if (backlogWorker_ && backlogStorage_ && backlogStorage_->IsOpen()) {
+    if (backlogWorker_ && backlogStorage_) {
+        if (!backlogStorage_->IsOpen()) {
+            LOG_CTRL_ERROR("Backlog storage failed to open; backlog feature disabled");
+            return false;
+        }
         backlogWorker_->Start();
     }
 
