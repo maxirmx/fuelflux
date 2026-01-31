@@ -90,7 +90,6 @@ void inputDispatcher(ConsoleEmulator& emulator) {
 
     while (g_running) {
 #ifndef _WIN32
-        setRawMode(true);
         fd_set readfds;
         FD_ZERO(&readfds);
         FD_SET(STDIN_FILENO, &readfds);
