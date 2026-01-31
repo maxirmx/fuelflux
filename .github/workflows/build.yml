@@ -40,13 +40,10 @@ jobs:
           sudo apt-get install -y build-essential cmake g++ make libssl-dev libnfc-dev ninja-build
 
       - name: Configure CMake
-        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DENABLE_TESTING=ON
 
       - name: Build
         run: cmake --build build --config Release -j$(nproc)
-
-      - name: List built files
-        run: ls -lah build/bin/
 
       - name: Run tests
         run: cd build && ctest --output-on-failure -C Release
@@ -101,9 +98,6 @@ jobs:
               cmake --build . --config Release -j\$(nproc)
               ctest --output-on-failure -C Release
             "
-
-      - name: List built files
-        run: ls -lah build-arm64/bin/ || true
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4

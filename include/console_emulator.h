@@ -32,7 +32,7 @@ private:
     mutable std::mutex displayMutex_;
 
     void printDisplay() const;
-    void printBorder(bool bottom) const;
+    std::string buildBorder(bool bottom) const;
     std::string padLine(const std::string& line, size_t width) const;
 };
 
@@ -184,6 +184,10 @@ public:
     // collect command input (card/help/quit), in other states forward as key
     // Returns true if a quit/exit command was issued
     bool processKeyboardInput(char c, SystemState state);
+    void setInputMode(bool commandMode);
+    void logLine(const std::string& message) const;
+    void logBlock(const std::string& message) const;
+    bool consumeModeSwitchRequest();
 
 private:
     // Keep weak references to created peripherals for command processing
@@ -194,6 +198,7 @@ private:
     // command assembly in command mode
     std::string commandBuffer_;
     mutable std::mutex commandMutex_;
+    std::atomic<bool> requestKeyModeSwitch_{false};
     
     void printAvailableCommands() const;
 };
