@@ -751,7 +751,18 @@ bool ConsoleEmulator::processKeyboardInput(char c, SystemState state) {
             return false;
         } else if (c == 127 || c == 8) {
             if (!commandBuffer_.empty()) {
-                commandBuffer_.pop_back();
+                // Remove the last full UTF-8 code point, not just the last byte
+                std::size_t i = commandBuffer_.size();
+                // Move back over any UTF-8 continuation bytes (10xxxxxx)
+                while (i > 0) {
+                    --i;
+                    unsigned char byte = static_cast<unsigned char>(commandBuffer_[i]);
+                    if ((byte & 0xC0) != 0x80) {
+                        // Found the leading byte of the last UTF-8 character
+                        break;
+                    }
+                }
+                commandBuffer_.erase(i);
             }
             ConsoleUi::instance().setInputBuffer(commandBuffer_);
             return false;
