@@ -12,6 +12,8 @@
 #include <condition_variable>
 
 #include "backend.h"
+#include "backlog_storage.h"
+#include "backlog_worker.h"
 #include "state_machine.h"
 #include "types.h"
 #include "peripherals/peripheral_interface.h"
@@ -22,7 +24,10 @@ namespace fuelflux {
 // Main controller class that orchestrates the entire system
 class Controller {
   public:
-    Controller(ControllerId controllerId, std::unique_ptr<IBackend> backend = nullptr);
+    Controller(ControllerId controllerId,
+               std::unique_ptr<IBackend> backend = nullptr,
+               bool enableBacklog = true,
+               const std::string& backlogDbPath = "backlog.db");
     ~Controller();
 
     // System lifecycle
@@ -114,6 +119,8 @@ class Controller {
     std::unique_ptr<peripherals::IPump> pump_;
     std::unique_ptr<peripherals::IFlowMeter> flowMeter_;
     std::unique_ptr<IBackend> backend_;
+    std::shared_ptr<BacklogStorage> backlogStorage_;
+    std::unique_ptr<BacklogWorker> backlogWorker_;
     // Current session state
     UserInfo currentUser_;
     std::vector<TankInfo> availableTanks_;

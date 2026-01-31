@@ -98,6 +98,9 @@ FetchContent_Declare(
 # Make dependencies available
 FetchContent_MakeAvailable(fmt nlohmann_json spdlog httplib)
 
+# SQLite3 dependency
+find_package(SQLite3 REQUIRED)
+
 # Conditional dependencies for real hardware
 if(TARGET_REAL_DISPLAY OR TARGET_REAL_CARD_READER)
     find_package(PkgConfig REQUIRED)
@@ -131,6 +134,8 @@ set(SOURCES
     src/peripherals/flow_meter.cpp
     src/console_emulator.cpp
     src/backend.cpp
+    src/backlog_storage.cpp
+    src/backlog_worker.cpp
 )
 
 # Add NHD library sources if TARGET_REAL_DISPLAY is enabled
@@ -159,6 +164,8 @@ set(HEADERS
     include/peripherals/peripheral_interface.h
     include/console_emulator.h
     include/backend.h
+    include/backlog_storage.h
+    include/backlog_worker.h
     include/types.h
 )
 
@@ -203,6 +210,7 @@ target_link_libraries(fuelflux
     nlohmann_json::nlohmann_json 
     spdlog::spdlog
     httplib::httplib
+    SQLite::SQLite3
 )
 
 # Link real hardware libraries if TARGET_REAL_DISPLAY is enabled
@@ -255,6 +263,7 @@ if(ENABLE_TESTING)
     # Test source files
     set(TEST_SOURCES
         tests/backend_test.cpp
+        tests/backlog_test.cpp
         tests/controller_test.cpp
     )
 
@@ -270,6 +279,8 @@ if(ENABLE_TESTING)
         src/peripherals/flow_meter.cpp
         src/console_emulator.cpp
         src/backend.cpp
+        src/backlog_storage.cpp
+        src/backlog_worker.cpp
     )
     
     # Add NHD library sources if TARGET_REAL_DISPLAY is enabled
@@ -302,6 +313,7 @@ if(ENABLE_TESTING)
         nlohmann_json::nlohmann_json
         spdlog::spdlog
         httplib::httplib
+        SQLite::SQLite3
     )
     
     # Link real hardware libraries if TARGET_REAL_DISPLAY is enabled

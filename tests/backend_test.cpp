@@ -533,6 +533,26 @@ TEST_F(BackendTest, RefuelHttpError) {
     EXPECT_FALSE(backend.GetLastError().empty());
 }
 
+TEST_F(BackendTest, RefuelFromPayloadUsesSavedBody) {
+    setupSuccessfulAuthorizeResponse();
+
+    std::string received;
+    mockServer->handleRefuel = [&](const httplib::Request& req [[maybe_unused]], httplib::Response& res) {
+        received = req.body;
+        res.status = 200;
+        res.set_content("null", "application/json");
+    };
+
+    Backend backend(baseAPI, controllerUid);
+    EXPECT_TRUE(backend.Authorize("card-uid-12345"));
+
+    const std::string payload = R"({"TankNumber":1,"FuelVolume":10.5,"TimeAt":123456})";
+    bool result = backend.RefuelFromPayload(payload);
+
+    EXPECT_TRUE(result);
+    EXPECT_EQ(received, payload);
+}
+
 // Test wrapper error response propagation in Intake
 TEST_F(BackendTest, IntakeJsonParseError) {
     // Setup operator authorization
@@ -562,4 +582,44 @@ TEST_F(BackendTest, IntakeJsonParseError) {
     
     EXPECT_FALSE(result);
     EXPECT_FALSE(backend.GetLastError().empty());
+}
+
+TEST_F(BackendTest, IntakeFromPayloadUsesSavedBody) {
+    mockServer->handleAuthorize = [](const httplib::Request& req [[maybe_unused]], httplib::Response& res) {
+        nlohmann::json response;
+        response["Token"] = "operator-token";
+        response["RoleId"] = 2;  // Operator
+        response["Allowance"] = nlohmann::json();
+        response["Price"] = nlohmann::json();
+        response["fuelTanks"] = nlohmann::json::array();
+        response["fuelTanks"].push_back({{"idTank", 1}, {"nameTank", "АИ-95"}});
+
+        res.status = 200;
+        res.set_content(response.dump(), "application/json");
+    };
+
+    std::string received;
+    mockServer->handleFuelIntake = [&](const httplib::Request& req [[maybe_unused]], httplib::Response& res) {
+        received = req.body;
+        res.status = 200;
+        res.set_content("null", "application/json");
+    };
+
+    Backend backend(baseAPI, controllerUid);
+    EXPECT_TRUE(backend.Authorize("operator-card-uid"));
+
+    const std::string payload = R"({"TankNumber":2,"IntakeVolume":5.5,"Direction":1,"TimeAt":789})";
+    bool result = backend.IntakeFromPayload(payload);
+
+    EXPECT_TRUE(result);
+    EXPECT_EQ(received, payload);
+}
+
+TEST_F(BackendTest, NetworkErrorSetsNetworkFlag) {
+    Backend backend("http://127.0.0.1:1", controllerUid);
+
+    bool result = backend.Authorize("card-uid-12345");
+
+    EXPECT_FALSE(result);
+    EXPECT_TRUE(backend.WasLastErrorNetwork());
 }

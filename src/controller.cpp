@@ -15,7 +15,10 @@
 
 namespace fuelflux {
 
-Controller::Controller(ControllerId controllerId, std::unique_ptr<IBackend> backend)
+Controller::Controller(ControllerId controllerId,
+                       std::unique_ptr<IBackend> backend,
+                       bool enableBacklog,
+                       const std::string& backlogDbPath)
     : controllerId_(std::move(controllerId))
     , stateMachine_(this)
     , backend_(backend ? std::move(backend) : std::make_unique<Backend>(BACKEND_API_URL, CONTROLLER_UID))
@@ -26,6 +29,12 @@ Controller::Controller(ControllerId controllerId, std::unique_ptr<IBackend> back
     , targetRefuelVolume_(0.0)
     , isRunning_(false)
 {
+    if (enableBacklog) {
+        backlogStorage_ = std::make_shared<BacklogStorage>(backlogDbPath);
+        backlogWorker_ = std::make_unique<BacklogWorker>(
+            backlogStorage_,
+            std::make_unique<Backend>(BACKEND_API_URL, CONTROLLER_UID));
+    }
     resetSessionData();
 }
 
@@ -67,7 +76,11 @@ bool Controller::initialize() {
     
     // Initialize state machine
     stateMachine_.initialize();
-    
+
+    if (backlogWorker_ && backlogStorage_ && backlogStorage_->IsOpen()) {
+        backlogWorker_->Start();
+    }
+
     isRunning_ = true;
     LOG_CTRL_INFO("Initialization complete");
     return true;
@@ -87,6 +100,7 @@ void Controller::shutdown() {
     if (cardReader_) cardReader_->shutdown();
     if (pump_) pump_->shutdown();
     if (flowMeter_) flowMeter_->shutdown();
+    if (backlogWorker_) backlogWorker_->Stop();
 
     LOG_CTRL_INFO("Shutdown complete");
 }
@@ -473,13 +487,23 @@ void Controller::completeIntakeOperation() {
 // Transaction logging
 void Controller::logRefuelTransaction(const RefuelTransaction& transaction) {
     if (backend_) {
-        (void)backend_->Refuel(transaction.tankNumber, transaction.volume);
+        const bool sent = backend_->Refuel(transaction.tankNumber, transaction.volume);
+        if (!sent && backend_->WasLastErrorNetwork() && backlogStorage_) {
+            (void)backlogStorage_->AddItem(transaction.userId,
+                                           BacklogMethod::Refuel,
+                                           backend_->GetLastRequestPayload());
+        }
     }
 }
 
 void Controller::logIntakeTransaction(const IntakeTransaction& transaction) {
     if (backend_) {
-        (void)backend_->Intake(transaction.tankNumber, transaction.volume, transaction.direction);
+        const bool sent = backend_->Intake(transaction.tankNumber, transaction.volume, transaction.direction);
+        if (!sent && backend_->WasLastErrorNetwork() && backlogStorage_) {
+            (void)backlogStorage_->AddItem(transaction.operatorId,
+                                           BacklogMethod::Intake,
+                                           backend_->GetLastRequestPayload());
+        }
     }
 }
 

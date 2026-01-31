@@ -20,6 +20,8 @@ const std::string StdBackendError = "Ошибка портала";
 constexpr int HttpRequestWrapperErrorCode = -1;
 const std::string HttpRequestWrapperErrorText = "Ошибка связи с сервером";
 
+std::mutex Backend::sendMutex_;
+
 bool IsErrorResponse(const nlohmann::json& response, std::string* errorText) {
     if (!response.is_object()) {
         return false;
@@ -79,6 +81,17 @@ nlohmann::json Backend::HttpRequestWrapper(const std::string& endpoint,
                                             const std::string& method,
                                             const nlohmann::json& requestBody,
                                             bool useBearerToken) {
+    lastRequestPayload_ = requestBody.dump();
+    return HttpRequestWrapperRaw(endpoint, method, lastRequestPayload_, useBearerToken);
+}
+
+nlohmann::json Backend::HttpRequestWrapperRaw(const std::string& endpoint,
+                                              const std::string& method,
+                                              const std::string& requestBody,
+                                              bool useBearerToken) {
+    lastRequestPayload_ = requestBody;
+    lastErrorIsNetwork_ = false;
+    std::lock_guard<std::mutex> sendGuard(sendMutex_);
     try {
         // Parse the base URL to extract host and port
         std::string host;
@@ -157,6 +170,7 @@ nlohmann::json Backend::HttpRequestWrapper(const std::string& endpoint,
         // Validate that we have a host
         if (host.empty()) {
             LOG_BCK_ERROR("Failed to parse host from URL: {}", baseAPI_);
+            lastErrorIsNetwork_ = true;
             return BuildWrapperErrorResponse();
         }
         
@@ -186,7 +200,7 @@ nlohmann::json Backend::HttpRequestWrapper(const std::string& endpoint,
         }
         
         // Prepare request body
-        std::string bodyStr = requestBody.dump();
+        const std::string& bodyStr = requestBody;
         
         LOG_BCK_DEBUG("Request: {} {} with body: {}", method, endpoint, bodyStr);
         
@@ -265,6 +279,7 @@ nlohmann::json Backend::HttpRequestWrapper(const std::string& endpoint,
                     break;
             }
             LOG_BCK_ERROR("{}", errorMsg);
+            lastErrorIsNetwork_ = true;
             return BuildWrapperErrorResponse();
         }
         
@@ -301,11 +316,13 @@ nlohmann::json Backend::HttpRequestWrapper(const std::string& endpoint,
     } 
     catch (const std::exception& e) {
         LOG_BCK_ERROR("HTTP request exception: {}", e.what());
+        lastErrorIsNetwork_ = true;
         return BuildWrapperErrorResponse();
     }
 }
 
 bool Backend::Authorize(const std::string& uid) {
+    lastErrorIsNetwork_ = false;
     try {
         // Check if already authorized
         if (isAuthorized_) {
@@ -398,6 +415,7 @@ bool Backend::Authorize(const std::string& uid) {
 }
 
 bool Backend::Deauthorize() {
+    lastErrorIsNetwork_ = false;
     try {
         // Check if not authorized
         if (!isAuthorized_) {
@@ -460,6 +478,7 @@ bool Backend::Deauthorize() {
 
 
 bool Backend::Refuel(TankNumber tankNumber, Volume volume) {
+    lastErrorIsNetwork_ = false;
     try {
         if (!isAuthorized_) {
             LOG_BCK_ERROR("Invalid refueling report: backend is not authorized");
@@ -533,6 +552,7 @@ bool Backend::Refuel(TankNumber tankNumber, Volume volume) {
 }
 
 bool Backend::Intake(TankNumber tankNumber, Volume volume, IntakeDirection direction) {
+    lastErrorIsNetwork_ = false;
     try {
         if (!isAuthorized_) {
             LOG_BCK_ERROR("Invalid intake report: backend is not authorized");
@@ -586,6 +606,64 @@ bool Backend::Intake(TankNumber tankNumber, Volume volume, IntakeDirection direc
                  timestampMs);
 
         nlohmann::json response = HttpRequestWrapper("/api/pump/fuel-intake", "POST", requestBody, true);
+        std::string responseError;
+        if (IsErrorResponse(response, &responseError)) {
+            LOG_BCK_ERROR("Failed to send fuel intake report: {}", responseError);
+            lastError_ = responseError;
+            return false;
+        }
+
+        lastError_.clear();
+        LOG_BCK_INFO("Fuel intake report accepted");
+        return true;
+    } catch (const std::exception& e) {
+        LOG_BCK_ERROR("Failed to send fuel intake report: {}", e.what());
+        if (lastError_.empty()) {
+            lastError_ = StdBackendError;
+        }
+        return false;
+    }
+}
+
+bool Backend::RefuelFromPayload(const std::string& payload) {
+    lastErrorIsNetwork_ = false;
+    try {
+        if (!isAuthorized_) {
+            LOG_BCK_ERROR("Invalid refueling report: backend is not authorized");
+            lastError_ = StdControllerError;
+            return false;
+        }
+
+        nlohmann::json response = HttpRequestWrapperRaw("/api/pump/refuel", "POST", payload, true);
+        std::string responseError;
+        if (IsErrorResponse(response, &responseError)) {
+            LOG_BCK_ERROR("Failed to send refueling report: {}", responseError);
+            lastError_ = responseError;
+            return false;
+        }
+
+        lastError_.clear();
+        LOG_BCK_INFO("Refueling report accepted");
+        return true;
+    } catch (const std::exception& e) {
+        LOG_BCK_ERROR("Failed to send refueling report: {}", e.what());
+        if (lastError_.empty()) {
+            lastError_ = StdBackendError;
+        }
+        return false;
+    }
+}
+
+bool Backend::IntakeFromPayload(const std::string& payload) {
+    lastErrorIsNetwork_ = false;
+    try {
+        if (!isAuthorized_) {
+            LOG_BCK_ERROR("Invalid intake report: backend is not authorized");
+            lastError_ = StdControllerError;
+            return false;
+        }
+
+        nlohmann::json response = HttpRequestWrapperRaw("/api/pump/fuel-intake", "POST", payload, true);
         std::string responseError;
         if (IsErrorResponse(response, &responseError)) {
             LOG_BCK_ERROR("Failed to send fuel intake report: {}", responseError);
