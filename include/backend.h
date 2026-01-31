@@ -4,10 +4,16 @@
 
 #pragma once
 
-#include <string>
-#include <vector>
+#include <atomic>
+#include <chrono>
+#include <condition_variable>
 #include <memory>
+#include <mutex>
+#include <string>
+#include <thread>
+#include <vector>
 #include <nlohmann/json.hpp>
+#include "backlog.h"
 #include "types.h"
 
 namespace fuelflux {
@@ -42,7 +48,10 @@ public:
     // Parameters:
     //   baseAPI - base URL of backend REST API
     //   controllerUid - UID of controller
-    Backend(const std::string& baseAPI, const std::string& controllerUid);
+    Backend(const std::string& baseAPI,
+            const std::string& controllerUid,
+            const std::string& backlogDbPath = "backlog.sqlite",
+            std::chrono::milliseconds backlogInterval = std::chrono::seconds(5));
     
     ~Backend() override;
 
@@ -79,7 +88,16 @@ public:
     const std::vector<BackendTankInfo>& GetFuelTanks() const override { return fuelTanks_; }
     const std::string& GetLastError() const override { return lastError_; }
 
+    bool ProcessBacklogOnce();
+    void StopBacklogWorker();
+
 private:
+    void StartBacklogWorker();
+    void BacklogWorkerLoop();
+    bool EnqueueBacklog(BacklogMethod method, const nlohmann::json& payload);
+    bool SendRefuelReport(TankNumber tankNumber, Volume volume, bool allowBacklog);
+    bool SendIntakeReport(TankNumber tankNumber, Volume volume, IntakeDirection direction, bool allowBacklog);
+
     // Private method for common parsing of responses from the backend
     // Returns: parsed JSON; on error returns object with CodeError/TextError
     nlohmann::json HttpRequestWrapper(const std::string& endpoint, 
@@ -105,6 +123,17 @@ private:
     
     // Last error message
     std::string lastError_;
+
+    std::string currentUid_;
+
+    BacklogStore backlogStore_;
+    std::thread backlogThread_;
+    std::atomic<bool> backlogRunning_{false};
+    std::chrono::milliseconds backlogInterval_;
+    std::condition_variable backlogCv_;
+    std::mutex backlogCvMutex_;
+
+    mutable std::mutex backendMutex_;
 };
 
 } // namespace fuelflux

@@ -7,6 +7,7 @@
 #include <httplib.h>
 #include <algorithm>
 #include <chrono>
+#include <condition_variable>
 #include <stdexcept>
 #include <sstream>
 
@@ -45,13 +46,29 @@ nlohmann::json BuildWrapperErrorResponse() {
     };
 }
 
-Backend::Backend(const std::string& baseAPI, const std::string& controllerUid) : 
+bool IsNetworkErrorResponse(const nlohmann::json& response) {
+    if (!response.is_object()) {
+        return false;
+    }
+    const auto codeIt = response.find("CodeError");
+    if (codeIt == response.end() || !codeIt->is_number_integer()) {
+        return false;
+    }
+    return codeIt->get<int>() == HttpRequestWrapperErrorCode;
+}
+
+Backend::Backend(const std::string& baseAPI,
+                 const std::string& controllerUid,
+                 const std::string& backlogDbPath,
+                 std::chrono::milliseconds backlogInterval) : 
     baseAPI_(baseAPI),
     controllerUid_(controllerUid),
     isAuthorized_(false),
     roleId_(0),
     allowance_(0.0),
-    price_(0.0)
+    price_(0.0),
+    backlogStore_(backlogDbPath),
+    backlogInterval_(backlogInterval)
 {
 // If the user configured an HTTPS backend but cpp-httplib was built without OpenSSL,
 // reject early with a clear error message.
@@ -67,9 +84,18 @@ Backend::Backend(const std::string& baseAPI, const std::string& controllerUid) :
 #endif
 
     LOG_BCK_INFO("Backend initialized with base API: {} and controller UID: {}", baseAPI_, controllerUid_);
+
+    if (backlogStore_.Initialize()) {
+        const auto pending = backlogStore_.Count();
+        LOG_BCK_INFO("Backlog database initialized at {} with {} pending items", backlogStore_.Path(), pending);
+        StartBacklogWorker();
+    } else {
+        LOG_BCK_ERROR("Backlog database initialization failed; backlog processing disabled");
+    }
 }
 
 Backend::~Backend() {
+    StopBacklogWorker();
     if (isAuthorized_) {
         LOG_BCK_WARN("Backend destroyed while still authorized");
     }
@@ -306,6 +332,7 @@ nlohmann::json Backend::HttpRequestWrapper(const std::string& endpoint,
 }
 
 bool Backend::Authorize(const std::string& uid) {
+    std::lock_guard<std::mutex> lock(backendMutex_);
     try {
         // Check if already authorized
         if (isAuthorized_) {
@@ -384,6 +411,7 @@ bool Backend::Authorize(const std::string& uid) {
         fuelTanks_ = fuelTanks;
         isAuthorized_ = true;
         lastError_.clear();
+        currentUid_ = uid;
         
         LOG_BCK_INFO("Authorization successful: RoleId={}, Allowance={}, Price={}, Tanks={}",
                  roleId_, allowance_, price_, fuelTanks_.size());
@@ -398,6 +426,7 @@ bool Backend::Authorize(const std::string& uid) {
 }
 
 bool Backend::Deauthorize() {
+    std::lock_guard<std::mutex> lock(backendMutex_);
     try {
         // Check if not authorized
         if (!isAuthorized_) {
@@ -423,6 +452,7 @@ bool Backend::Deauthorize() {
             price_ = 0.0;
             fuelTanks_.clear();
             isAuthorized_ = false;
+            currentUid_.clear();
 
             LOG_BCK_ERROR("Deauthorization failed: {} (state cleared for safety)", responseError);
             lastError_ = responseError;
@@ -437,6 +467,7 @@ bool Backend::Deauthorize() {
         fuelTanks_.clear();
         isAuthorized_ = false;
         lastError_.clear();
+        currentUid_.clear();
         
         LOG_BCK_INFO("Deauthorization successful");
         
@@ -451,6 +482,7 @@ bool Backend::Deauthorize() {
         price_ = 0.0;
         fuelTanks_.clear();
         isAuthorized_ = false;
+        currentUid_.clear();
         
         LOG_BCK_ERROR("Deauthorization failed: {} (state cleared for safety)", e.what());
 		lastError_ = StdControllerError;
@@ -460,6 +492,15 @@ bool Backend::Deauthorize() {
 
 
 bool Backend::Refuel(TankNumber tankNumber, Volume volume) {
+    return SendRefuelReport(tankNumber, volume, true);
+}
+
+bool Backend::Intake(TankNumber tankNumber, Volume volume, IntakeDirection direction) {
+    return SendIntakeReport(tankNumber, volume, direction, true);
+}
+
+bool Backend::SendRefuelReport(TankNumber tankNumber, Volume volume, bool allowBacklog) {
+    std::lock_guard<std::mutex> lock(backendMutex_);
     try {
         if (!isAuthorized_) {
             LOG_BCK_ERROR("Invalid refueling report: backend is not authorized");
@@ -512,6 +553,9 @@ bool Backend::Refuel(TankNumber tankNumber, Volume volume) {
         if (IsErrorResponse(response, &responseError)) {
             LOG_BCK_ERROR("Failed to send refueling report: {}", responseError);
             lastError_ = responseError;
+            if (allowBacklog && IsNetworkErrorResponse(response)) {
+                EnqueueBacklog(BacklogMethod::Refuel, requestBody);
+            }
             return false;
         }
 
@@ -532,7 +576,8 @@ bool Backend::Refuel(TankNumber tankNumber, Volume volume) {
     }
 }
 
-bool Backend::Intake(TankNumber tankNumber, Volume volume, IntakeDirection direction) {
+bool Backend::SendIntakeReport(TankNumber tankNumber, Volume volume, IntakeDirection direction, bool allowBacklog) {
+    std::lock_guard<std::mutex> lock(backendMutex_);
     try {
         if (!isAuthorized_) {
             LOG_BCK_ERROR("Invalid intake report: backend is not authorized");
@@ -590,6 +635,9 @@ bool Backend::Intake(TankNumber tankNumber, Volume volume, IntakeDirection direc
         if (IsErrorResponse(response, &responseError)) {
             LOG_BCK_ERROR("Failed to send fuel intake report: {}", responseError);
             lastError_ = responseError;
+            if (allowBacklog && IsNetworkErrorResponse(response)) {
+                EnqueueBacklog(BacklogMethod::Intake, requestBody);
+            }
             return false;
         }
 
@@ -602,6 +650,96 @@ bool Backend::Intake(TankNumber tankNumber, Volume volume, IntakeDirection direc
             lastError_ = StdBackendError;
         }
         return false;
+    }
+}
+
+bool Backend::EnqueueBacklog(BacklogMethod method, const nlohmann::json& payload) {
+    if (currentUid_.empty()) {
+        LOG_BCK_WARN("Backlog enqueue skipped: no current UID available");
+        return false;
+    }
+    if (!backlogStore_.Enqueue(currentUid_, method, payload.dump())) {
+        LOG_BCK_ERROR("Failed to enqueue backlog item for uid {}", currentUid_);
+        return false;
+    }
+    LOG_BCK_INFO("Backlog item queued for uid {}", currentUid_);
+    return true;
+}
+
+bool Backend::ProcessBacklogOnce() {
+    if (IsAuthorized()) {
+        LOG_BCK_DEBUG("Backlog processing skipped: backend is authorized");
+        return false;
+    }
+    auto items = backlogStore_.FetchAll();
+    if (items.empty()) {
+        return false;
+    }
+    for (const auto& item : items) {
+        nlohmann::json payload;
+        try {
+            payload = nlohmann::json::parse(item.data);
+        } catch (const std::exception& e) {
+            LOG_BCK_ERROR("Failed to parse backlog payload {}, removing item: {}", item.id, e.what());
+            backlogStore_.Remove(item.id);
+            continue;
+        }
+
+        if (!Authorize(item.uid)) {
+            LOG_BCK_WARN("Backlog processing failed to authorize uid {}", item.uid);
+            return false;
+        }
+
+        bool actionOk = false;
+        if (item.method == BacklogMethod::Refuel) {
+            TankNumber tankNumber = payload.value("TankNumber", -1);
+            Volume volume = payload.value("FuelVolume", -1.0);
+            actionOk = SendRefuelReport(tankNumber, volume, false);
+        } else if (item.method == BacklogMethod::Intake) {
+            TankNumber tankNumber = payload.value("TankNumber", -1);
+            Volume volume = payload.value("IntakeVolume", -1.0);
+            IntakeDirection direction = static_cast<IntakeDirection>(payload.value("Direction", 0));
+            actionOk = SendIntakeReport(tankNumber, volume, direction, false);
+        }
+
+        bool deauthOk = Deauthorize();
+        if (actionOk && deauthOk) {
+            backlogStore_.Remove(item.id);
+            LOG_BCK_INFO("Backlog item {} processed successfully", item.id);
+        } else {
+            LOG_BCK_WARN("Backlog item {} processing failed, will retry later", item.id);
+            return false;
+        }
+    }
+    return true;
+}
+
+void Backend::BacklogWorkerLoop() {
+    std::unique_lock<std::mutex> lock(backlogCvMutex_);
+    while (backlogRunning_) {
+        lock.unlock();
+        ProcessBacklogOnce();
+        lock.lock();
+        backlogCv_.wait_for(lock, backlogInterval_, [this]() { return !backlogRunning_; });
+    }
+}
+
+void Backend::StartBacklogWorker() {
+    if (backlogRunning_) {
+        return;
+    }
+    backlogRunning_ = true;
+    backlogThread_ = std::thread([this]() { BacklogWorkerLoop(); });
+}
+
+void Backend::StopBacklogWorker() {
+    if (!backlogRunning_) {
+        return;
+    }
+    backlogRunning_ = false;
+    backlogCv_.notify_all();
+    if (backlogThread_.joinable()) {
+        backlogThread_.join();
     }
 }
 
