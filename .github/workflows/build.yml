@@ -37,7 +37,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential cmake g++ make libssl-dev ninja-build
+          sudo apt-get install -y build-essential cmake g++ make libssl-dev libnfc-dev ninja-build
 
       - name: Configure CMake
         run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
@@ -89,7 +89,7 @@ jobs:
               set -euo pipefail
               apt-get update
               apt-get install -y --no-install-recommends \
-                build-essential cmake ninja-build g++ ca-certificates git libssl-dev
+                build-essential cmake ninja-build g++ ca-certificates git libssl-dev libnfc-dev
               git config --global --add safe.directory /work/build-arm64/_deps/fmt-src
               git config --global --add safe.directory /work/build-arm64/_deps/nlohmann_json-src
               git config --global --add safe.directory /work/build-arm64/_deps/spdlog-src
