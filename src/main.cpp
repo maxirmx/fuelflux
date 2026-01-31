@@ -12,6 +12,7 @@
 #include <thread>
 #include <atomic>
 #include <cstdlib>
+#include <cerrno>
 #include <signal.h>
 #include <chrono>
 #ifdef _WIN32
@@ -125,6 +126,16 @@ void inputDispatcher(ConsoleEmulator& emulator) {
                     // Forward raw key directly to keyboard
                     emulator.dispatchKey(c);
                 }
+            } else if (r == 0) {
+                // EOF on stdin - graceful shutdown
+                LOG_INFO("EOF on stdin, shutting down...");
+                g_running = false;
+                break;
+            } else {
+                // Read error - log and shutdown
+                LOG_ERROR("Error reading from stdin (errno: {}), shutting down...", errno);
+                g_running = false;
+                break;
             }
         }
 #else
