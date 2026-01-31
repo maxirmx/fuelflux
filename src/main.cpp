@@ -60,7 +60,7 @@ void inputDispatcher(ConsoleEmulator& emulator) {
         Key
     };
 
-    InputMode currentMode = InputMode::Key;
+    InputMode currentMode = InputMode::Command;
 
     auto switchMode = [&](InputMode newMode) {
         if (newMode != currentMode) {
