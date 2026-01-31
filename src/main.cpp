@@ -133,7 +133,8 @@ void inputDispatcher(ConsoleEmulator& emulator) {
                 break;
             } else {
                 // Read error - log and shutdown
-                LOG_ERROR("Error reading from stdin (errno: {}), shutting down...", errno);
+                int err = errno;  // Save errno before any other calls
+                LOG_ERROR("Error reading from stdin (errno: {}), shutting down...", err);
                 g_running = false;
                 break;
             }
