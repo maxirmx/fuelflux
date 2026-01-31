@@ -28,6 +28,8 @@ public:
     MOCK_METHOD(bool, Deauthorize, (), (override));
     MOCK_METHOD(bool, Refuel, (TankNumber tankNumber, Volume volume), (override));
     MOCK_METHOD(bool, Intake, (TankNumber tankNumber, Volume volume, IntakeDirection direction), (override));
+    MOCK_METHOD(bool, RefuelFromPayload, (const std::string& payload), (override));
+    MOCK_METHOD(bool, IntakeFromPayload, (const std::string& payload), (override));
     MOCK_METHOD(bool, IsAuthorized, (), (const, override));
     MOCK_METHOD(const std::string&, GetToken, (), (const, override));
     MOCK_METHOD(int, GetRoleId, (), (const, override));
@@ -35,14 +37,18 @@ public:
     MOCK_METHOD(double, GetPrice, (), (const, override));
     MOCK_METHOD(const std::vector<BackendTankInfo>&, GetFuelTanks, (), (const, override));
     MOCK_METHOD(const std::string&, GetLastError, (), (const, override));
+    MOCK_METHOD(bool, WasLastErrorNetwork, (), (const, override));
+    MOCK_METHOD(const std::string&, GetLastRequestPayload, (), (const, override));
 
     std::string tokenStorage_;
     std::vector<BackendTankInfo> tanksStorage_;
     std::string lastErrorStorage_;
+    std::string lastRequestPayloadStorage_;
     int roleId_ = static_cast<int>(UserRole::Unknown);
     double allowance_ = 0.0;
     double price_ = 0.0;
     bool authorized_ = false;
+    bool lastErrorIsNetwork_ = false;
 };
 
 // Mock Display
@@ -188,7 +194,7 @@ protected:
     void SetUp() override {
         auto backend = std::make_unique<NiceMock<MockBackend>>();
         mockBackend = backend.get();
-        controller = std::make_unique<Controller>(CONTROLLER_UID, std::move(backend));
+        controller = std::make_unique<Controller>(CONTROLLER_UID, std::move(backend), false);
         
         // Create mocks (use raw pointers as Controller takes ownership)
         auto display = std::make_unique<NiceMock<MockDisplay>>();
@@ -216,6 +222,8 @@ protected:
             });
         ON_CALL(*mockBackend, Refuel(_, _)).WillByDefault(Return(true));
         ON_CALL(*mockBackend, Intake(_, _, _)).WillByDefault(Return(true));
+        ON_CALL(*mockBackend, RefuelFromPayload(_)).WillByDefault(Return(true));
+        ON_CALL(*mockBackend, IntakeFromPayload(_)).WillByDefault(Return(true));
         ON_CALL(*mockBackend, IsAuthorized()).WillByDefault(ReturnPointee(&mockBackend->authorized_));
         ON_CALL(*mockBackend, Deauthorize()).WillByDefault([&]() {
             mockBackend->authorized_ = false;
@@ -227,6 +235,8 @@ protected:
         ON_CALL(*mockBackend, GetPrice()).WillByDefault(ReturnPointee(&mockBackend->price_));
         ON_CALL(*mockBackend, GetFuelTanks()).WillByDefault(ReturnRef(mockBackend->tanksStorage_));
         ON_CALL(*mockBackend, GetLastError()).WillByDefault(ReturnRef(mockBackend->lastErrorStorage_));
+        ON_CALL(*mockBackend, WasLastErrorNetwork()).WillByDefault(ReturnPointee(&mockBackend->lastErrorIsNetwork_));
+        ON_CALL(*mockBackend, GetLastRequestPayload()).WillByDefault(ReturnRef(mockBackend->lastRequestPayloadStorage_));
         
         ON_CALL(*mockDisplay, isConnected()).WillByDefault(Return(true));
         ON_CALL(*mockKeyboard, isConnected()).WillByDefault(Return(true));

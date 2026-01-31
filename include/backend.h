@@ -7,6 +7,7 @@
 #include <string>
 #include <vector>
 #include <memory>
+#include <mutex>
 #include <nlohmann/json.hpp>
 #include "types.h"
 
@@ -26,6 +27,8 @@ public:
     virtual bool Deauthorize() = 0;
     virtual bool Refuel(TankNumber tankNumber, Volume volume) = 0;
     virtual bool Intake(TankNumber tankNumber, Volume volume, IntakeDirection direction) = 0;
+    virtual bool RefuelFromPayload(const std::string& payload) = 0;
+    virtual bool IntakeFromPayload(const std::string& payload) = 0;
     virtual bool IsAuthorized() const = 0;
     virtual const std::string& GetToken() const = 0;
     virtual int GetRoleId() const = 0;
@@ -33,6 +36,8 @@ public:
     virtual double GetPrice() const = 0;
     virtual const std::vector<BackendTankInfo>& GetFuelTanks() const = 0;
     virtual const std::string& GetLastError() const = 0;
+    virtual bool WasLastErrorNetwork() const = 0;
+    virtual const std::string& GetLastRequestPayload() const = 0;
 };
 
 // Backend class for real REST API communication
@@ -70,6 +75,10 @@ public:
     // Returns: true on success, false on failure
     bool Intake(TankNumber tankNumber, Volume volume, IntakeDirection direction) override;
 
+    bool RefuelFromPayload(const std::string& payload) override;
+
+    bool IntakeFromPayload(const std::string& payload) override;
+
     // Getters for authorized state
     bool IsAuthorized() const override { return isAuthorized_; }
     const std::string& GetToken() const override { return token_; }
@@ -78,6 +87,8 @@ public:
     double GetPrice() const override { return price_; }
     const std::vector<BackendTankInfo>& GetFuelTanks() const override { return fuelTanks_; }
     const std::string& GetLastError() const override { return lastError_; }
+    bool WasLastErrorNetwork() const override { return lastErrorIsNetwork_; }
+    const std::string& GetLastRequestPayload() const override { return lastRequestPayload_; }
 
 private:
     // Private method for common parsing of responses from the backend
@@ -86,6 +97,11 @@ private:
                                        const std::string& method,
                                        const nlohmann::json& requestBody,
                                        bool useBearerToken = false);
+
+    nlohmann::json HttpRequestWrapperRaw(const std::string& endpoint,
+                                         const std::string& method,
+                                         const std::string& requestBody,
+                                         bool useBearerToken = false);
 
     // Base URL of backend REST API
     std::string baseAPI_;
@@ -105,6 +121,10 @@ private:
     
     // Last error message
     std::string lastError_;
+    bool lastErrorIsNetwork_ = false;
+    std::string lastRequestPayload_;
+
+    static std::mutex sendMutex_;
 };
 
 } // namespace fuelflux

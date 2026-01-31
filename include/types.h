@@ -30,6 +30,11 @@ enum class IntakeDirection {
     Out = 2
 };
 
+enum class BacklogMethod {
+    Refuel = 1,
+    Intake = 2
+};
+
 // System states for Mealy machine
 enum class SystemState {
     Waiting,
