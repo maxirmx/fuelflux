@@ -1,3 +1,8 @@
+// Copyright (C) 2025 Maxim [maxirmx] Samsonov (www.sw.consulting)
+// All rights reserved.
+// This file is a part of fuelflux application
+
+#include "config.h"
 #include "controller.h"
 #include "console_emulator.h"
 #include "logger.h"
@@ -216,7 +221,7 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
 #endif
     
     // Get controller ID from environment or use default
-    std::string controllerId = "CTRL-001";
+    std::string controllerId = CONTROLLER_UID;
     if (const char* envId = std::getenv("FUELFLUX_CONTROLLER_ID")) {
         controllerId = envId;
     }

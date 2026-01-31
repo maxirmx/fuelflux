@@ -1,11 +1,16 @@
+// Copyright (C) 2025 Maxim [maxirmx] Samsonov (www.sw.consulting)
+// All rights reserved.
+// This file is a part of fuelflux application
+
 #pragma once
 
-#include "peripherals/peripheral_interface.h"
 #include <thread>
 #include <atomic>
 #include <mutex>
 #include <condition_variable>
 #include <queue>
+
+#include "peripherals/peripheral_interface.h"
 
 namespace fuelflux {
 
@@ -32,7 +37,7 @@ private:
     mutable std::mutex displayMutex_;
 
     void printDisplay() const;
-    std::string buildBorder(bool bottom) const;
+    std::string buildBorder(bool bottom [[maybe_unused]] ) const;
     std::string padLine(const std::string& line, size_t width) const;
 };
 
