@@ -102,7 +102,8 @@ public:
         for (size_t i = 0; i < lines.size(); ++i) {
             writeAt(static_cast<int>(i + 1), 1, lines[i]);
         }
-        moveCursorToInputLocked();
+        renderLogAreaLocked();
+        renderInputLocked();
         std::cout << std::flush;
     }
 
