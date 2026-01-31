@@ -88,7 +88,7 @@ jobs:
             ubuntu:22.04 bash -lc "
               set -euo pipefail
               apt-get update
-              apt-get install -y --no-install-recommends \
+              apt-get install -y --no-install-recommends pkg-config \
                 build-essential cmake ninja-build g++ ca-certificates git libssl-dev libnfc-dev
               git config --global --add safe.directory /work/build-arm64/_deps/fmt-src
               git config --global --add safe.directory /work/build-arm64/_deps/nlohmann_json-src
