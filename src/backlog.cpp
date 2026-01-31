@@ -32,7 +32,7 @@ BacklogStore::~BacklogStore() {
 }
 
 bool BacklogStore::Initialize() {
-    std::lock_guard<std::mutex> lock(mutex_);
+    // This method must be called while holding mutex_
     if (db_) {
         return true;
     }
@@ -43,6 +43,11 @@ bool BacklogStore::Initialize() {
         return false;
     }
     if (!Execute(kCreateTableSql)) {
+        // If table creation fails, close the database and reset db_ so that
+        // subsequent calls can retry initialization and do not use an
+        // invalid database handle.
+        sqlite3_close(db_);
+        db_ = nullptr;
         return false;
     }
     return true;

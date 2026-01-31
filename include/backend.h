@@ -95,8 +95,8 @@ private:
     void StartBacklogWorker();
     void BacklogWorkerLoop();
     bool EnqueueBacklog(BacklogMethod method, const nlohmann::json& payload);
-    bool SendRefuelReport(TankNumber tankNumber, Volume volume, bool allowBacklog);
-    bool SendIntakeReport(TankNumber tankNumber, Volume volume, IntakeDirection direction, bool allowBacklog);
+    bool SendRefuelReport(TankNumber tankNumber, Volume volume, bool allowBacklog, std::int64_t timestampMs = -1);
+    bool SendIntakeReport(TankNumber tankNumber, Volume volume, IntakeDirection direction, bool allowBacklog, std::int64_t timestampMs = -1);
 
     // Private method for common parsing of responses from the backend
     // Returns: parsed JSON; on error returns object with CodeError/TextError

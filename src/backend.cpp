@@ -485,7 +485,7 @@ bool Backend::Deauthorize() {
         currentUid_.clear();
         
         LOG_BCK_ERROR("Deauthorization failed: {} (state cleared for safety)", e.what());
-		lastError_ = StdControllerError;
+        lastError_ = StdControllerError;
         return false;
     }
 }
@@ -499,7 +499,7 @@ bool Backend::Intake(TankNumber tankNumber, Volume volume, IntakeDirection direc
     return SendIntakeReport(tankNumber, volume, direction, true);
 }
 
-bool Backend::SendRefuelReport(TankNumber tankNumber, Volume volume, bool allowBacklog) {
+bool Backend::SendRefuelReport(TankNumber tankNumber, Volume volume, bool allowBacklog, std::int64_t timestampMs) {
     std::lock_guard<std::mutex> lock(backendMutex_);
     try {
         if (!isAuthorized_) {
@@ -536,17 +536,22 @@ bool Backend::SendRefuelReport(TankNumber tankNumber, Volume volume, bool allowB
             return false;
         }
 
-        const auto now = std::chrono::system_clock::now();
-        const auto timestampMs = std::chrono::duration_cast<std::chrono::milliseconds>(
-                                     now.time_since_epoch())
-                                     .count();
+        std::int64_t actualTimestampMs;
+        if (timestampMs < 0) {
+            const auto now = std::chrono::system_clock::now();
+            actualTimestampMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                         now.time_since_epoch())
+                                         .count();
+        } else {
+            actualTimestampMs = timestampMs;
+        }
 
         nlohmann::json requestBody;
         requestBody["TankNumber"] = tankNumber;
         requestBody["FuelVolume"] = volume;
-        requestBody["TimeAt"] = timestampMs;
+        requestBody["TimeAt"] = actualTimestampMs;
 
-        LOG_BCK_INFO("Refueling report: tank={}, volume={}, timestamp_ms={}", tankNumber, volume, timestampMs);
+        LOG_BCK_INFO("Refueling report: tank={}, volume={}, timestamp_ms={}", tankNumber, volume, actualTimestampMs);
 
         nlohmann::json response = HttpRequestWrapper("/api/pump/refuel", "POST", requestBody, true);
         std::string responseError;
@@ -576,7 +581,7 @@ bool Backend::SendRefuelReport(TankNumber tankNumber, Volume volume, bool allowB
     }
 }
 
-bool Backend::SendIntakeReport(TankNumber tankNumber, Volume volume, IntakeDirection direction, bool allowBacklog) {
+bool Backend::SendIntakeReport(TankNumber tankNumber, Volume volume, IntakeDirection direction, bool allowBacklog, std::int64_t timestampMs) {
     std::lock_guard<std::mutex> lock(backendMutex_);
     try {
         if (!isAuthorized_) {
@@ -613,22 +618,27 @@ bool Backend::SendIntakeReport(TankNumber tankNumber, Volume volume, IntakeDirec
             return false;
         }
 
-        const auto now = std::chrono::system_clock::now();
-        const auto timestampMs = std::chrono::duration_cast<std::chrono::milliseconds>(
-                                     now.time_since_epoch())
-                                     .count();
+        std::int64_t actualTimestampMs;
+        if (timestampMs < 0) {
+            const auto now = std::chrono::system_clock::now();
+            actualTimestampMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                         now.time_since_epoch())
+                                         .count();
+        } else {
+            actualTimestampMs = timestampMs;
+        }
 
         nlohmann::json requestBody;
         requestBody["TankNumber"] = tankNumber;
         requestBody["IntakeVolume"] = volume;
         requestBody["Direction"] = static_cast<int>(direction);
-        requestBody["TimeAt"] = timestampMs;
+        requestBody["TimeAt"] = actualTimestampMs;
 
         LOG_BCK_INFO("Fuel intake report: tank={}, volume={}, direction={}, timestamp_ms={}",
                  tankNumber,
                  volume,
                  static_cast<int>(direction),
-                 timestampMs);
+                 actualTimestampMs);
 
         nlohmann::json response = HttpRequestWrapper("/api/pump/fuel-intake", "POST", requestBody, true);
         std::string responseError;
@@ -667,9 +677,12 @@ bool Backend::EnqueueBacklog(BacklogMethod method, const nlohmann::json& payload
 }
 
 bool Backend::ProcessBacklogOnce() {
-    if (IsAuthorized()) {
-        LOG_BCK_DEBUG("Backlog processing skipped: backend is authorized");
-        return false;
+    {
+        std::lock_guard<std::mutex> lock(backendMutex_);
+        if (isAuthorized_) {
+            LOG_BCK_DEBUG("Backlog processing skipped: backend is authorized");
+            return false;
+        }
     }
     auto items = backlogStore_.FetchAll();
     if (items.empty()) {
@@ -694,12 +707,14 @@ bool Backend::ProcessBacklogOnce() {
         if (item.method == BacklogMethod::Refuel) {
             TankNumber tankNumber = payload.value("TankNumber", -1);
             Volume volume = payload.value("FuelVolume", -1.0);
-            actionOk = SendRefuelReport(tankNumber, volume, false);
+            std::int64_t timeAt = payload.value("TimeAt", -1);
+            actionOk = SendRefuelReport(tankNumber, volume, false, timeAt);
         } else if (item.method == BacklogMethod::Intake) {
             TankNumber tankNumber = payload.value("TankNumber", -1);
             Volume volume = payload.value("IntakeVolume", -1.0);
             IntakeDirection direction = static_cast<IntakeDirection>(payload.value("Direction", 0));
-            actionOk = SendIntakeReport(tankNumber, volume, direction, false);
+            std::int64_t timeAt = payload.value("TimeAt", -1);
+            actionOk = SendIntakeReport(tankNumber, volume, direction, false, timeAt);
         }
 
         bool deauthOk = Deauthorize();
@@ -725,6 +740,7 @@ void Backend::BacklogWorkerLoop() {
 }
 
 void Backend::StartBacklogWorker() {
+    std::lock_guard<std::mutex> lock(backlogCvMutex_);
     if (backlogRunning_) {
         return;
     }
@@ -733,6 +749,7 @@ void Backend::StartBacklogWorker() {
 }
 
 void Backend::StopBacklogWorker() {
+    std::lock_guard<std::mutex> lock(backlogCvMutex_);
     if (!backlogRunning_) {
         return;
     }
