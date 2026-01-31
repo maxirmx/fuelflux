@@ -162,7 +162,6 @@ void inputDispatcher(ConsoleEmulator& emulator) {
                 }
             }
         }
-        std::this_thread::sleep_for(std::chrono::milliseconds(50));
 #endif
         // small sleep to avoid busy loop
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
