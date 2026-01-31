@@ -884,6 +884,8 @@ void ConsoleEmulator::setInputMode(bool commandMode) {
     ConsoleUi::instance().setInputMode(commandMode);
     if (commandMode) {
         ConsoleUi::instance().setInputBuffer(commandBuffer_);
+    } else {
+        commandBuffer_.clear();
     }
 }
 
