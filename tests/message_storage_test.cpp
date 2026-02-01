@@ -7,14 +7,26 @@
 #include "message_storage.h"
 
 #include <filesystem>
+#include <random>
+#include <sstream>
+#include <iomanip>
 
 using namespace fuelflux;
 
 namespace {
 
 std::string MakeTempDbPath() {
-    const auto pattern = std::filesystem::path("fuelflux_storage_test-%%%%-%%%%-%%%%.db");
-    auto path = std::filesystem::temp_directory_path() / std::filesystem::unique_path(pattern);
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::uniform_int_distribution<> dis(0, 0xFFFF);
+    
+    std::ostringstream oss;
+    oss << "fuelflux_storage_test-" 
+        << std::hex << std::setfill('0') << std::setw(4) << dis(gen) << "-"
+        << std::setw(4) << dis(gen) << "-"
+        << std::setw(4) << dis(gen) << ".db";
+    
+    auto path = std::filesystem::temp_directory_path() / oss.str();
     return path.string();
 }
 
