@@ -24,10 +24,10 @@ std::unique_ptr<IBackend> CreateBackend(std::shared_ptr<MessageStorage> storage)
                                                     SIM800C_CONNECT_TIMEOUT_MS,
                                                     SIM800C_RESPONSE_TIMEOUT_MS,
                                                     std::move(storage));
+        default:
+            LOG_BCK_WARN("Unknown backend type requested; defaulting to HTTP backend");
+            return std::make_unique<Backend>(BACKEND_API_URL, CONTROLLER_UID, std::move(storage));
     }
-
-    LOG_BCK_WARN("Unknown backend type requested; defaulting to HTTP backend");
-    return std::make_unique<Backend>(BACKEND_API_URL, CONTROLLER_UID, std::move(storage));
 }
 
 std::shared_ptr<IBackend> CreateBackendShared(std::shared_ptr<MessageStorage> storage) {
