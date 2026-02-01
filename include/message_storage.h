@@ -9,6 +9,8 @@
 #include <string>
 #include <vector>
 
+struct sqlite3;
+
 namespace fuelflux {
 
 enum class MessageMethod {
@@ -47,7 +49,7 @@ private:
     std::string MethodToString(MessageMethod method) const;
     std::optional<MessageMethod> MethodFromString(const std::string& value) const;
 
-    void* db_;
+    sqlite3* db_;
     std::string dbPath_;
     mutable std::mutex dbMutex_;
 };

@@ -30,7 +30,7 @@ MessageStorage::MessageStorage(const std::string& dbPath)
 MessageStorage::~MessageStorage() {
     std::lock_guard<std::mutex> lock(dbMutex_);
     if (db_) {
-        sqlite3_close(static_cast<sqlite3*>(db_));
+        sqlite3_close(db_);
         db_ = nullptr;
     }
 }
@@ -46,7 +46,7 @@ bool MessageStorage::Execute(const std::string& sql) const {
         return false;
     }
     char* errorMessage = nullptr;
-    const int result = sqlite3_exec(static_cast<sqlite3*>(db_), sql.c_str(), nullptr, nullptr, &errorMessage);
+    const int result = sqlite3_exec(db_, sql.c_str(), nullptr, nullptr, &errorMessage);
     if (result != SQLITE_OK) {
         sqlite3_free(errorMessage);
         return false;
@@ -82,7 +82,7 @@ bool MessageStorage::AddBacklog(const std::string& uid, MessageMethod method, co
 
     sqlite3_stmt* stmt = nullptr;
     const char* sql = "INSERT INTO backlog (uid, method, data) VALUES (?, ?, ?);";
-    if (sqlite3_prepare_v2(static_cast<sqlite3*>(db_), sql, -1, &stmt, nullptr) != SQLITE_OK) {
+    if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) != SQLITE_OK) {
         return false;
     }
 
@@ -104,7 +104,7 @@ bool MessageStorage::AddDeadMessage(const std::string& uid, MessageMethod method
 
     sqlite3_stmt* stmt = nullptr;
     const char* sql = "INSERT INTO dead_messages (uid, method, data) VALUES (?, ?, ?);";
-    if (sqlite3_prepare_v2(static_cast<sqlite3*>(db_), sql, -1, &stmt, nullptr) != SQLITE_OK) {
+    if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) != SQLITE_OK) {
         return false;
     }
 
@@ -126,7 +126,7 @@ std::optional<StoredMessage> MessageStorage::GetNextBacklog() {
 
     sqlite3_stmt* stmt = nullptr;
     const char* sql = "SELECT rowid, uid, method, data FROM backlog ORDER BY rowid ASC LIMIT 1;";
-    if (sqlite3_prepare_v2(static_cast<sqlite3*>(db_), sql, -1, &stmt, nullptr) != SQLITE_OK) {
+    if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) != SQLITE_OK) {
         return std::nullopt;
     }
 
@@ -165,7 +165,7 @@ bool MessageStorage::RemoveBacklog(long long id) {
 
     sqlite3_stmt* stmt = nullptr;
     const char* sql = "DELETE FROM backlog WHERE rowid = ?;";
-    if (sqlite3_prepare_v2(static_cast<sqlite3*>(db_), sql, -1, &stmt, nullptr) != SQLITE_OK) {
+    if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) != SQLITE_OK) {
         return false;
     }
 
@@ -183,7 +183,7 @@ int MessageStorage::BacklogCount() const {
 
     sqlite3_stmt* stmt = nullptr;
     const char* sql = "SELECT COUNT(*) FROM backlog;";
-    if (sqlite3_prepare_v2(static_cast<sqlite3*>(db_), sql, -1, &stmt, nullptr) != SQLITE_OK) {
+    if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) != SQLITE_OK) {
         return 0;
     }
 
@@ -203,7 +203,7 @@ int MessageStorage::DeadMessageCount() const {
 
     sqlite3_stmt* stmt = nullptr;
     const char* sql = "SELECT COUNT(*) FROM dead_messages;";
-    if (sqlite3_prepare_v2(static_cast<sqlite3*>(db_), sql, -1, &stmt, nullptr) != SQLITE_OK) {
+    if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) != SQLITE_OK) {
         return 0;
     }
 
