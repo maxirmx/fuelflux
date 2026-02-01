@@ -398,7 +398,7 @@ nlohmann::json Sim800cBackend::HttpRequestWrapper(const std::string& endpoint,
                                                   const nlohmann::json& requestBody,
                                                   bool useBearerToken) {
     std::lock_guard<std::mutex> lock(requestMutex_);
-    
+
     networkError_ = false;
     if (!EnsureBearer()) {
         networkError_ = true;
@@ -556,7 +556,7 @@ std::string Sim800cBackend::BuildUrl(const std::string& endpoint) const {
 
 std::string Sim800cBackend::EscapeAtString(const std::string& input) const {
     std::string result;
-    result.reserve(input.size());
+    result.reserve(input.size() * 2);
     for (char c : input) {
         if (c == '"' || c == '\\') {
             result += '\\';
