@@ -4,9 +4,11 @@
 
 #include "backend.h"
 #include "logger.h"
+#include "message_storage.h"
 #include <httplib.h>
 #include <algorithm>
 #include <chrono>
+#include <mutex>
 #include <stdexcept>
 #include <sstream>
 
@@ -45,13 +47,15 @@ nlohmann::json BuildWrapperErrorResponse() {
     };
 }
 
-Backend::Backend(const std::string& baseAPI, const std::string& controllerUid) : 
+Backend::Backend(const std::string& baseAPI, const std::string& controllerUid, std::shared_ptr<MessageStorage> storage) : 
     baseAPI_(baseAPI),
     controllerUid_(controllerUid),
     isAuthorized_(false),
+    authorizedUid_(),
     roleId_(0),
     allowance_(0.0),
-    price_(0.0)
+    price_(0.0),
+    storage_(std::move(storage))
 {
 // If the user configured an HTTPS backend but cpp-httplib was built without OpenSSL,
 // reject early with a clear error message.
@@ -79,6 +83,9 @@ nlohmann::json Backend::HttpRequestWrapper(const std::string& endpoint,
                                             const std::string& method,
                                             const nlohmann::json& requestBody,
                                             bool useBearerToken) {
+    static std::mutex requestMutex;
+    std::lock_guard<std::mutex> lock(requestMutex);
+
     try {
         // Parse the base URL to extract host and port
         std::string host;
@@ -383,6 +390,7 @@ bool Backend::Authorize(const std::string& uid) {
         price_ = price;
         fuelTanks_ = fuelTanks;
         isAuthorized_ = true;
+        authorizedUid_ = uid;
         lastError_.clear();
         
         LOG_BCK_INFO("Authorization successful: RoleId={}, Allowance={}, Price={}, Tanks={}",
@@ -436,6 +444,7 @@ bool Backend::Deauthorize() {
         price_ = 0.0;
         fuelTanks_.clear();
         isAuthorized_ = false;
+        authorizedUid_.clear();
         lastError_.clear();
         
         LOG_BCK_INFO("Deauthorization successful");
@@ -451,6 +460,7 @@ bool Backend::Deauthorize() {
         price_ = 0.0;
         fuelTanks_.clear();
         isAuthorized_ = false;
+        authorizedUid_.clear();
         
         LOG_BCK_ERROR("Deauthorization failed: {} (state cleared for safety)", e.what());
 		lastError_ = StdControllerError;
@@ -511,6 +521,14 @@ bool Backend::Refuel(TankNumber tankNumber, Volume volume) {
         std::string responseError;
         if (IsErrorResponse(response, &responseError)) {
             LOG_BCK_ERROR("Failed to send refueling report: {}", responseError);
+            if (storage_ && !authorizedUid_.empty()) {
+                const int errorCode = response.value("CodeError", 0);
+                if (errorCode == HttpRequestWrapperErrorCode) {
+                    storage_->AddBacklog(authorizedUid_, MessageMethod::Refuel, requestBody.dump());
+                } else {
+                    storage_->AddDeadMessage(authorizedUid_, MessageMethod::Refuel, requestBody.dump());
+                }
+            }
             lastError_ = responseError;
             return false;
         }
@@ -589,6 +607,14 @@ bool Backend::Intake(TankNumber tankNumber, Volume volume, IntakeDirection direc
         std::string responseError;
         if (IsErrorResponse(response, &responseError)) {
             LOG_BCK_ERROR("Failed to send fuel intake report: {}", responseError);
+            if (storage_ && !authorizedUid_.empty()) {
+                const int errorCode = response.value("CodeError", 0);
+                if (errorCode == HttpRequestWrapperErrorCode) {
+                    storage_->AddBacklog(authorizedUid_, MessageMethod::Intake, requestBody.dump());
+                } else {
+                    storage_->AddDeadMessage(authorizedUid_, MessageMethod::Intake, requestBody.dump());
+                }
+            }
             lastError_ = responseError;
             return false;
         }
@@ -603,6 +629,78 @@ bool Backend::Intake(TankNumber tankNumber, Volume volume, IntakeDirection direc
         }
         return false;
     }
+}
+
+bool Backend::RefuelPayload(const std::string& payload) {
+    try {
+        if (!isAuthorized_) {
+            LOG_BCK_ERROR("Invalid refueling report: backend is not authorized");
+            lastError_ = StdControllerError;
+            return false;
+        }
+
+        const auto requestBody = nlohmann::json::parse(payload, nullptr, false);
+        if (requestBody.is_discarded()) {
+            LOG_BCK_ERROR("Invalid refueling payload");
+            lastError_ = StdControllerError;
+            return false;
+        }
+
+        nlohmann::json response = HttpRequestWrapper("/api/pump/refuel", "POST", requestBody, true);
+        std::string responseError;
+        if (IsErrorResponse(response, &responseError)) {
+            LOG_BCK_ERROR("Failed to send refueling report: {}", responseError);
+            lastError_ = responseError;
+            return false;
+        }
+
+        lastError_.clear();
+        return true;
+    } catch (const std::exception& e) {
+        LOG_BCK_ERROR("Failed to send refueling payload: {}", e.what());
+        if (lastError_.empty()) {
+            lastError_ = StdBackendError;
+        }
+        return false;
+    }
+}
+
+bool Backend::IntakePayload(const std::string& payload) {
+    try {
+        if (!isAuthorized_) {
+            LOG_BCK_ERROR("Invalid intake report: backend is not authorized");
+            lastError_ = StdControllerError;
+            return false;
+        }
+
+        const auto requestBody = nlohmann::json::parse(payload, nullptr, false);
+        if (requestBody.is_discarded()) {
+            LOG_BCK_ERROR("Invalid intake payload");
+            lastError_ = StdControllerError;
+            return false;
+        }
+
+        nlohmann::json response = HttpRequestWrapper("/api/pump/fuel-intake", "POST", requestBody, true);
+        std::string responseError;
+        if (IsErrorResponse(response, &responseError)) {
+            LOG_BCK_ERROR("Failed to send fuel intake report: {}", responseError);
+            lastError_ = responseError;
+            return false;
+        }
+
+        lastError_.clear();
+        return true;
+    } catch (const std::exception& e) {
+        LOG_BCK_ERROR("Failed to send intake payload: {}", e.what());
+        if (lastError_.empty()) {
+            lastError_ = StdBackendError;
+        }
+        return false;
+    }
+}
+
+bool Backend::IsNetworkError() const {
+    return lastError_ == HttpRequestWrapperErrorText;
 }
 
 } // namespace fuelflux

@@ -4,8 +4,10 @@
 
 #include "config.h"
 #include "controller.h"
+#include "backlog_worker.h"
 #include "console_emulator.h"
 #include "logger.h"
+#include "message_storage.h"
 #ifdef TARGET_REAL_DISPLAY
 #include "peripherals/display.h"
 #endif
@@ -231,8 +233,14 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
         ConsoleEmulator emulator;
         emulator.printWelcome();
         
+        auto storage = std::make_shared<MessageStorage>(STORAGE_DB_PATH);
+        auto backend = std::make_unique<Backend>(BACKEND_API_URL, CONTROLLER_UID, storage);
+        auto backlogBackend = std::make_shared<Backend>(BACKEND_API_URL, CONTROLLER_UID);
+        BacklogWorker backlogWorker(storage, backlogBackend, std::chrono::seconds(30));
+        backlogWorker.Start();
+
         // Create controller
-        Controller controller(controllerId);
+        Controller controller(controllerId, std::move(backend));
         
         // Create and setup peripherals
 #ifdef TARGET_REAL_DISPLAY
@@ -306,6 +314,8 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
         
         // Shutdown controller
         controller.shutdown();
+
+        backlogWorker.Stop();
         
         // Wait for threads to finish
         if (inputThread.joinable()) {
