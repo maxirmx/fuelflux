@@ -267,6 +267,7 @@ if(ENABLE_TESTING)
     # Test source files
     set(TEST_SOURCES
         tests/backend_test.cpp
+        tests/backend_factory_test.cpp
         tests/controller_test.cpp
         tests/message_storage_test.cpp
         tests/backlog_worker_test.cpp
