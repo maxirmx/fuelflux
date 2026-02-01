@@ -10,13 +10,17 @@
 
 namespace fuelflux {
 
-Sim800cBackend::Sim800cBackend(std::string devicePath,
+Sim800cBackend::Sim800cBackend(std::string apiUrl,
+                               std::string controllerUid,
+                               std::string devicePath,
                                int baudRate,
                                std::string apn,
                                int connectTimeoutMs,
                                int responseTimeoutMs,
                                std::shared_ptr<MessageStorage> storage)
-    : devicePath_(std::move(devicePath))
+    : apiUrl_(std::move(apiUrl))
+    , controllerUid_(std::move(controllerUid))
+    , devicePath_(std::move(devicePath))
     , baudRate_(baudRate)
     , apn_(std::move(apn))
     , connectTimeoutMs_(connectTimeoutMs)
@@ -24,7 +28,9 @@ Sim800cBackend::Sim800cBackend(std::string devicePath,
     , storage_(std::move(storage))
 {
     LOG_BCK_INFO(
-        "SIM800C backend configured: device={}, baud={}, apn={}, connect_timeout_ms={}, response_timeout_ms={}",
+        "SIM800C backend configured: api_url={}, controller_uid={}, device={}, baud={}, apn={}, connect_timeout_ms={}, response_timeout_ms={}",
+        apiUrl_,
+        controllerUid_,
         devicePath_,
         baudRate_,
         apn_,
