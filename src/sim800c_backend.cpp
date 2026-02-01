@@ -92,6 +92,7 @@ Sim800cBackend::Sim800cBackend(std::string apiUrl,
 Sim800cBackend::~Sim800cBackend() {
     if (serialFd_ >= 0) {
         // Try to terminate any ongoing HTTP session before closing
+        std::lock_guard<std::recursive_mutex> lock(requestMutex_);
         std::string response;
         SendCommand("AT+HTTPTERM", &response, responseTimeoutMs_);
         
@@ -249,10 +250,10 @@ bool Sim800cBackend::IsConnected() {
             if (commaPos != std::string::npos) {
                 // Find the second parameter after the comma
                 auto statStart = commaPos + 1;
-                while (statStart < line.size() && std::isspace(line[statStart])) {
+                while (statStart < line.size() && std::isspace(static_cast<unsigned char>(line[statStart]))) {
                     ++statStart;
                 }
-                if (statStart < line.size() && std::isdigit(line[statStart])) {
+                if (statStart < line.size() && std::isdigit(static_cast<unsigned char>(line[statStart]))) {
                     int stat = line[statStart] - '0';
                     if (stat == 1 || stat == 5) {
                         registered = true;
