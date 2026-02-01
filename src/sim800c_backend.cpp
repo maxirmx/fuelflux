@@ -477,9 +477,13 @@ nlohmann::json Sim800cBackend::HttpRequestWrapper(const std::string& endpoint,
             auto start = response.find('\n', dataPos);
             if (start != std::string::npos) {
                 ++start;
-                auto end = response.rfind("OK");
-                if (end != std::string::npos && end > start) {
-                    payload = response.substr(start, end - start);
+                std::size_t available = response.size() - start;
+                std::size_t payloadLen = static_cast<std::size_t>(length);
+                if (available >= payloadLen) {
+                    payload = response.substr(start, payloadLen);
+                } else {
+                    // Fallback: response shorter than expected; take whatever is available.
+                    payload = response.substr(start, available);
                 }
             }
         }

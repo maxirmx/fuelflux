@@ -37,10 +37,14 @@ private:
                      const std::vector<std::string>& terminators = {"OK", "ERROR"});
     bool SendRaw(const std::string& data);
     bool SendHttpData(const std::string& payload);
+
+protected:
     nlohmann::json HttpRequestWrapper(const std::string& endpoint,
                                       const std::string& method,
                                       const nlohmann::json& requestBody,
                                       bool useBearerToken);
+
+private:
     std::string BuildUrl(const std::string& endpoint) const;
     int serialFd_ = -1;
     bool modemReady_ = false;
