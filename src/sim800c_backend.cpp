@@ -223,34 +223,40 @@ bool Sim800cBackend::EnsureBearer() {
 }
 
 bool Sim800cBackend::IsConnected() {
-    std::string response;
+    std::string cregResponse;
     bool registered = false;
-    if (SendCommand("AT+CREG?", &response, responseTimeoutMs_)) {
-        if (response.find(",1") != std::string::npos || response.find(",5") != std::string::npos) {
+    if (SendCommand("AT+CREG?", &cregResponse, responseTimeoutMs_)) {
+        if (cregResponse.find(",1") != std::string::npos || cregResponse.find(",5") != std::string::npos) {
             registered = true;
         }
     }
 
+    std::string cgattResponse;
     bool attached = false;
-    if (SendCommand("AT+CGATT?", &response, responseTimeoutMs_)) {
-        if (response.find("+CGATT: 1") != std::string::npos) {
+    if (SendCommand("AT+CGATT?", &cgattResponse, responseTimeoutMs_)) {
+        if (cgattResponse.find("+CGATT: 1") != std::string::npos) {
             attached = true;
         }
     }
 
+    std::string sapbrResponse;
     bool bearerUp = false;
-    if (SendCommand("AT+SAPBR=2,1", &response, responseTimeoutMs_)) {
-        if (response.find("+SAPBR: 1,1") != std::string::npos) {
+    if (SendCommand("AT+SAPBR=2,1", &sapbrResponse, responseTimeoutMs_)) {
+        if (sapbrResponse.find("+SAPBR: 1,1") != std::string::npos) {
             bearerUp = true;
         }
     }
 
     if (!registered || !attached || !bearerUp) {
-        LOG_BCK_WARN("SIM800C connection status: registered={}, attached={}, bearer={} response={}",
-                     registered,
-                     attached,
-                     bearerUp,
-                     response);
+        LOG_BCK_WARN(
+            "SIM800C connection status: registered={}, attached={}, bearer={} "
+            "CREG_response='{}' CGATT_response='{}' SAPBR_response='{}'",
+            registered,
+            attached,
+            bearerUp,
+            cregResponse,
+            cgattResponse,
+            sapbrResponse);
     }
 
     return registered && attached && bearerUp;
