@@ -18,7 +18,9 @@ std::unique_ptr<IBackend> CreateBackend(std::shared_ptr<MessageStorage> storage)
         case BackendType::Http:
             return std::make_unique<Backend>(BACKEND_API_URL, CONTROLLER_UID, std::move(storage));
         case BackendType::SIM800C:
-            return std::make_unique<Sim800cBackend>(SIM800C_DEVICE_PATH,
+            return std::make_unique<Sim800cBackend>(BACKEND_API_URL,
+                                                    CONTROLLER_UID,
+                                                    SIM800C_DEVICE_PATH,
                                                     SIM800C_BAUD_RATE,
                                                     SIM800C_APN,
                                                     SIM800C_CONNECT_TIMEOUT_MS,

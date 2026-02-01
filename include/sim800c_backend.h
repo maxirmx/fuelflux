@@ -15,7 +15,9 @@ class MessageStorage;
 
 class Sim800cBackend : public IBackend {
 public:
-    Sim800cBackend(std::string devicePath,
+    Sim800cBackend(std::string apiUrl,
+                   std::string controllerUid,
+                   std::string devicePath,
                    int baudRate,
                    std::string apn,
                    int connectTimeoutMs,
@@ -41,6 +43,8 @@ public:
 private:
     bool setNotImplemented(const std::string& operation);
 
+    std::string apiUrl_;
+    std::string controllerUid_;
     std::string devicePath_;
     int baudRate_;
     std::string apn_;
