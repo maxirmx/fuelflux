@@ -140,12 +140,17 @@ std::optional<StoredMessage> MessageStorage::GetNextBacklog() {
         if (uid) {
             message.uid = uid;
         }
-        if (methodValue) {
-            auto method = MethodFromString(methodValue);
-            if (method) {
-                message.method = *method;
-            }
+        // Treat missing or unrecognized method as a hard read error
+        if (!methodValue) {
+            sqlite3_finalize(stmt);
+            return std::nullopt;
         }
+        auto method = MethodFromString(methodValue);
+        if (!method) {
+            sqlite3_finalize(stmt);
+            return std::nullopt;
+        }
+        message.method = *method;
         if (data) {
             message.data = data;
         }
