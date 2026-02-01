@@ -218,8 +218,8 @@ bool Sim800cBackend::EnsureBearer() {
         return false;
     }
 
-    bearerReady_ = true;
-    return IsConnected();
+    bearerReady_ = IsConnected();
+    return bearerReady_;
 }
 
 bool Sim800cBackend::IsConnected() {
