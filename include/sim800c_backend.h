@@ -5,6 +5,7 @@
 #pragma once
 
 #include <memory>
+#include <mutex>
 #include <string>
 #include <vector>
 #include "backend.h"
@@ -46,6 +47,7 @@ protected:
 
 private:
     std::string BuildUrl(const std::string& endpoint) const;
+    std::string EscapeAtString(const std::string& input) const;
     int serialFd_ = -1;
     bool modemReady_ = false;
     bool bearerReady_ = false;
@@ -58,6 +60,7 @@ private:
     std::string apnPassword_;
     int connectTimeoutMs_;
     int responseTimeoutMs_;
+    std::mutex requestMutex_;
 };
 
 } // namespace fuelflux

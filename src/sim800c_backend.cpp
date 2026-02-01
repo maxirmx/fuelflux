@@ -115,6 +115,8 @@ bool Sim800cBackend::InitializeModem() {
             LOG_BCK_ERROR("Failed to read serial attributes: {}", std::strerror(errno));
             lastError_ = HttpRequestWrapperErrorText;
             networkError_ = true;
+            ::close(serialFd_);
+            serialFd_ = -1;
             return false;
         }
 
@@ -122,6 +124,8 @@ bool Sim800cBackend::InitializeModem() {
         if (speed == 0) {
             LOG_BCK_ERROR("Unsupported baud rate: {}", baudRate_);
             lastError_ = StdControllerError;
+            ::close(serialFd_);
+            serialFd_ = -1;
             return false;
         }
 
@@ -141,6 +145,8 @@ bool Sim800cBackend::InitializeModem() {
             LOG_BCK_ERROR("Failed to configure serial port: {}", std::strerror(errno));
             lastError_ = HttpRequestWrapperErrorText;
             networkError_ = true;
+            ::close(serialFd_);
+            serialFd_ = -1;
             return false;
         }
 
@@ -183,7 +189,7 @@ bool Sim800cBackend::EnsureBearer() {
         return false;
     }
 
-    const std::string apnCommand = "AT+SAPBR=3,1,\"APN\",\"" + apn_ + "\"";
+    const std::string apnCommand = "AT+SAPBR=3,1,\"APN\",\"" + EscapeAtString(apn_) + "\"";
     if (!SendCommand(apnCommand, &response, responseTimeoutMs_)) {
         LOG_BCK_ERROR("Failed to set APN: {}", response);
         lastError_ = HttpRequestWrapperErrorText;
@@ -192,7 +198,7 @@ bool Sim800cBackend::EnsureBearer() {
     }
 
     if (!apnUser_.empty()) {
-        const std::string userCommand = "AT+SAPBR=3,1,\"USER\",\"" + apnUser_ + "\"";
+        const std::string userCommand = "AT+SAPBR=3,1,\"USER\",\"" + EscapeAtString(apnUser_) + "\"";
         if (!SendCommand(userCommand, &response, responseTimeoutMs_)) {
             LOG_BCK_ERROR("Failed to set APN user: {}", response);
             lastError_ = HttpRequestWrapperErrorText;
@@ -202,7 +208,7 @@ bool Sim800cBackend::EnsureBearer() {
     }
 
     if (!apnPassword_.empty()) {
-        const std::string passCommand = "AT+SAPBR=3,1,\"PWD\",\"" + apnPassword_ + "\"";
+        const std::string passCommand = "AT+SAPBR=3,1,\"PWD\",\"" + EscapeAtString(apnPassword_) + "\"";
         if (!SendCommand(passCommand, &response, responseTimeoutMs_)) {
             LOG_BCK_ERROR("Failed to set APN password: {}", response);
             lastError_ = HttpRequestWrapperErrorText;
@@ -277,6 +283,9 @@ bool Sim800cBackend::SendCommand(const std::string& command,
         while (totalWritten < static_cast<ssize_t>(payload.size())) {
             ssize_t written = ::write(serialFd_, payload.data() + totalWritten, payload.size() - totalWritten);
             if (written < 0) {
+                if (errno == EINTR) {
+                    continue;
+                }
                 return false;
             }
             totalWritten += written;
@@ -301,9 +310,26 @@ bool Sim800cBackend::SendCommand(const std::string& command,
         tv.tv_sec = remaining / 1000;
         tv.tv_usec = (remaining % 1000) * 1000;
         int ready = ::select(serialFd_ + 1, &readSet, nullptr, nullptr, &tv);
+        if (ready < 0) {
+            if (errno == EINTR) {
+                continue;
+            }
+            break;
+        }
         if (ready > 0 && FD_ISSET(serialFd_, &readSet)) {
             char tmp[256];
             ssize_t readBytes = ::read(serialFd_, tmp, sizeof(tmp));
+            if (readBytes < 0) {
+                if (errno == EINTR) {
+                    continue;
+                }
+                break;
+            }
+            if (readBytes == 0) {
+                // EOF: device closed or disconnected
+                LOG_BCK_ERROR("Serial device closed unexpectedly");
+                return false;
+            }
             if (readBytes > 0) {
                 buffer.append(tmp, static_cast<size_t>(readBytes));
                 if (ContainsAny(buffer, terminators)) {
@@ -336,6 +362,9 @@ bool Sim800cBackend::SendRaw(const std::string& data) {
     while (totalWritten < static_cast<ssize_t>(data.size())) {
         ssize_t written = ::write(serialFd_, data.data() + totalWritten, data.size() - totalWritten);
         if (written < 0) {
+            if (errno == EINTR) {
+                continue;
+            }
             return false;
         }
         totalWritten += written;
@@ -368,6 +397,8 @@ nlohmann::json Sim800cBackend::HttpRequestWrapper(const std::string& endpoint,
                                                   const std::string& method,
                                                   const nlohmann::json& requestBody,
                                                   bool useBearerToken) {
+    std::lock_guard<std::mutex> lock(requestMutex_);
+
     networkError_ = false;
     if (!EnsureBearer()) {
         networkError_ = true;
@@ -391,7 +422,7 @@ nlohmann::json Sim800cBackend::HttpRequestWrapper(const std::string& endpoint,
         return BuildWrapperErrorResponse();
     }
 
-    const std::string urlCommand = "AT+HTTPPARA=\"URL\",\"" + url + "\"";
+    const std::string urlCommand = "AT+HTTPPARA=\"URL\",\"" + EscapeAtString(url) + "\"";
     if (!SendCommand(urlCommand, &response, responseTimeoutMs_)) {
         LOG_BCK_ERROR("HTTPPARA URL failed: {}", response);
         networkError_ = true;
@@ -399,7 +430,7 @@ nlohmann::json Sim800cBackend::HttpRequestWrapper(const std::string& endpoint,
     }
 
     if (useBearerToken && !token_.empty()) {
-        const std::string auth = "AT+HTTPPARA=\"USERDATA\",\"Authorization: Bearer " + token_ + "\"";
+        const std::string auth = "AT+HTTPPARA=\"USERDATA\",\"Authorization: Bearer " + EscapeAtString(token_) + "\"";
         if (!SendCommand(auth, &response, responseTimeoutMs_)) {
             LOG_BCK_ERROR("HTTPPARA USERDATA failed: {}", response);
             networkError_ = true;
@@ -454,7 +485,9 @@ nlohmann::json Sim800cBackend::HttpRequestWrapper(const std::string& endpoint,
         char tag[16];
         int methodOut = 0;
         if (std::sscanf(actionLine.c_str(), "%15[^:]: %d,%d,%d", tag, &methodOut, &status, &length) != 4) {
-            status = 0;
+            LOG_BCK_ERROR("Failed to parse HTTPACTION response: {}", actionLine);
+            networkError_ = true;
+            return BuildWrapperErrorResponse();
         }
     }
 
@@ -519,6 +552,18 @@ std::string Sim800cBackend::BuildUrl(const std::string& endpoint) const {
         return apiUrl_ + '/' + endpoint;
     }
     return apiUrl_ + endpoint;
+}
+
+std::string Sim800cBackend::EscapeAtString(const std::string& input) const {
+    std::string result;
+    result.reserve(input.size() * 2);
+    for (char c : input) {
+        if (c == '"' || c == '\\') {
+            result += '\\';
+        }
+        result += c;
+    }
+    return result;
 }
 
 } // namespace fuelflux
