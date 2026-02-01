@@ -3,8 +3,8 @@
 // This file is a part of fuelflux application
 
 #include "controller.h"
+#include "backend_factory.h"
 #include "console_emulator.h"
-#include "config.h"
 #include "logger.h"
 #include <sstream>
 #include <iomanip>
@@ -18,7 +18,7 @@ namespace fuelflux {
 Controller::Controller(ControllerId controllerId, std::unique_ptr<IBackend> backend)
     : controllerId_(std::move(controllerId))
     , stateMachine_(this)
-    , backend_(backend ? std::move(backend) : std::make_unique<Backend>(BACKEND_API_URL, CONTROLLER_UID))
+    , backend_(backend ? std::move(backend) : CreateBackend())
     , selectedTank_(0)
     , enteredVolume_(0.0)
     , selectedIntakeDirection_(IntakeDirection::In)
