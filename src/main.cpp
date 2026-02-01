@@ -5,6 +5,7 @@
 #include "config.h"
 #include "controller.h"
 #include "backlog_worker.h"
+#include "backend_factory.h"
 #include "console_emulator.h"
 #include "logger.h"
 #include "message_storage.h"
@@ -234,8 +235,8 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
         emulator.printWelcome();
         
         auto storage = std::make_shared<MessageStorage>(STORAGE_DB_PATH);
-        auto backend = std::make_unique<Backend>(BACKEND_API_URL, CONTROLLER_UID, storage);
-        auto backlogBackend = std::make_shared<Backend>(BACKEND_API_URL, CONTROLLER_UID);
+        auto backend = CreateBackend(storage);
+        auto backlogBackend = CreateBackendShared();
         BacklogWorker backlogWorker(storage, backlogBackend, std::chrono::seconds(30));
         backlogWorker.Start();
 

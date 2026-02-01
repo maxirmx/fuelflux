@@ -133,6 +133,8 @@ set(SOURCES
     src/peripherals/flow_meter.cpp
     src/console_emulator.cpp
     src/backend.cpp
+    src/backend_factory.cpp
+    src/sim800c_backend.cpp
 )
 
 # Add NHD library sources if TARGET_REAL_DISPLAY is enabled
@@ -163,6 +165,8 @@ set(HEADERS
     include/peripherals/peripheral_interface.h
     include/console_emulator.h
     include/backend.h
+    include/backend_factory.h
+    include/sim800c_backend.h
     include/types.h
 )
 
@@ -282,6 +286,8 @@ if(ENABLE_TESTING)
         src/peripherals/flow_meter.cpp
         src/console_emulator.cpp
         src/backend.cpp
+        src/backend_factory.cpp
+        src/sim800c_backend.cpp
     )
     
     # Add NHD library sources if TARGET_REAL_DISPLAY is enabled
