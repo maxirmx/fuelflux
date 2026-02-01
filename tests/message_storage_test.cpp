@@ -13,7 +13,8 @@ using namespace fuelflux;
 namespace {
 
 std::string MakeTempDbPath() {
-    auto path = std::filesystem::temp_directory_path() / "fuelflux_storage_test.db";
+    const auto pattern = std::filesystem::path("fuelflux_storage_test-%%%%-%%%%-%%%%.db");
+    auto path = std::filesystem::temp_directory_path() / std::filesystem::unique_path(pattern);
     return path.string();
 }
 
