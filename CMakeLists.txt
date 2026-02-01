@@ -124,6 +124,8 @@ set(SOURCES
     src/state_machine.cpp
     src/controller.cpp
     src/logger.cpp
+    src/message_storage.cpp
+    src/backlog_worker.cpp
     src/peripherals/display.cpp
     src/peripherals/keyboard.cpp
     src/peripherals/card_reader.cpp
@@ -151,6 +153,8 @@ set(HEADERS
     include/state_machine.h
     include/controller.h
     include/logger.h
+    include/message_storage.h
+    include/backlog_worker.h
     include/peripherals/display.h
     include/peripherals/keyboard.h
     include/peripherals/card_reader.h
@@ -196,6 +200,9 @@ else()
     message(WARNING "OpenSSL not found. HTTPS support will be disabled, builds will succeed but HTTPS backends will be rejected at runtime.")
 endif()
 
+# SQLite for persistent message storage
+find_package(SQLite3 REQUIRED)
+
 # Link libraries
 target_link_libraries(fuelflux 
     PRIVATE 
@@ -203,6 +210,7 @@ target_link_libraries(fuelflux
     nlohmann_json::nlohmann_json 
     spdlog::spdlog
     httplib::httplib
+    SQLite::SQLite3
 )
 
 # Link real hardware libraries if TARGET_REAL_DISPLAY is enabled
@@ -256,6 +264,8 @@ if(ENABLE_TESTING)
     set(TEST_SOURCES
         tests/backend_test.cpp
         tests/controller_test.cpp
+        tests/message_storage_test.cpp
+        tests/backlog_worker_test.cpp
     )
 
     # Library sources (excluding main.cpp)
@@ -263,6 +273,8 @@ if(ENABLE_TESTING)
         src/state_machine.cpp
         src/controller.cpp
         src/logger.cpp
+        src/message_storage.cpp
+        src/backlog_worker.cpp
         src/peripherals/display.cpp
         src/peripherals/keyboard.cpp
         src/peripherals/card_reader.cpp
@@ -302,6 +314,7 @@ if(ENABLE_TESTING)
         nlohmann_json::nlohmann_json
         spdlog::spdlog
         httplib::httplib
+        SQLite::SQLite3
     )
     
     # Link real hardware libraries if TARGET_REAL_DISPLAY is enabled

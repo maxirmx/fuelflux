@@ -28,6 +28,8 @@ public:
     MOCK_METHOD(bool, Deauthorize, (), (override));
     MOCK_METHOD(bool, Refuel, (TankNumber tankNumber, Volume volume), (override));
     MOCK_METHOD(bool, Intake, (TankNumber tankNumber, Volume volume, IntakeDirection direction), (override));
+    MOCK_METHOD(bool, RefuelPayload, (const std::string& payload), (override));
+    MOCK_METHOD(bool, IntakePayload, (const std::string& payload), (override));
     MOCK_METHOD(bool, IsAuthorized, (), (const, override));
     MOCK_METHOD(const std::string&, GetToken, (), (const, override));
     MOCK_METHOD(int, GetRoleId, (), (const, override));
@@ -35,6 +37,7 @@ public:
     MOCK_METHOD(double, GetPrice, (), (const, override));
     MOCK_METHOD(const std::vector<BackendTankInfo>&, GetFuelTanks, (), (const, override));
     MOCK_METHOD(const std::string&, GetLastError, (), (const, override));
+    MOCK_METHOD(bool, IsNetworkError, (), (const, override));
 
     std::string tokenStorage_;
     std::vector<BackendTankInfo> tanksStorage_;

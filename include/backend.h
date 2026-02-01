@@ -12,6 +12,8 @@
 
 namespace fuelflux {
 
+class MessageStorage;
+
 // Tank information structure for backend
 struct BackendTankInfo {
     int idTank;
@@ -26,6 +28,8 @@ public:
     virtual bool Deauthorize() = 0;
     virtual bool Refuel(TankNumber tankNumber, Volume volume) = 0;
     virtual bool Intake(TankNumber tankNumber, Volume volume, IntakeDirection direction) = 0;
+    virtual bool RefuelPayload(const std::string& payload) = 0;
+    virtual bool IntakePayload(const std::string& payload) = 0;
     virtual bool IsAuthorized() const = 0;
     virtual const std::string& GetToken() const = 0;
     virtual int GetRoleId() const = 0;
@@ -33,6 +37,7 @@ public:
     virtual double GetPrice() const = 0;
     virtual const std::vector<BackendTankInfo>& GetFuelTanks() const = 0;
     virtual const std::string& GetLastError() const = 0;
+    virtual bool IsNetworkError() const = 0;
 };
 
 // Backend class for real REST API communication
@@ -42,7 +47,7 @@ public:
     // Parameters:
     //   baseAPI - base URL of backend REST API
     //   controllerUid - UID of controller
-    Backend(const std::string& baseAPI, const std::string& controllerUid);
+    Backend(const std::string& baseAPI, const std::string& controllerUid, std::shared_ptr<MessageStorage> storage = nullptr);
     
     ~Backend() override;
 
@@ -70,6 +75,12 @@ public:
     // Returns: true on success, false on failure
     bool Intake(TankNumber tankNumber, Volume volume, IntakeDirection direction) override;
 
+    // Refuel method using saved JSON payload
+    bool RefuelPayload(const std::string& payload) override;
+
+    // Fuel intake method using saved JSON payload
+    bool IntakePayload(const std::string& payload) override;
+
     // Getters for authorized state
     bool IsAuthorized() const override { return isAuthorized_; }
     const std::string& GetToken() const override { return token_; }
@@ -78,6 +89,7 @@ public:
     double GetPrice() const override { return price_; }
     const std::vector<BackendTankInfo>& GetFuelTanks() const override { return fuelTanks_; }
     const std::string& GetLastError() const override { return lastError_; }
+    bool IsNetworkError() const override;
 
 private:
     // Private method for common parsing of responses from the backend
@@ -95,6 +107,7 @@ private:
     
     // Authorization state
     bool isAuthorized_;
+    std::string authorizedUid_;
     
     // Instance variables set by Authorize
     std::string token_;
@@ -105,6 +118,8 @@ private:
     
     // Last error message
     std::string lastError_;
+
+    std::shared_ptr<MessageStorage> storage_;
 };
 
 } // namespace fuelflux
