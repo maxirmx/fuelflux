@@ -14,6 +14,7 @@ namespace fuelflux {
 // сообщениями об ошибке.
 inline const std::string StdControllerError = "Ошибка контроллера";
 inline const std::string StdBackendError = "Ошибка портала";
+inline const std::string StdDeviceError = "Ошибка устройства контроллера";
 constexpr int HttpRequestWrapperErrorCode = -1;
 inline const std::string HttpRequestWrapperErrorText = "Ошибка связи с сервером";
 

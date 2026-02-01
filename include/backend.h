@@ -7,6 +7,7 @@
 #include <string>
 #include <vector>
 #include <memory>
+#include <mutex>
 #include <nlohmann/json.hpp>
 #include "types.h"
 
@@ -41,6 +42,11 @@ public:
 };
 
 // Base backend class with shared logic for request/response handling
+// Thread safety: Derived classes must protect HttpRequestWrapper with a mutex.
+// State variables (isAuthorized_, token_, etc.) are modified only by Authorize/Deauthorize/
+// Refuel/Intake methods, which call HttpRequestWrapper. Getter methods read these variables
+// without synchronization. Applications should avoid concurrent calls to modifying methods
+// and getters, or use external synchronization if concurrent access is needed.
 class BackendBase : public IBackend {
 public:
     ~BackendBase() override = default;
@@ -103,6 +109,7 @@ private:
 
     // Base URL of backend REST API
     std::string baseAPI_;
+    std::recursive_mutex requestMutex_;
 };
 
 } // namespace fuelflux

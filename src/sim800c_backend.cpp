@@ -91,12 +91,18 @@ Sim800cBackend::Sim800cBackend(std::string apiUrl,
 
 Sim800cBackend::~Sim800cBackend() {
     if (serialFd_ >= 0) {
+        // Try to terminate any ongoing HTTP session before closing
+        std::string response;
+        SendCommand("AT+HTTPTERM", &response, responseTimeoutMs_);
+        
         ::close(serialFd_);
         serialFd_ = -1;
     }
 }
 
 bool Sim800cBackend::InitializeModem() {
+    std::lock_guard<std::recursive_mutex> lock(requestMutex_);
+    
     if (modemReady_) {
         return true;
     }
@@ -105,7 +111,7 @@ bool Sim800cBackend::InitializeModem() {
         serialFd_ = ::open(devicePath_.c_str(), O_RDWR | O_NOCTTY | O_SYNC);
         if (serialFd_ < 0) {
             LOG_BCK_ERROR("Failed to open SIM800C device {}: {}", devicePath_, std::strerror(errno));
-            lastError_ = HttpRequestWrapperErrorText;
+            lastError_ = StdDeviceError;
             networkError_ = true;
             return false;
         }
@@ -113,7 +119,7 @@ bool Sim800cBackend::InitializeModem() {
         termios tty{};
         if (tcgetattr(serialFd_, &tty) != 0) {
             LOG_BCK_ERROR("Failed to read serial attributes: {}", std::strerror(errno));
-            lastError_ = HttpRequestWrapperErrorText;
+            lastError_ = StdDeviceError;
             networkError_ = true;
             ::close(serialFd_);
             serialFd_ = -1;
@@ -123,7 +129,7 @@ bool Sim800cBackend::InitializeModem() {
         speed_t speed = MapBaudRate(baudRate_);
         if (speed == 0) {
             LOG_BCK_ERROR("Unsupported baud rate: {}", baudRate_);
-            lastError_ = StdControllerError;
+            lastError_ = StdDeviceError;
             ::close(serialFd_);
             serialFd_ = -1;
             return false;
@@ -143,7 +149,7 @@ bool Sim800cBackend::InitializeModem() {
 
         if (tcsetattr(serialFd_, TCSANOW, &tty) != 0) {
             LOG_BCK_ERROR("Failed to configure serial port: {}", std::strerror(errno));
-            lastError_ = HttpRequestWrapperErrorText;
+            lastError_ = StdDeviceError;
             networkError_ = true;
             ::close(serialFd_);
             serialFd_ = -1;
@@ -229,11 +235,30 @@ bool Sim800cBackend::EnsureBearer() {
 }
 
 bool Sim800cBackend::IsConnected() {
+    std::lock_guard<std::recursive_mutex> lock(requestMutex_);
+    
     std::string cregResponse;
     bool registered = false;
     if (SendCommand("AT+CREG?", &cregResponse, responseTimeoutMs_)) {
-        if (cregResponse.find(",1") != std::string::npos || cregResponse.find(",5") != std::string::npos) {
-            registered = true;
+        // Parse +CREG: <n>,<stat> response where <stat> is the second parameter
+        // <stat>=1 means registered, home network; <stat>=5 means registered, roaming
+        auto pos = cregResponse.find("+CREG:");
+        if (pos != std::string::npos) {
+            auto line = cregResponse.substr(pos);
+            auto commaPos = line.find(',');
+            if (commaPos != std::string::npos) {
+                // Find the second parameter after the comma
+                auto statStart = commaPos + 1;
+                while (statStart < line.size() && std::isspace(line[statStart])) {
+                    ++statStart;
+                }
+                if (statStart < line.size() && std::isdigit(line[statStart])) {
+                    int stat = line[statStart] - '0';
+                    if (stat == 1 || stat == 5) {
+                        registered = true;
+                    }
+                }
+            }
         }
     }
 
@@ -397,7 +422,7 @@ nlohmann::json Sim800cBackend::HttpRequestWrapper(const std::string& endpoint,
                                                   const std::string& method,
                                                   const nlohmann::json& requestBody,
                                                   bool useBearerToken) {
-    std::lock_guard<std::mutex> lock(requestMutex_);
+    std::lock_guard<std::recursive_mutex> lock(requestMutex_);
 
     networkError_ = false;
     if (!EnsureBearer()) {
@@ -408,7 +433,9 @@ nlohmann::json Sim800cBackend::HttpRequestWrapper(const std::string& endpoint,
     const std::string url = BuildUrl(endpoint);
     std::string response;
 
-    SendCommand("AT+HTTPTERM", &response, responseTimeoutMs_);
+    // Intentionally ignore the return value: HTTPTERM can fail if no HTTP context
+    // is currently active; we still proceed with HTTPINIT to establish a clean state.
+    (void)SendCommand("AT+HTTPTERM", &response, responseTimeoutMs_);
 
     if (!SendCommand("AT+HTTPINIT", &response, responseTimeoutMs_)) {
         LOG_BCK_ERROR("HTTPINIT failed: {}", response);
@@ -465,7 +492,7 @@ nlohmann::json Sim800cBackend::HttpRequestWrapper(const std::string& endpoint,
 
     std::ostringstream actionCmd;
     actionCmd << "AT+HTTPACTION=" << actionCode;
-    if (!SendCommand(actionCmd.str(), &response, responseTimeoutMs_)) {
+    if (!SendCommand(actionCmd.str(), &response, connectTimeoutMs_)) {
         LOG_BCK_ERROR("HTTPACTION failed: {}", response);
         networkError_ = true;
         return BuildWrapperErrorResponse();
@@ -474,21 +501,25 @@ nlohmann::json Sim800cBackend::HttpRequestWrapper(const std::string& endpoint,
     int status = 0;
     int length = 0;
     auto actionPos = response.find("+HTTPACTION:");
-    if (actionPos != std::string::npos) {
-        std::string actionLine = response.substr(actionPos);
-        const auto lineEnd = actionLine.find('\n');
-        if (lineEnd != std::string::npos) {
-            actionLine = actionLine.substr(0, lineEnd);
-        }
-        std::replace(actionLine.begin(), actionLine.end(), '\r', ' ');
-        std::replace(actionLine.begin(), actionLine.end(), '\n', ' ');
-        char tag[16];
-        int methodOut = 0;
-        if (std::sscanf(actionLine.c_str(), "%15[^:]: %d,%d,%d", tag, &methodOut, &status, &length) != 4) {
-            LOG_BCK_ERROR("Failed to parse HTTPACTION response: {}", actionLine);
-            networkError_ = true;
-            return BuildWrapperErrorResponse();
-        }
+    if (actionPos == std::string::npos) {
+        LOG_BCK_ERROR("HTTPACTION response missing +HTTPACTION: line");
+        networkError_ = true;
+        return BuildWrapperErrorResponse();
+    }
+    
+    std::string actionLine = response.substr(actionPos);
+    const auto lineEnd = actionLine.find('\n');
+    if (lineEnd != std::string::npos) {
+        actionLine = actionLine.substr(0, lineEnd);
+    }
+    std::replace(actionLine.begin(), actionLine.end(), '\r', ' ');
+    std::replace(actionLine.begin(), actionLine.end(), '\n', ' ');
+    char tag[16];
+    int methodOut = 0;
+    if (std::sscanf(actionLine.c_str(), "%15[^:]: %d,%d,%d", tag, &methodOut, &status, &length) != 4) {
+        LOG_BCK_ERROR("Failed to parse HTTPACTION response: {}", actionLine);
+        networkError_ = true;
+        return BuildWrapperErrorResponse();
     }
 
     if (status < 200 || status >= 300) {

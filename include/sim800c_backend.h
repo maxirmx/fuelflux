@@ -60,7 +60,7 @@ private:
     std::string apnPassword_;
     int connectTimeoutMs_;
     int responseTimeoutMs_;
-    std::mutex requestMutex_;
+    std::recursive_mutex requestMutex_;
 };
 
 } // namespace fuelflux
