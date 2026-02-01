@@ -91,10 +91,12 @@ Sim800cBackend::Sim800cBackend(std::string apiUrl,
 
 Sim800cBackend::~Sim800cBackend() {
     if (serialFd_ >= 0) {
-        // Try to terminate any ongoing HTTP session before closing
+        // Try to terminate any ongoing HTTP session before closing.
+        // Return value intentionally ignored: HTTPTERM can fail if no HTTP context
+        // is currently active; we proceed with closing regardless.
         std::lock_guard<std::recursive_mutex> lock(requestMutex_);
         std::string response;
-        SendCommand("AT+HTTPTERM", &response, responseTimeoutMs_);
+        (void)SendCommand("AT+HTTPTERM", &response, responseTimeoutMs_);
         
         ::close(serialFd_);
         serialFd_ = -1;
