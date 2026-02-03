@@ -296,7 +296,13 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
         int pumpLine = peripherals::pump_defaults::RELAY_PIN;
         bool pumpActiveLow = peripherals::pump_defaults::ACTIVE_LOW;
 
-        if (const char* env = std::getenv("FUELFLUX_PUMP_GPIO_CHIP")) pumpChip = env;
+        if (const char* env = std::getenv("FUELFLUX_PUMP_GPIO_CHIP")) {
+            if (*env != '\0') {
+                pumpChip = env;
+            } else {
+                LOG_WARN("FUELFLUX_PUMP_GPIO_CHIP is set but empty; using default {}", pumpChip);
+            }
+        }
         if (const char* env = std::getenv("FUELFLUX_PUMP_RELAY_PIN")) {
             if (*env != '\0') {
                 try {
@@ -314,11 +320,15 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
             }
         }
         if (const char* env = std::getenv("FUELFLUX_PUMP_ACTIVE_LOW")) {
-            std::string value = env;
-            for (auto& ch : value) {
-                ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+            if (*env != '\0') {
+                std::string value = env;
+                for (auto& ch : value) {
+                    ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+                }
+                pumpActiveLow = (value == "1" || value == "true" || value == "yes" || value == "on");
+            } else {
+                LOG_WARN("FUELFLUX_PUMP_ACTIVE_LOW is set but empty; using default {}", pumpActiveLow);
             }
-            pumpActiveLow = (value == "1" || value == "true" || value == "yes" || value == "on");
         }
 
         LOG_INFO("Pump relay configuration:");
