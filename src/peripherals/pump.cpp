@@ -66,7 +66,9 @@ void HardwarePump::shutdown() {
 
     LOG_PERIPH_INFO("Shutting down pump hardware...");
 #ifdef TARGET_REAL_PUMP
-    applyRelayState(false);
+    if (!applyRelayState(false)) {
+        LOG_PERIPH_WARN("Failed to turn off relay during shutdown; releasing line anyway");
+    }
     relayLine_.reset();
 #else
     stop();

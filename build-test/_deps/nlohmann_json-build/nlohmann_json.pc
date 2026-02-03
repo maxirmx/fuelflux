@@ -1,0 +1,7 @@
+prefix=/home/runner/work/fuelflux/fuelflux/build-test/install
+includedir=${prefix}/include
+
+Name: nlohmann_json
+Description: JSON for Modern C++
+Version: 3.12.0
+Cflags: -I${includedir}

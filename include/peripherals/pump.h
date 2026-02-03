@@ -41,9 +41,6 @@ public:
 private:
 #ifdef TARGET_REAL_PUMP
     bool applyRelayState(bool running);
-#endif
-
-#ifdef TARGET_REAL_PUMP
     std::string gpioChip_;
     int relayPin_;
     bool activeLow_;
