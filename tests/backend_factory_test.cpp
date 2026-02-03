@@ -194,8 +194,8 @@ TEST(BackendFactoryTest, StorageParameterForwarding) {
     std::filesystem::remove(dbPath);
 }
 
-// Test backend type consistency based on BACKEND_TYPE configuration
-// Note: This test verifies the factory creates the correct type based on config
+// Test backend type consistency based on TARGET_SIM800C compile flag
+// Note: This test verifies the factory creates the correct type based on build configuration
 TEST(BackendFactoryTest, BackendTypeConsistency) {
     auto backend1 = CreateBackend();
     auto backend2 = CreateBackend(nullptr);
