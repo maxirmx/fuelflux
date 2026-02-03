@@ -112,7 +112,10 @@ void HardwarePump::stop() {
     }
 
 #ifdef TARGET_REAL_PUMP
-    applyRelayState(false);
+    if (!applyRelayState(false)) {
+        LOG_PERIPH_ERROR("Cannot stop pump - failed to set relay state");
+        return;
+    }
 #endif
 
     LOG_PERIPH_INFO("Stopping pump...");
