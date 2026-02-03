@@ -242,17 +242,8 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
         emulator.printWelcome();
         
         auto storage = std::make_shared<MessageStorage>(STORAGE_DB_PATH);
+        auto backend = Controller::CreateDefaultBackend(storage);
 #ifdef TARGET_SIM800C
-        auto backend = std::make_unique<Sim800cBackend>(BACKEND_API_URL,
-                                                        controllerId,
-                                                        SIM800C_DEVICE_PATH,
-                                                        SIM800C_BAUD_RATE,
-                                                        SIM800C_APN,
-                                                        SIM800C_APN_USER,
-                                                        SIM800C_APN_PASSWORD,
-                                                        SIM800C_CONNECT_TIMEOUT_MS,
-                                                        SIM800C_RESPONSE_TIMEOUT_MS,
-                                                        storage);
         auto backlogBackend = std::make_shared<Sim800cBackend>(BACKEND_API_URL,
                                                                controllerId,
                                                                SIM800C_DEVICE_PATH,
@@ -264,7 +255,6 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
                                                                SIM800C_RESPONSE_TIMEOUT_MS,
                                                                nullptr);
 #else
-        auto backend = std::make_unique<Backend>(BACKEND_API_URL, controllerId, storage);
         auto backlogBackend = std::make_shared<Backend>(BACKEND_API_URL, controllerId, nullptr);
 #endif
         BacklogWorker backlogWorker(storage, backlogBackend, std::chrono::seconds(30));

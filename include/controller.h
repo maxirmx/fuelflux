@@ -104,6 +104,9 @@ class Controller {
     std::string formatVolume(Volume volume) const;
     std::string getCurrentTimeString() const;
     std::string getDeviceSerialNumber() const;
+    
+    // Backend creation helper
+    static std::unique_ptr<IBackend> CreateDefaultBackend(std::shared_ptr<MessageStorage> storage = nullptr);
 
   private:
     // Core components
@@ -140,7 +143,6 @@ class Controller {
     std::condition_variable eventCv_;
 
     // Helper methods
-    static std::unique_ptr<IBackend> CreateDefaultBackend(std::shared_ptr<MessageStorage> storage = nullptr);
     void setupPeripheralCallbacks();
     void processNumericInput();
     Volume parseVolumeFromInput() const;
