@@ -243,20 +243,7 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
         
         auto storage = std::make_shared<MessageStorage>(STORAGE_DB_PATH);
         auto backend = Controller::CreateDefaultBackend(storage);
-#ifdef TARGET_SIM800C
-        auto backlogBackend = std::make_shared<Sim800cBackend>(BACKEND_API_URL,
-                                                               controllerId,
-                                                               SIM800C_DEVICE_PATH,
-                                                               SIM800C_BAUD_RATE,
-                                                               SIM800C_APN,
-                                                               SIM800C_APN_USER,
-                                                               SIM800C_APN_PASSWORD,
-                                                               SIM800C_CONNECT_TIMEOUT_MS,
-                                                               SIM800C_RESPONSE_TIMEOUT_MS,
-                                                               nullptr);
-#else
-        auto backlogBackend = std::make_shared<Backend>(BACKEND_API_URL, controllerId, nullptr);
-#endif
+        auto backlogBackend = Controller::CreateDefaultBackendShared(controllerId, nullptr);
         BacklogWorker backlogWorker(storage, backlogBackend, std::chrono::seconds(30));
         backlogWorker.Start();
 

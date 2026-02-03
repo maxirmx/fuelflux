@@ -107,6 +107,8 @@ class Controller {
     
     // Backend creation helper
     static std::unique_ptr<IBackend> CreateDefaultBackend(std::shared_ptr<MessageStorage> storage = nullptr);
+    static std::shared_ptr<IBackend> CreateDefaultBackendShared(const std::string& controllerUid, 
+                                                                  std::shared_ptr<MessageStorage> storage = nullptr);
 
   private:
     // Core components

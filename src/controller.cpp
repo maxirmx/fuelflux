@@ -37,6 +37,24 @@ std::unique_ptr<IBackend> Controller::CreateDefaultBackend(std::shared_ptr<Messa
 #endif
 }
 
+std::shared_ptr<IBackend> Controller::CreateDefaultBackendShared(const std::string& controllerUid, 
+                                                                  std::shared_ptr<MessageStorage> storage) {
+#ifdef TARGET_SIM800C
+    return std::make_shared<Sim800cBackend>(BACKEND_API_URL,
+                                            controllerUid,
+                                            SIM800C_DEVICE_PATH,
+                                            SIM800C_BAUD_RATE,
+                                            SIM800C_APN,
+                                            SIM800C_APN_USER,
+                                            SIM800C_APN_PASSWORD,
+                                            SIM800C_CONNECT_TIMEOUT_MS,
+                                            SIM800C_RESPONSE_TIMEOUT_MS,
+                                            storage);
+#else
+    return std::make_shared<Backend>(BACKEND_API_URL, controllerUid, storage);
+#endif
+}
+
 Controller::Controller(ControllerId controllerId, std::unique_ptr<IBackend> backend)
     : controllerId_(std::move(controllerId))
     , stateMachine_(this)
