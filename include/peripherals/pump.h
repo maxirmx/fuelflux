@@ -4,11 +4,12 @@
 #include <memory>
 #include <string>
 
-namespace fuelflux::peripherals {
-
 #ifdef TARGET_REAL_PUMP
 class GpioLine;
+#endif
 
+namespace fuelflux::peripherals {
+#ifdef TARGET_REAL_PUMP
 namespace pump_defaults {
     constexpr const char* GPIO_CHIP = "/dev/gpiochip0";
     constexpr int RELAY_PIN = 259;
