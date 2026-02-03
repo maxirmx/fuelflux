@@ -7,6 +7,7 @@
 #include <string>
 #include <vector>
 #include <memory>
+#include <mutex>
 #include <nlohmann/json.hpp>
 #include "types.h"
 
@@ -40,8 +41,55 @@ public:
     virtual bool IsNetworkError() const = 0;
 };
 
+// Base backend class with shared logic for request/response handling
+// Thread safety: Derived classes must protect HttpRequestWrapper with a mutex.
+// State variables (isAuthorized_, token_, etc.) are modified only by Authorize/Deauthorize/
+// Refuel/Intake methods, which call HttpRequestWrapper. Getter methods read these variables
+// without synchronization. Applications should avoid concurrent calls to modifying methods
+// and getters, or use external synchronization if concurrent access is needed.
+class BackendBase : public IBackend {
+public:
+    ~BackendBase() override = default;
+
+    bool Authorize(const std::string& uid) override;
+    bool Deauthorize() override;
+    bool Refuel(TankNumber tankNumber, Volume volume) override;
+    bool Intake(TankNumber tankNumber, Volume volume, IntakeDirection direction) override;
+    bool RefuelPayload(const std::string& payload) override;
+    bool IntakePayload(const std::string& payload) override;
+
+    bool IsAuthorized() const override { return isAuthorized_; }
+    const std::string& GetToken() const override { return token_; }
+    int GetRoleId() const override { return roleId_; }
+    double GetAllowance() const override { return allowance_; }
+    double GetPrice() const override { return price_; }
+    const std::vector<BackendTankInfo>& GetFuelTanks() const override { return fuelTanks_; }
+    const std::string& GetLastError() const override { return lastError_; }
+    bool IsNetworkError() const override { return networkError_; }
+
+protected:
+    BackendBase(std::string controllerUid, std::shared_ptr<MessageStorage> storage);
+
+    virtual nlohmann::json HttpRequestWrapper(const std::string& endpoint,
+                                              const std::string& method,
+                                              const nlohmann::json& requestBody,
+                                              bool useBearerToken) = 0;
+
+    std::string controllerUid_;
+    std::string authorizedUid_;
+    bool isAuthorized_ = false;
+    std::string token_;
+    int roleId_ = 0;
+    double allowance_ = 0.0;
+    double price_ = 0.0;
+    std::vector<BackendTankInfo> fuelTanks_;
+    std::string lastError_;
+    bool networkError_ = false;
+    std::shared_ptr<MessageStorage> storage_;
+};
+
 // Backend class for real REST API communication
-class Backend : public IBackend {
+class Backend : public BackendBase {
 public:
     // Constructor
     // Parameters:
@@ -50,46 +98,6 @@ public:
     Backend(const std::string& baseAPI, const std::string& controllerUid, std::shared_ptr<MessageStorage> storage = nullptr);
     
     ~Backend() override;
-
-    // Authorize method
-    // Parameter: uid - card UID
-    // Returns: true on success, false on failure
-    bool Authorize(const std::string& uid) override;
-
-    // Deauthorize method
-    // Returns: true on success, false on failure
-    bool Deauthorize() override;
-
-    // Refuel method
-    // Parameters:
-    //   tankNumber - fuel tank number
-    //   volume - fuel volume to refuel
-    // Returns: true on success, false on failure
-    bool Refuel(TankNumber tankNumber, Volume volume) override;
-
-    // Fuel intake method
-    // Parameters:
-    //   tankNumber - fuel tank number
-    //   volume - intake volume
-    //   direction - intake direction (in/out)
-    // Returns: true on success, false on failure
-    bool Intake(TankNumber tankNumber, Volume volume, IntakeDirection direction) override;
-
-    // Refuel method using saved JSON payload
-    bool RefuelPayload(const std::string& payload) override;
-
-    // Fuel intake method using saved JSON payload
-    bool IntakePayload(const std::string& payload) override;
-
-    // Getters for authorized state
-    bool IsAuthorized() const override { return isAuthorized_; }
-    const std::string& GetToken() const override { return token_; }
-    int GetRoleId() const override { return roleId_; }
-    double GetAllowance() const override { return allowance_; }
-    double GetPrice() const override { return price_; }
-    const std::vector<BackendTankInfo>& GetFuelTanks() const override { return fuelTanks_; }
-    const std::string& GetLastError() const override { return lastError_; }
-    bool IsNetworkError() const override;
 
 private:
     // Private method for common parsing of responses from the backend
@@ -101,25 +109,7 @@ private:
 
     // Base URL of backend REST API
     std::string baseAPI_;
-    
-    // Controller UID
-    std::string controllerUid_;
-    
-    // Authorization state
-    bool isAuthorized_;
-    std::string authorizedUid_;
-    
-    // Instance variables set by Authorize
-    std::string token_;
-    int roleId_;
-    double allowance_;
-    double price_;
-    std::vector<BackendTankInfo> fuelTanks_;
-    
-    // Last error message
-    std::string lastError_;
-
-    std::shared_ptr<MessageStorage> storage_;
+    std::recursive_mutex requestMutex_;
 };
 
 } // namespace fuelflux

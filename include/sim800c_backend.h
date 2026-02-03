@@ -5,6 +5,7 @@
 #pragma once
 
 #include <memory>
+#include <mutex>
 #include <string>
 #include <vector>
 #include "backend.h"
@@ -13,52 +14,53 @@ namespace fuelflux {
 
 class MessageStorage;
 
-class Sim800cBackend : public IBackend {
+class Sim800cBackend : public BackendBase {
 public:
     Sim800cBackend(std::string apiUrl,
                    std::string controllerUid,
                    std::string devicePath,
                    int baudRate,
                    std::string apn,
+                   std::string apnUser,
+                   std::string apnPassword,
                    int connectTimeoutMs,
                    int responseTimeoutMs,
                    std::shared_ptr<MessageStorage> storage = nullptr);
     ~Sim800cBackend() override;
 
-    bool Authorize(const std::string& uid) override;
-    bool Deauthorize() override;
-    bool Refuel(TankNumber tankNumber, Volume volume) override;
-    bool Intake(TankNumber tankNumber, Volume volume, IntakeDirection direction) override;
-    bool RefuelPayload(const std::string& payload) override;
-    bool IntakePayload(const std::string& payload) override;
-    bool IsAuthorized() const override { return isAuthorized_; }
-    const std::string& GetToken() const override { return token_; }
-    int GetRoleId() const override { return roleId_; }
-    double GetAllowance() const override { return allowance_; }
-    double GetPrice() const override { return price_; }
-    const std::vector<BackendTankInfo>& GetFuelTanks() const override { return fuelTanks_; }
-    const std::string& GetLastError() const override { return lastError_; }
-    bool IsNetworkError() const override { return networkError_; }
+private:
+    bool InitializeModem();
+    bool EnsureBearer();
+    bool IsConnected();
+    bool SendCommand(const std::string& command,
+                     std::string* response,
+                     int timeoutMs,
+                     const std::vector<std::string>& terminators = {"OK", "ERROR"});
+    bool SendRaw(const std::string& data);
+    bool SendHttpData(const std::string& payload);
+
+protected:
+    nlohmann::json HttpRequestWrapper(const std::string& endpoint,
+                                      const std::string& method,
+                                      const nlohmann::json& requestBody,
+                                      bool useBearerToken);
 
 private:
-    bool setNotImplemented(const std::string& operation);
+    std::string BuildUrl(const std::string& endpoint) const;
+    std::string EscapeAtString(const std::string& input) const;
+    int serialFd_ = -1;
+    bool modemReady_ = false;
+    bool bearerReady_ = false;
 
     std::string apiUrl_;
-    std::string controllerUid_;
     std::string devicePath_;
     int baudRate_;
     std::string apn_;
+    std::string apnUser_;
+    std::string apnPassword_;
     int connectTimeoutMs_;
     int responseTimeoutMs_;
-    bool isAuthorized_ = false;
-    std::string token_;
-    int roleId_ = 0;
-    double allowance_ = 0.0;
-    double price_ = 0.0;
-    std::vector<BackendTankInfo> fuelTanks_;
-    std::string lastError_;
-    bool networkError_ = false;
-    std::shared_ptr<MessageStorage> storage_;
+    std::recursive_mutex requestMutex_;
 };
 
 } // namespace fuelflux

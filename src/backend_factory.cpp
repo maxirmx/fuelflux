@@ -23,6 +23,8 @@ std::unique_ptr<IBackend> CreateBackend(std::shared_ptr<MessageStorage> storage)
                                                     SIM800C_DEVICE_PATH,
                                                     SIM800C_BAUD_RATE,
                                                     SIM800C_APN,
+                                                    SIM800C_APN_USER,
+                                                    SIM800C_APN_PASSWORD,
                                                     SIM800C_CONNECT_TIMEOUT_MS,
                                                     SIM800C_RESPONSE_TIMEOUT_MS,
                                                     std::move(storage));
