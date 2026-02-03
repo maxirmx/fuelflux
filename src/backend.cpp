@@ -38,8 +38,7 @@ nlohmann::json Backend::HttpRequestWrapper(const std::string& endpoint,
                                            const std::string& method,
                                            const nlohmann::json& requestBody,
                                            bool useBearerToken) {
-    static std::mutex requestMutex;
-    std::lock_guard<std::mutex> lock(requestMutex);
+    std::lock_guard<std::recursive_mutex> lock(requestMutex_);
 
     networkError_ = false;
 
