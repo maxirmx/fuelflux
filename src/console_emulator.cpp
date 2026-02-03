@@ -514,7 +514,7 @@ ConsoleFlowMeter::ConsoleFlowMeter()
     , isMeasuring_(false)
     , currentVolume_(0.0)
     , totalVolume_(0.0)
-    , flowRate_(5.0) // 5 liters per second as per requirement
+    , flowRate_(0.05) 
     , shouldStop_(false)
 {
 }

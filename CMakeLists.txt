@@ -20,6 +20,7 @@ endif()
 
 # Real hardware peripheral flags: set by default on ARM, unset on Windows
 if(MSVC)
+    option(TARGET_SIM800C "Enable SIM800C backend" OFF) 
     option(TARGET_REAL_DISPLAY "Use real NHD display hardware" OFF)
     option(TARGET_REAL_KEYBOARD "Use real keyboard hardware" OFF)
     option(TARGET_REAL_CARD_READER "Use real card reader hardware" OFF)
@@ -27,12 +28,18 @@ if(MSVC)
     option(TARGET_REAL_FLOW_METER "Use real flow meter hardware" OFF)
     option(ENABLE_TESTING "Enable testing" ON)
 else()
+    option(TARGET_SIM800C "Use SIM800C backend" ON) 
     option(TARGET_REAL_DISPLAY "Use real NHD display hardware" OFF)   # OFF for now
     option(TARGET_REAL_KEYBOARD "Use real keyboard hardware" OFF)
     option(TARGET_REAL_CARD_READER "Use real card reader hardware" ON)
     option(TARGET_REAL_PUMP "Use real pump hardware" ON)
     option(TARGET_REAL_FLOW_METER "Use real flow meter hardware" OFF)
     option(ENABLE_TESTING "Enable testing" OFF)
+endif()
+
+if(TARGET_SIM800C)
+    message(STATUS "Targeting SIM800C backend")
+    add_compile_definitions(TARGET_SIM800C)
 endif()
 
 if(TARGET_REAL_DISPLAY)
@@ -139,14 +146,17 @@ set(SOURCES
     src/backend.cpp
     src/backend_base.cpp
     src/backend_factory.cpp
-    src/sim800c_backend.cpp
 )
+
+# Add SIM800C backend only on non-MSVC platforms (Linux/ARM)
+# It uses Linux-specific headers like <sys/select.h>, <termios.h>, <unistd.h>
+if(TARGET_SIM800C)
+    list(APPEND SOURCES src/sim800c_backend.cpp)
+endif()
 
 # Add shared GPIO implementation for real hardware targets
 if(TARGET_REAL_DISPLAY OR TARGET_REAL_PUMP)
-    list(APPEND SOURCES
-        src/peripherals/gpio_gpiod.cpp
-    )
+    list(APPEND SOURCES src/peripherals/gpio_gpiod.cpp )
 endif()
 
 # Add NHD library sources if TARGET_REAL_DISPLAY is enabled
@@ -177,15 +187,17 @@ set(HEADERS
     include/console_emulator.h
     include/backend.h
     include/backend_factory.h
-    include/sim800c_backend.h
     include/types.h
 )
 
+# Add SIM800C backend header only on non-MSVC platforms
+if(TARGET_SIM800C)
+    list(APPEND HEADERS include/sim800c_backend.h)
+endif()
+
 # Add shared GPIO header for real hardware targets
 if(TARGET_REAL_DISPLAY OR TARGET_REAL_PUMP)
-    list(APPEND HEADERS
-        include/peripherals/gpio_gpiod.h
-    )
+    list(APPEND HEADERS include/peripherals/gpio_gpiod.h)
 endif()
 
 # Add NHD library headers if TARGET_REAL_DISPLAY is enabled
@@ -312,8 +324,11 @@ if(ENABLE_TESTING)
         src/backend.cpp
         src/backend_base.cpp
         src/backend_factory.cpp
-        src/sim800c_backend.cpp
     )
+
+    if(TARGET_SIM800C)
+        list(APPEND LIB_SOURCES src/sim800c_backend.cpp)
+    endif()
     
     # Add shared GPIO implementation for real hardware targets
     if(TARGET_REAL_DISPLAY OR TARGET_REAL_PUMP)

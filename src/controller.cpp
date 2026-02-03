@@ -1,4 +1,4 @@
-// Copyright (C) 2025 Maxim [maxirmx] Samsonov (www.sw.consulting)
+﻿// Copyright (C) 2025 Maxim [maxirmx] Samsonov (www.sw.consulting)
 // All rights reserved.
 // This file is a part of fuelflux application
 
@@ -170,8 +170,8 @@ void Controller::handleKeyPress(KeyCode key) {
         case KeyCode::Key8:
         case KeyCode::Key9:
             // Detect first digit in Waiting state -> transition to PinEntry
-            if (currentState == SystemState::Waiting && 
-                currentInput_.empty()) {
+            if (currentState == SystemState::Waiting || currentState == SystemState::RefuelingComplete) {
+                currentInput_.clear();
                 postEvent(Event::PinEntryStarted);
             }
             addDigitToInput(static_cast<char>(key));
@@ -260,9 +260,9 @@ void Controller::showError(const std::string& message) {
     lastErrorMessage_ = message;
     if (display_) {
         DisplayMessage errorMsg;
-        errorMsg.line1 = "ERROR";
+        errorMsg.line1 = "ОШИБКА";
         errorMsg.line2 = message;
-        errorMsg.line3 = "Press Cancel (B) to continue";
+        errorMsg.line3 = "Нажмите ОТМЕНА (B)";
         errorMsg.line4 = getCurrentTimeString();
         display_->showMessage(errorMsg);
     }
@@ -382,7 +382,7 @@ bool Controller::isTankValid(TankNumber tankNumber) const {
 void Controller::enterVolume(Volume volume) {
     // Validate volume
     if (volume <= 0.0) {
-        showError("Invalid volume");
+        showError("Неправильный объём");
         clearInput();
         return;
     }
@@ -390,7 +390,7 @@ void Controller::enterVolume(Volume volume) {
     // Validate volume against allowance for customers
     if (currentUser_.role == UserRole::Customer) {
         if (volume > currentUser_.allowance) {
-            showError("Volume exceeds allowance");
+            showError("Превышение объёма");
             clearInput();
             return;
         }
@@ -442,7 +442,7 @@ void Controller::startFuelIntake() {
 
 void Controller::enterIntakeVolume(Volume volume) {
     if (volume <= 0.0) {
-        showError("Invalid volume");
+        showError("Неправильный объём");
         clearInput();
         return;
     }
@@ -504,6 +504,13 @@ std::string Controller::getDeviceSerialNumber() const {
     return controllerId_;
 }
 
+void Controller::enableCardReading(bool enabled) {
+    if (cardReader_) {
+        cardReader_->enableReading(enabled);
+        LOG_CTRL_DEBUG("Card reading {}", enabled ? "enabled" : "disabled");
+    }
+}
+
 // Private helper methods
 void Controller::setupPeripheralCallbacks() {
     if (keyboard_) {
@@ -517,7 +524,9 @@ void Controller::setupPeripheralCallbacks() {
         cardReader_->setCardPresentedCallback([this](const UserId& userId) {
             handleCardPresented(userId);
         });
-        cardReader_->enableReading(true);
+        // Card reading is disabled by default - state machine will enable it
+        // only when in Waiting or PinEntry states
+        cardReader_->enableReading(false);
     }
     
     if (pump_) {
@@ -550,11 +559,11 @@ void Controller::processNumericInput() {
                     if (isTankValid(tank)) {
                         selectTank(tank);
                     } else {
-                        showError("Invalid tank number");
+                        showError("Неправильная цистерна");
                         clearInput();
                     }
                 } else {
-                    showError("Invalid tank number");
+                    showError("Неправильная цистерна");
                     clearInput();
                 }
             }
@@ -566,7 +575,7 @@ void Controller::processNumericInput() {
             } else if (currentInput_ == "2") {
                 selectIntakeDirection(IntakeDirection::Out);
             } else {
-                showError("Invalid direction");
+                showError("Неправильная операция");
                 clearInput();
             }
             break;
@@ -576,7 +585,7 @@ void Controller::processNumericInput() {
             if (volume > 0.0) {
                 enterVolume(volume);
             } else {
-                showError("Invalid volume");
+                showError("Неправильный объём");
                 clearInput();
             }
             break;
@@ -587,7 +596,7 @@ void Controller::processNumericInput() {
             if (volume > 0.0) {
                 enterIntakeVolume(volume);
             } else {
-                showError("Invalid volume");
+                showError("Неправильный объём");
                 clearInput();
             }
             break;

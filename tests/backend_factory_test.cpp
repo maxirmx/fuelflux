@@ -61,15 +61,16 @@ TEST(BackendFactoryTest, CreateBackendWithValidStorage) {
     const std::string dbPath = MakeTempDbPath();
     std::filesystem::remove(dbPath);
     
-    auto storage = std::make_shared<MessageStorage>(dbPath);
-    ASSERT_TRUE(storage->IsOpen());
+    {
+        auto storage = std::make_shared<MessageStorage>(dbPath);
+        ASSERT_TRUE(storage->IsOpen());
     
-    auto backend = CreateBackend(storage);
-    
-    ASSERT_NE(backend, nullptr);
-    EXPECT_FALSE(backend->IsAuthorized());
-    EXPECT_EQ(backend->GetToken(), "");
-    
+        auto backend = CreateBackend(storage);
+
+        ASSERT_NE(backend, nullptr);
+        EXPECT_FALSE(backend->IsAuthorized());
+        EXPECT_EQ(backend->GetToken(), "");
+    }
     std::filesystem::remove(dbPath);
 }
 
@@ -98,16 +99,16 @@ TEST(BackendFactoryTest, CreateBackendSharedWithDefaultParameter) {
 TEST(BackendFactoryTest, CreateBackendSharedWithValidStorage) {
     const std::string dbPath = MakeTempDbPath();
     std::filesystem::remove(dbPath);
-    
-    auto storage = std::make_shared<MessageStorage>(dbPath);
-    ASSERT_TRUE(storage->IsOpen());
-    
-    auto backend = CreateBackendShared(storage);
-    
-    ASSERT_NE(backend, nullptr);
-    EXPECT_FALSE(backend->IsAuthorized());
-    EXPECT_EQ(backend->GetToken(), "");
-    
+    {
+        auto storage = std::make_shared<MessageStorage>(dbPath);
+        ASSERT_TRUE(storage->IsOpen());
+
+        auto backend = CreateBackendShared(storage);
+
+        ASSERT_NE(backend, nullptr);
+        EXPECT_FALSE(backend->IsAuthorized());
+        EXPECT_EQ(backend->GetToken(), "");
+    }
     std::filesystem::remove(dbPath);
 }
 
@@ -144,19 +145,20 @@ TEST(BackendFactoryTest, MultipleBackendsWithSameStorage) {
     const std::string dbPath = MakeTempDbPath();
     std::filesystem::remove(dbPath);
     
-    auto storage = std::make_shared<MessageStorage>(dbPath);
-    ASSERT_TRUE(storage->IsOpen());
-    
-    auto backend1 = CreateBackend(storage);
-    auto backend2 = CreateBackendShared(storage);
-    
-    ASSERT_NE(backend1, nullptr);
-    ASSERT_NE(backend2, nullptr);
-    
-    // Both should be independent backend instances
-    EXPECT_FALSE(backend1->IsAuthorized());
-    EXPECT_FALSE(backend2->IsAuthorized());
-    
+    {
+        auto storage = std::make_shared<MessageStorage>(dbPath);
+        ASSERT_TRUE(storage->IsOpen());
+
+        auto backend1 = CreateBackend(storage);
+        auto backend2 = CreateBackendShared(storage);
+
+        ASSERT_NE(backend1, nullptr);
+        ASSERT_NE(backend2, nullptr);
+
+        // Both should be independent backend instances
+        EXPECT_FALSE(backend1->IsAuthorized());
+        EXPECT_FALSE(backend2->IsAuthorized());
+    }
     std::filesystem::remove(dbPath);
 }
 
@@ -175,19 +177,20 @@ TEST(BackendFactoryTest, StorageParameterForwarding) {
     const std::string dbPath = MakeTempDbPath();
     std::filesystem::remove(dbPath);
     
-    // Create storage with a backlog message
-    auto storage = std::make_shared<MessageStorage>(dbPath);
-    ASSERT_TRUE(storage->IsOpen());
-    ASSERT_TRUE(storage->AddBacklog("test-uid", MessageMethod::Refuel, "{\"test\":\"data\"}"));
-    EXPECT_EQ(storage->BacklogCount(), 1);
-    
-    // Create backend with this storage
-    auto backend = CreateBackend(storage);
-    ASSERT_NE(backend, nullptr);
-    
-    // Verify storage is still accessible and has the backlog
-    EXPECT_EQ(storage->BacklogCount(), 1);
-    
+    {
+        auto storage = std::make_shared<MessageStorage>(dbPath);
+        ASSERT_TRUE(storage->IsOpen());
+        ASSERT_TRUE(storage->AddBacklog("test-uid", MessageMethod::Refuel, "{\"test\":\"data\"}"));
+        EXPECT_EQ(storage->BacklogCount(), 1);
+
+        // Create backend with this storage
+        auto backend = CreateBackend(storage);
+        ASSERT_NE(backend, nullptr);
+
+        // Verify storage is still accessible and has the backlog
+        EXPECT_EQ(storage->BacklogCount(), 1);
+    }
+
     std::filesystem::remove(dbPath);
 }
 

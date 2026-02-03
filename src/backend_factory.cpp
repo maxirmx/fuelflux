@@ -9,7 +9,10 @@
 #include "backend.h"
 #include "config.h"
 #include "logger.h"
+
+#ifdef TARGET_SIM800C
 #include "sim800c_backend.h"
+#endif
 
 namespace fuelflux {
 
@@ -17,6 +20,7 @@ std::unique_ptr<IBackend> CreateBackend(std::shared_ptr<MessageStorage> storage)
     switch (BACKEND_TYPE) {
         case BackendType::Http:
             return std::make_unique<Backend>(BACKEND_API_URL, CONTROLLER_UID, std::move(storage));
+#ifdef TARGET_SIM800C
         case BackendType::SIM800C:
             return std::make_unique<Sim800cBackend>(BACKEND_API_URL,
                                                     CONTROLLER_UID,
@@ -28,6 +32,7 @@ std::unique_ptr<IBackend> CreateBackend(std::shared_ptr<MessageStorage> storage)
                                                     SIM800C_CONNECT_TIMEOUT_MS,
                                                     SIM800C_RESPONSE_TIMEOUT_MS,
                                                     std::move(storage));
+#endif
         default:
             LOG_BCK_WARN("Unknown backend type requested; defaulting to HTTP backend");
             return std::make_unique<Backend>(BACKEND_API_URL, CONTROLLER_UID, std::move(storage));

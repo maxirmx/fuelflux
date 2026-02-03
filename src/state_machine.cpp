@@ -233,12 +233,13 @@ void StateMachine::setupTransitions() {
     transitions_[{SystemState::Refueling, Event::IntakeSelected}]      = {SystemState::Refueling,         noOp};
     transitions_[{SystemState::Refueling, Event::IntakeVolumeEntered}] = {SystemState::Refueling,         noOp};
     transitions_[{SystemState::Refueling, Event::IntakeComplete}]      = {SystemState::Refueling,         noOp};
-    transitions_[{SystemState::Refueling, Event::CancelPressed}]       = {SystemState::RefuelingComplete, [this]() { onRefuelingStopped();     }};
+    transitions_[{SystemState::Refueling, Event::CancelPressed}]       = {SystemState::RefuelingComplete, [this]() { onCancelRefueling();      }};
     transitions_[{SystemState::Refueling, Event::Timeout}]             = {SystemState::Refueling,         noOp};
     transitions_[{SystemState::Refueling, Event::Error}]               = {SystemState::Error,             [this]() { onError();                }};
 
     // From RefuelingComplete state
     transitions_[{SystemState::RefuelingComplete, Event::CardPresented}]       = {SystemState::Authorization,     [this]() { onCardPresented();        }};
+    transitions_[{SystemState::RefuelingComplete, Event::PinEntryStarted}]     = {SystemState::PinEntry,          [this]() { onPinEntryStarted();      }};
     transitions_[{SystemState::RefuelingComplete, Event::PinEntered}]          = {SystemState::Authorization,     [this]() { onPinEntered();           }};
     transitions_[{SystemState::RefuelingComplete, Event::AuthorizationSuccess}]= {SystemState::RefuelingComplete, noOp};
     transitions_[{SystemState::RefuelingComplete, Event::AuthorizationFailed}] = {SystemState::RefuelingComplete, noOp};
@@ -250,7 +251,7 @@ void StateMachine::setupTransitions() {
     transitions_[{SystemState::RefuelingComplete, Event::IntakeSelected}]      = {SystemState::RefuelingComplete, noOp};
     transitions_[{SystemState::RefuelingComplete, Event::IntakeVolumeEntered}] = {SystemState::RefuelingComplete, noOp};
     transitions_[{SystemState::RefuelingComplete, Event::IntakeComplete}]      = {SystemState::RefuelingComplete, noOp};
-    transitions_[{SystemState::RefuelingComplete, Event::CancelPressed}]       = {SystemState::RefuelingComplete, noOp};
+    transitions_[{SystemState::RefuelingComplete, Event::CancelPressed}]       = {SystemState::Waiting,           [this]() { onCancelPressed();        }};
     transitions_[{SystemState::RefuelingComplete, Event::Timeout}]             = {SystemState::Waiting,           [this]() { onTimeout();              }};
     transitions_[{SystemState::RefuelingComplete, Event::Error}]               = {SystemState::Error,             [this]() { onError();                }};
 
@@ -330,6 +331,12 @@ void StateMachine::onEnterState(SystemState state) {
     LOG_SM_INFO("Entering state: {}", static_cast<int>(state));
 
     if (controller_) {
+        // Enable card reading only in Waiting state.
+        // In PinEntry state, the user is entering a PIN via keyboard,
+        // so NFC reading should be disabled to avoid interference.
+        bool cardReadingEnabled = (state == SystemState::Waiting || state == SystemState::RefuelingComplete);
+        controller_->enableCardReading(cardReadingEnabled);
+        
         controller_->updateDisplay();
     }
 }
@@ -511,6 +518,15 @@ void StateMachine::onRefuelingStopped() {
         // volume to zero when entering RefuelingComplete. Keep the session
         // active so the actual pumped/intake value remains visible. The
         // session is cleaned up on timeout or other user interactions.
+        controller_->completeRefueling();
+    }
+}
+
+void StateMachine::onCancelRefueling() {
+    LOG_SM_INFO("Refueling cancelled by user");
+    if (controller_) {
+        // Stop pump and flowmeter first, then log the transaction
+        controller_->stopRefueling();
         controller_->completeRefueling();
     }
 }

@@ -59,22 +59,24 @@ TEST(MessageStorageTest, FetchesAndRemovesBacklogInOrder) {
     const std::string dbPath = MakeTempDbPath();
     std::filesystem::remove(dbPath);
 
-    MessageStorage storage(dbPath);
-    ASSERT_TRUE(storage.AddBacklog("uid-1", MessageMethod::Refuel, "{\"TankNumber\":1}"));
-    ASSERT_TRUE(storage.AddBacklog("uid-2", MessageMethod::Intake, "{\"TankNumber\":2}"));
+    {
+        MessageStorage storage(dbPath);
+        ASSERT_TRUE(storage.AddBacklog("uid-1", MessageMethod::Refuel, "{\"TankNumber\":1}"));
+        ASSERT_TRUE(storage.AddBacklog("uid-2", MessageMethod::Intake, "{\"TankNumber\":2}"));
 
-    auto first = storage.GetNextBacklog();
-    ASSERT_TRUE(first.has_value());
-    EXPECT_EQ(first->uid, "uid-1");
-    EXPECT_EQ(first->method, MessageMethod::Refuel);
+        auto first = storage.GetNextBacklog();
+        ASSERT_TRUE(first.has_value());
+        EXPECT_EQ(first->uid, "uid-1");
+        EXPECT_EQ(first->method, MessageMethod::Refuel);
 
-    EXPECT_TRUE(storage.RemoveBacklog(first->id));
-    EXPECT_EQ(storage.BacklogCount(), 1);
+        EXPECT_TRUE(storage.RemoveBacklog(first->id));
+        EXPECT_EQ(storage.BacklogCount(), 1);
 
-    auto second = storage.GetNextBacklog();
-    ASSERT_TRUE(second.has_value());
-    EXPECT_EQ(second->uid, "uid-2");
-    EXPECT_EQ(second->method, MessageMethod::Intake);
+        auto second = storage.GetNextBacklog();
+        ASSERT_TRUE(second.has_value());
+        EXPECT_EQ(second->uid, "uid-2");
+        EXPECT_EQ(second->method, MessageMethod::Intake);
+    }
 
     std::filesystem::remove(dbPath);
 }

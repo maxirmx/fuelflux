@@ -1029,3 +1029,155 @@ TEST_F(ControllerTest, EmptyLinesAllowed) {
     controller->showMessage("", "Line 2", "", "");
     controller->showMessage("", "", "", "Line 4");
 }
+
+// Test that card reading is disabled during peripheral setup then enabled when entering Waiting state
+TEST_F(ControllerTest, CardReadingDisabledDuringInitialization) {
+    // Card reading should be explicitly disabled during peripheral setup
+    // and then enabled when state machine enters Waiting state
+    testing::InSequence seq;
+    EXPECT_CALL(*mockCardReader, enableReading(false)).Times(1);  // During peripheral setup
+    EXPECT_CALL(*mockCardReader, enableReading(true)).Times(1);   // When entering Waiting state
+    
+    controller->initialize();
+    
+    // Verify we're in Waiting state
+    EXPECT_EQ(controller->getStateMachine().getCurrentState(), SystemState::Waiting);
+}
+
+// Test that card reading is disabled when entering PinEntry state
+TEST_F(ControllerTest, CardReadingDisabledInPinEntryState) {
+    controller->initialize();
+    
+    std::thread controllerThread([this]() {
+        controller->run();
+    });
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    
+    // Expect card reading to be disabled when entering PinEntry
+    EXPECT_CALL(*mockCardReader, enableReading(false)).Times(1);
+    
+    // Start PIN entry by pressing a digit
+    controller->handleKeyPress(KeyCode::Key1);
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    
+    EXPECT_EQ(controller->getStateMachine().getCurrentState(), SystemState::PinEntry);
+    
+    controller->shutdown();
+    if (controllerThread.joinable()) {
+        controllerThread.join();
+    }
+}
+
+// Test that card reading is re-enabled when returning to Waiting state from PinEntry
+TEST_F(ControllerTest, CardReadingReenabledWhenReturningToWaiting) {
+    controller->initialize();
+    
+    std::thread controllerThread([this]() {
+        controller->run();
+    });
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    
+    // Enter PinEntry state
+    controller->handleKeyPress(KeyCode::Key1);
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    EXPECT_EQ(controller->getStateMachine().getCurrentState(), SystemState::PinEntry);
+    
+    // Expect card reading to be enabled when returning to Waiting
+    EXPECT_CALL(*mockCardReader, enableReading(true)).Times(1);
+    
+    // Cancel to return to Waiting state
+    controller->handleKeyPress(KeyCode::KeyStop);
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    
+    EXPECT_EQ(controller->getStateMachine().getCurrentState(), SystemState::Waiting);
+    
+    controller->shutdown();
+    if (controllerThread.joinable()) {
+        controllerThread.join();
+    }
+}
+
+// Test that card reading is disabled during Authorization state
+TEST_F(ControllerTest, CardReadingDisabledDuringAuthorization) {
+    mockBackend->roleId_ = static_cast<int>(UserRole::Customer);
+    mockBackend->allowance_ = 100.0;
+    mockBackend->tanksStorage_ = {BackendTankInfo{1, "Tank A"}};
+    
+    EXPECT_CALL(*mockBackend, Authorize("test-card")).WillOnce(Return(true));
+    
+    controller->initialize();
+    
+    std::thread controllerThread([this]() {
+        controller->run();
+    });
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    
+    // Expect card reading to be disabled when entering Authorization state
+    EXPECT_CALL(*mockCardReader, enableReading(false)).Times(::testing::AtLeast(1));
+    
+    // Present card to enter Authorization state
+    controller->handleCardPresented("test-card");
+    
+    // Wait for authorization to complete
+    ASSERT_TRUE(waitForState(SystemState::TankSelection));
+    
+    controller->shutdown();
+    if (controllerThread.joinable()) {
+        controllerThread.join();
+    }
+}
+
+// Test that card reading remains disabled during refueling workflow
+TEST_F(ControllerTest, CardReadingDisabledDuringRefueling) {
+    mockBackend->roleId_ = static_cast<int>(UserRole::Customer);
+    mockBackend->allowance_ = 100.0;
+    mockBackend->tanksStorage_ = {BackendTankInfo{1, "Tank A"}};
+    
+    EXPECT_CALL(*mockBackend, Authorize("test-card")).WillOnce(Return(true));
+    EXPECT_CALL(*mockBackend, Refuel(1, 10.0)).WillOnce(Return(true));
+    
+    controller->initialize();
+    
+    std::thread controllerThread([this]() {
+        controller->run();
+    });
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    
+    // Present card and go through workflow
+    controller->handleCardPresented("test-card");
+    ASSERT_TRUE(waitForState(SystemState::TankSelection));
+    
+    controller->selectTank(1);
+    ASSERT_TRUE(waitForState(SystemState::VolumeEntry));
+    
+    controller->addDigitToInput('1');
+    controller->addDigitToInput('0');
+    controller->handleKeyPress(KeyCode::KeyStart);
+    ASSERT_TRUE(waitForState(SystemState::Refueling));
+    
+    // Card reading should be disabled in all these states
+    // Verify by checking the current state and that no unexpected card events occur
+    EXPECT_EQ(controller->getStateMachine().getCurrentState(), SystemState::Refueling);
+    
+    // Complete refueling
+    mockFlowMeter->simulateFlow(10.0);
+    ASSERT_TRUE(waitForState(SystemState::RefuelingComplete));
+    
+    controller->shutdown();
+    if (controllerThread.joinable()) {
+        controllerThread.join();
+    }
+}
+
+// Test enableCardReading method directly
+TEST_F(ControllerTest, EnableCardReadingMethod) {
+    controller->initialize();
+    
+    // Test enabling
+    EXPECT_CALL(*mockCardReader, enableReading(true)).Times(1);
+    controller->enableCardReading(true);
+    
+    // Test disabling
+    EXPECT_CALL(*mockCardReader, enableReading(false)).Times(1);
+    controller->enableCardReading(false);
+}

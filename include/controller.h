@@ -97,6 +97,9 @@ class Controller {
     void logRefuelTransaction(const RefuelTransaction& transaction);
     void logIntakeTransaction(const IntakeTransaction& transaction);
 
+    // Peripheral control
+    void enableCardReading(bool enabled);
+
     // Utility functions
     std::string formatVolume(Volume volume) const;
     std::string getCurrentTimeString() const;
