@@ -50,7 +50,8 @@ if(TARGET_REAL_CARD_READER)
     add_compile_definitions(TARGET_REAL_CARD_READER)
 endif()
 if(TARGET_REAL_PUMP)
-    message(STATUS "TARGET_REAL_PUMP enabled (placeholder - not yet implemented)")
+    message(STATUS "TARGET_REAL_PUMP enabled - using real pump relay control")
+    add_compile_definitions(TARGET_REAL_PUMP)
 endif()
 if(TARGET_REAL_FLOW_METER)
     message(STATUS "TARGET_REAL_FLOW_METER enabled (placeholder - not yet implemented)")
@@ -99,14 +100,17 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(fmt nlohmann_json spdlog httplib)
 
 # Conditional dependencies for real hardware
-if(TARGET_REAL_DISPLAY OR TARGET_REAL_CARD_READER)
+if(TARGET_REAL_DISPLAY OR TARGET_REAL_PUMP OR TARGET_REAL_CARD_READER)
     find_package(PkgConfig REQUIRED)
 endif()
 
-if(TARGET_REAL_DISPLAY)
+if(TARGET_REAL_DISPLAY OR TARGET_REAL_PUMP)
     pkg_check_modules(GPIOD REQUIRED libgpiod)
-    pkg_check_modules(FREETYPE REQUIRED freetype2)
     message(STATUS "Found libgpiod: ${GPIOD_LIBRARIES}")
+endif()
+
+if(TARGET_REAL_DISPLAY)
+    pkg_check_modules(FREETYPE REQUIRED freetype2)
     message(STATUS "Found freetype2: ${FREETYPE_LIBRARIES}")
 endif()
 
@@ -138,6 +142,13 @@ set(SOURCES
     src/sim800c_backend.cpp
 )
 
+# Add shared GPIO implementation for real hardware targets
+if(TARGET_REAL_DISPLAY OR TARGET_REAL_PUMP)
+    list(APPEND SOURCES
+        src/peripherals/gpio_gpiod.cpp
+    )
+endif()
+
 # Add NHD library sources if TARGET_REAL_DISPLAY is enabled
 if(TARGET_REAL_DISPLAY)
     list(APPEND SOURCES
@@ -146,7 +157,6 @@ if(TARGET_REAL_DISPLAY)
         src/nhd/graphics.cpp
         src/nhd/ft_text.cpp
         src/nhd/spi_linux.cpp
-        src/nhd/gpio_gpiod.cpp
     )
 endif()
 
@@ -171,6 +181,13 @@ set(HEADERS
     include/types.h
 )
 
+# Add shared GPIO header for real hardware targets
+if(TARGET_REAL_DISPLAY OR TARGET_REAL_PUMP)
+    list(APPEND HEADERS
+        include/peripherals/gpio_gpiod.h
+    )
+endif()
+
 # Add NHD library headers if TARGET_REAL_DISPLAY is enabled
 if(TARGET_REAL_DISPLAY)
     list(APPEND HEADERS
@@ -179,7 +196,6 @@ if(TARGET_REAL_DISPLAY)
         include/nhd/graphics.h
         include/nhd/ft_text.h
         include/nhd/spi_linux.h
-        include/nhd/gpio_gpiod.h
     )
 endif()
 
@@ -187,8 +203,11 @@ endif()
 add_executable(fuelflux ${SOURCES} ${HEADERS})
 
 # Add include directories for real hardware libraries
+if(TARGET_REAL_DISPLAY OR TARGET_REAL_PUMP)
+    target_include_directories(fuelflux PRIVATE ${GPIOD_INCLUDE_DIRS})
+endif()
 if(TARGET_REAL_DISPLAY)
-    target_include_directories(fuelflux PRIVATE ${GPIOD_INCLUDE_DIRS} ${FREETYPE_INCLUDE_DIRS})
+    target_include_directories(fuelflux PRIVATE ${FREETYPE_INCLUDE_DIRS})
 endif()
 
 if(TARGET_REAL_CARD_READER)
@@ -218,9 +237,12 @@ target_link_libraries(fuelflux
     SQLite::SQLite3
 )
 
-# Link real hardware libraries if TARGET_REAL_DISPLAY is enabled
+# Link real hardware libraries if needed
+if(TARGET_REAL_DISPLAY OR TARGET_REAL_PUMP)
+    target_link_libraries(fuelflux PRIVATE ${GPIOD_LIBRARIES})
+endif()
 if(TARGET_REAL_DISPLAY)
-    target_link_libraries(fuelflux PRIVATE ${GPIOD_LIBRARIES} ${FREETYPE_LIBRARIES})
+    target_link_libraries(fuelflux PRIVATE ${FREETYPE_LIBRARIES})
 endif()
 
 if(TARGET_REAL_CARD_READER)
@@ -293,6 +315,13 @@ if(ENABLE_TESTING)
         src/sim800c_backend.cpp
     )
     
+    # Add shared GPIO implementation for real hardware targets
+    if(TARGET_REAL_DISPLAY OR TARGET_REAL_PUMP)
+        list(APPEND LIB_SOURCES
+            src/peripherals/gpio_gpiod.cpp
+        )
+    endif()
+
     # Add NHD library sources if TARGET_REAL_DISPLAY is enabled
     if(TARGET_REAL_DISPLAY)
         list(APPEND LIB_SOURCES
@@ -301,7 +330,6 @@ if(ENABLE_TESTING)
             src/nhd/graphics.cpp
             src/nhd/ft_text.cpp
             src/nhd/spi_linux.cpp
-            src/nhd/gpio_gpiod.cpp
         )
     endif()
 
@@ -309,8 +337,11 @@ if(ENABLE_TESTING)
     add_library(fuelflux_lib STATIC ${LIB_SOURCES} ${HEADERS})
     
     # Add include directories for real hardware libraries
+    if(TARGET_REAL_DISPLAY OR TARGET_REAL_PUMP)
+        target_include_directories(fuelflux_lib PUBLIC ${GPIOD_INCLUDE_DIRS})
+    endif()
     if(TARGET_REAL_DISPLAY)
-        target_include_directories(fuelflux_lib PUBLIC ${GPIOD_INCLUDE_DIRS} ${FREETYPE_INCLUDE_DIRS})
+        target_include_directories(fuelflux_lib PUBLIC ${FREETYPE_INCLUDE_DIRS})
     endif()
     if(TARGET_REAL_CARD_READER)
         target_include_directories(fuelflux_lib PUBLIC ${LIBNFC_INCLUDE_DIRS})
@@ -326,9 +357,12 @@ if(ENABLE_TESTING)
         SQLite::SQLite3
     )
     
-    # Link real hardware libraries if TARGET_REAL_DISPLAY is enabled
+    # Link real hardware libraries if needed
+    if(TARGET_REAL_DISPLAY OR TARGET_REAL_PUMP)
+        target_link_libraries(fuelflux_lib PUBLIC ${GPIOD_LIBRARIES})
+    endif()
     if(TARGET_REAL_DISPLAY)
-        target_link_libraries(fuelflux_lib PUBLIC ${GPIOD_LIBRARIES} ${FREETYPE_LIBRARIES})
+        target_link_libraries(fuelflux_lib PUBLIC ${FREETYPE_LIBRARIES})
     endif()
     if(TARGET_REAL_CARD_READER)
         target_link_libraries(fuelflux_lib PUBLIC ${LIBNFC_LIBRARIES})

@@ -1,4 +1,4 @@
-#include "nhd/gpio_gpiod.h"
+#include "peripherals/gpio_gpiod.h"
 #include <gpiod.h>
 #include <stdexcept>
 #include <thread>
