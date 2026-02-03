@@ -17,26 +17,20 @@
 namespace fuelflux {
 
 std::unique_ptr<IBackend> CreateBackend(std::shared_ptr<MessageStorage> storage) {
-    switch (BACKEND_TYPE) {
-        case BackendType::Http:
-            return std::make_unique<Backend>(BACKEND_API_URL, CONTROLLER_UID, std::move(storage));
 #ifdef TARGET_SIM800C
-        case BackendType::SIM800C:
-            return std::make_unique<Sim800cBackend>(BACKEND_API_URL,
-                                                    CONTROLLER_UID,
-                                                    SIM800C_DEVICE_PATH,
-                                                    SIM800C_BAUD_RATE,
-                                                    SIM800C_APN,
-                                                    SIM800C_APN_USER,
-                                                    SIM800C_APN_PASSWORD,
-                                                    SIM800C_CONNECT_TIMEOUT_MS,
-                                                    SIM800C_RESPONSE_TIMEOUT_MS,
-                                                    std::move(storage));
+    return std::make_unique<Sim800cBackend>(BACKEND_API_URL,
+                                            CONTROLLER_UID,
+                                            SIM800C_DEVICE_PATH,
+                                            SIM800C_BAUD_RATE,
+                                            SIM800C_APN,
+                                            SIM800C_APN_USER,
+                                            SIM800C_APN_PASSWORD,
+                                            SIM800C_CONNECT_TIMEOUT_MS,
+                                            SIM800C_RESPONSE_TIMEOUT_MS,
+                                            std::move(storage));
+#else
+    return std::make_unique<Backend>(BACKEND_API_URL, CONTROLLER_UID, std::move(storage));
 #endif
-        default:
-            LOG_BCK_WARN("Unknown backend type requested; defaulting to HTTP backend");
-            return std::make_unique<Backend>(BACKEND_API_URL, CONTROLLER_UID, std::move(storage));
-    }
 }
 
 std::shared_ptr<IBackend> CreateBackendShared(std::shared_ptr<MessageStorage> storage) {
