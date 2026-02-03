@@ -5,10 +5,13 @@
 #include "config.h"
 #include "controller.h"
 #include "backlog_worker.h"
-#include "backend_factory.h"
+#include "backend.h"
 #include "console_emulator.h"
 #include "logger.h"
 #include "message_storage.h"
+#ifdef TARGET_SIM800C
+#include "sim800c_backend.h"
+#endif
 #ifdef TARGET_REAL_DISPLAY
 #include "peripherals/display.h"
 #endif
@@ -239,8 +242,8 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
         emulator.printWelcome();
         
         auto storage = std::make_shared<MessageStorage>(STORAGE_DB_PATH);
-        auto backend = CreateBackend(storage);
-        auto backlogBackend = CreateBackendShared();
+        auto backend = Controller::CreateDefaultBackend(storage);
+        auto backlogBackend = Controller::CreateDefaultBackendShared(controllerId, nullptr);
         BacklogWorker backlogWorker(storage, backlogBackend, std::chrono::seconds(30));
         backlogWorker.Start();
 
