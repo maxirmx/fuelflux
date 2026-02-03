@@ -297,7 +297,22 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
         bool pumpActiveLow = peripherals::pump_defaults::ACTIVE_LOW;
 
         if (const char* env = std::getenv("FUELFLUX_PUMP_GPIO_CHIP")) pumpChip = env;
-        if (const char* env = std::getenv("FUELFLUX_PUMP_RELAY_PIN")) pumpLine = std::atoi(env);
+        if (const char* env = std::getenv("FUELFLUX_PUMP_RELAY_PIN")) {
+            if (*env != '\0') {
+                try {
+                    int parsed = std::stoi(env);
+                    if (parsed >= 0) {
+                        pumpLine = parsed;
+                    } else {
+                        LOG_WARN("Ignoring FUELFLUX_PUMP_RELAY_PIN='{}': negative values are invalid; using default {}", env, pumpLine);
+                    }
+                } catch (const std::exception& ex) {
+                    LOG_WARN("Failed to parse FUELFLUX_PUMP_RELAY_PIN='{}': {}; using default {}", env, ex.what(), pumpLine);
+                }
+            } else {
+                LOG_WARN("FUELFLUX_PUMP_RELAY_PIN is set but empty; using default {}", pumpLine);
+            }
+        }
         if (const char* env = std::getenv("FUELFLUX_PUMP_ACTIVE_LOW")) {
             std::string value = env;
             for (auto& ch : value) {
