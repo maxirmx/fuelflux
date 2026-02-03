@@ -145,7 +145,6 @@ set(SOURCES
     src/console_emulator.cpp
     src/backend.cpp
     src/backend_base.cpp
-    src/backend_factory.cpp
 )
 
 # Add SIM800C backend only on non-MSVC platforms (Linux/ARM)
@@ -186,7 +185,6 @@ set(HEADERS
     include/peripherals/peripheral_interface.h
     include/console_emulator.h
     include/backend.h
-    include/backend_factory.h
     include/types.h
 )
 
@@ -302,7 +300,6 @@ if(ENABLE_TESTING)
     # Test source files
     set(TEST_SOURCES
         tests/backend_test.cpp
-        tests/backend_factory_test.cpp
         tests/controller_test.cpp
         tests/message_storage_test.cpp
         tests/backlog_worker_test.cpp
@@ -323,7 +320,6 @@ if(ENABLE_TESTING)
         src/console_emulator.cpp
         src/backend.cpp
         src/backend_base.cpp
-        src/backend_factory.cpp
     )
 
     if(TARGET_SIM800C)

@@ -3,7 +3,8 @@
 // This file is a part of fuelflux application
 
 #include "controller.h"
-#include "backend_factory.h"
+#include "backend.h"
+#include "config.h"
 #include "console_emulator.h"
 #include "logger.h"
 #include <sstream>
@@ -13,12 +14,31 @@
 #include <chrono>
 #include <cmath>
 
+#ifdef TARGET_SIM800C
+#include "sim800c_backend.h"
+#endif
+
 namespace fuelflux {
 
 Controller::Controller(ControllerId controllerId, std::unique_ptr<IBackend> backend)
     : controllerId_(std::move(controllerId))
     , stateMachine_(this)
-    , backend_(backend ? std::move(backend) : CreateBackend())
+    , backend_(backend ? std::move(backend) : []() -> std::unique_ptr<IBackend> {
+#ifdef TARGET_SIM800C
+        return std::make_unique<Sim800cBackend>(BACKEND_API_URL,
+                                                CONTROLLER_UID,
+                                                SIM800C_DEVICE_PATH,
+                                                SIM800C_BAUD_RATE,
+                                                SIM800C_APN,
+                                                SIM800C_APN_USER,
+                                                SIM800C_APN_PASSWORD,
+                                                SIM800C_CONNECT_TIMEOUT_MS,
+                                                SIM800C_RESPONSE_TIMEOUT_MS,
+                                                nullptr);
+#else
+        return std::make_unique<Backend>(BACKEND_API_URL, CONTROLLER_UID, nullptr);
+#endif
+    }())
     , selectedTank_(0)
     , enteredVolume_(0.0)
     , selectedIntakeDirection_(IntakeDirection::In)
