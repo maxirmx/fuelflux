@@ -140,6 +140,7 @@ class Controller {
     std::condition_variable eventCv_;
 
     // Helper methods
+    static std::unique_ptr<IBackend> CreateDefaultBackend(std::shared_ptr<MessageStorage> storage = nullptr);
     void setupPeripheralCallbacks();
     void processNumericInput();
     Volume parseVolumeFromInput() const;
