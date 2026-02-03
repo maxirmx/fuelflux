@@ -37,7 +37,8 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential cmake g++ make libssl-dev libnfc-dev ninja-build libsqlite3-dev
+          sudo apt-get install -y --no-install-recommends pkg-config libsqlite3-dev libgpiod-dev \
+               build-essential cmake ninja-build g++ ca-certificates git libssl-dev libnfc-dev
 
       - name: Configure CMake
         run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DENABLE_TESTING=ON
@@ -85,7 +86,7 @@ jobs:
             ubuntu:22.04 bash -lc "
               set -euo pipefail
               apt-get update
-              apt-get install -y --no-install-recommends pkg-config libsqlite3-dev \
+              apt-get install -y --no-install-recommends pkg-config libsqlite3-dev libgpiod-dev \
                 build-essential cmake ninja-build g++ ca-certificates git libssl-dev libnfc-dev
               git config --global --add safe.directory /work/build-arm64/_deps/fmt-src
               git config --global --add safe.directory /work/build-arm64/_deps/nlohmann_json-src

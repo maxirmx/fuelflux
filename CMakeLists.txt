@@ -30,7 +30,7 @@ else()
     option(TARGET_REAL_DISPLAY "Use real NHD display hardware" OFF)   # OFF for now
     option(TARGET_REAL_KEYBOARD "Use real keyboard hardware" OFF)
     option(TARGET_REAL_CARD_READER "Use real card reader hardware" ON)
-    option(TARGET_REAL_PUMP "Use real pump hardware" OFF)
+    option(TARGET_REAL_PUMP "Use real pump hardware" ON)
     option(TARGET_REAL_FLOW_METER "Use real flow meter hardware" OFF)
     option(ENABLE_TESTING "Enable testing" OFF)
 endif()
