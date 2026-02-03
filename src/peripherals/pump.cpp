@@ -91,6 +91,9 @@ void HardwarePump::start() {
 
 #ifdef TARGET_REAL_PUMP
     if (!applyRelayState(true)) {
+        // Relay control failed, so the pump did not start. We intentionally
+        // leave m_running as false to reflect that the pump is not running.
+        LOG_PERIPH_ERROR("Failed to start pump - relay control failed; leaving m_running=false");
         return;
     }
 #endif
