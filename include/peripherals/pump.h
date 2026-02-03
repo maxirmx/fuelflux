@@ -16,7 +16,7 @@ namespace pump_defaults {
 }
 #endif
 
-// Hardware pump implementation (stub)
+// Hardware pump implementation: uses GPIO relay control when TARGET_REAL_PUMP is defined, otherwise behaves as a stub.
 class HardwarePump : public IPump {
 public:
     HardwarePump();
