@@ -67,7 +67,6 @@ private:
     std::atomic<bool> shouldStop_;
     mutable std::mutex callbackMutex_;
 
-    KeyCode charToKeyCode(char c) const;
     void printKeyboardHelp() const;
 };
 

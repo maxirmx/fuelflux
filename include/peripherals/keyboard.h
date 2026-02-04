@@ -6,9 +6,19 @@
 
 #include "peripheral_interface.h"
 
+#include <atomic>
+#include <cstdint>
+#include <memory>
+#include <mutex>
+#include <string>
+#include <thread>
+
+namespace fuelflux::hardware {
+class MCP23017;
+}
+
 namespace fuelflux::peripherals {
 
-// Hardware keyboard implementation (stub)
 class HardwareKeyboard : public IKeyboard {
 public:
     HardwareKeyboard();
@@ -22,9 +32,23 @@ public:
     void enableInput(bool enabled) override;
 
 private:
-    bool isConnected_;
-    bool inputEnabled_;
+    bool isConnected_{false};
+    std::atomic<bool> inputEnabled_{false};
     KeyPressCallback keyPressCallback_;
+    std::mutex callbackMutex_;
+
+#ifdef TARGET_REAL_KEYBOARD
+    void pollLoop();
+
+    std::thread pollThread_;
+    std::atomic<bool> shouldStop_{false};
+    std::unique_ptr<hardware::MCP23017> mcp_;
+    std::string i2cDevice_;
+    uint8_t i2cAddress_{0x20};
+    int pollMs_{5};
+    int debounceMs_{20};
+    int releaseMs_{30};
+#endif
 };
 
 } // namespace fuelflux::peripherals

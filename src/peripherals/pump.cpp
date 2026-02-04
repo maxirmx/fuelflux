@@ -6,7 +6,7 @@
 #include "logger.h"
 
 #ifdef TARGET_REAL_PUMP
-#include "peripherals/gpio_gpiod.h"
+#include "hardware/gpio_line.h"
 #include <exception>
 #endif
 
