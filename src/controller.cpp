@@ -56,6 +56,9 @@ bool Controller::initialize() {
     // Initialize state machine
     stateMachine_.initialize();
     
+    // Set isRunning_ to true even if initialization failed to allow
+    // the controller to run in Error state and wait for reinitialization.
+    // All peripheral operations check for null/connected status before use.
     isRunning_ = true;
     if (!ok) {
         LOG_CTRL_ERROR("Initialization completed with errors");
@@ -698,8 +701,13 @@ bool Controller::initializePeripherals() {
         ok = false;
     }
 
-    if (!ok && lastErrorMessage_.empty()) {
-        lastErrorMessage_ = "Критическая ошибка инициализации";
+    if (!ok) {
+        // Cleanup any peripherals that were successfully initialized
+        LOG_CTRL_WARN("Initialization failed, cleaning up partially initialized peripherals");
+        shutdownPeripherals();
+        if (lastErrorMessage_.empty()) {
+            lastErrorMessage_ = "Критическая ошибка инициализации";
+        }
     }
 
     return ok;

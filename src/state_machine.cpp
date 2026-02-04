@@ -50,6 +50,7 @@ bool StateMachine::processEvent(Event event) {
     std::function<void()> action;
     SystemState fromState;
     SystemState toState;
+    std::optional<SystemState> savedOverride;
     {
         std::scoped_lock lock(mutex_);
         fromState = currentState_;
@@ -63,7 +64,9 @@ bool StateMachine::processEvent(Event event) {
         toState = it->second.first;
         action = it->second.second;
         previousState_ = fromState;
-        // Clear any previous override before executing new action
+        // Save any existing override to prevent recursive calls from losing it
+        savedOverride = overrideTargetState_;
+        // Clear override before executing new action
         overrideTargetState_.reset();
     }
 
@@ -94,6 +97,10 @@ bool StateMachine::processEvent(Event event) {
             stateChanged = (fromState != toState);
             // Reset after consuming the override
             overrideTargetState_.reset();
+        }
+        // Restore saved override if it existed (in case of recursive calls)
+        if (savedOverride.has_value() && !overrideTargetState_.has_value()) {
+            overrideTargetState_ = savedOverride;
         }
     }
 
@@ -334,7 +341,7 @@ void StateMachine::setupTransitions() {
     transitions_[{SystemState::Error, Event::IntakeVolumeEntered}] = {SystemState::Error,             noOp};
     transitions_[{SystemState::Error, Event::IntakeComplete}]      = {SystemState::Error,             noOp};
     transitions_[{SystemState::Error, Event::CancelPressed}]       = {SystemState::Error,             [this]() { onErrorCancelPressed();   }};
-    transitions_[{SystemState::Error, Event::Timeout}]             = {SystemState::Error,             [this]() { onTimeout();              }};
+    transitions_[{SystemState::Error, Event::Timeout}]             = {SystemState::Error,             noOp};
     transitions_[{SystemState::Error, Event::Error}]               = {SystemState::Error,             noOp};
     
     LOG_SM_DEBUG("State machine transitions configured with {} entries", transitions_.size());

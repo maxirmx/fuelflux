@@ -40,10 +40,15 @@ using namespace fuelflux;
 
 // Global flag for graceful shutdown
 std::atomic<bool> g_running{true};
+std::atomic<bool> g_loggerReady{false};
 
 // Signal handler for graceful shutdown
 void signalHandler(int signal) {
-    LOG_INFO("Received signal {}, shutting down...", signal);
+    if (g_loggerReady) {
+        LOG_INFO("Received signal {}, shutting down...", signal);
+    } else {
+        std::cerr << "Received signal " << signal << ", shutting down..." << std::endl;
+    }
     g_running = false;
 }
 
@@ -204,6 +209,7 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
     
     // Initialize logging system first (before any logging calls)
     bool loggerReady = Logger::initialize();
+    g_loggerReady = loggerReady;
     if (!loggerReady) {
         std::cerr << "Failed to initialize logging system" << std::endl;
     }
@@ -231,8 +237,20 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
         controllerId = envId;
     }
     
+    // Retry limit to prevent infinite restart on persistent errors
+    const int MAX_RETRIES = 10;
+    int retryCount = 0;
+    auto lastRetryTime = std::chrono::steady_clock::now();
+    
     while (g_running) {
         try {
+            // Reset retry count if enough time has passed since last failure (1 hour)
+            auto now = std::chrono::steady_clock::now();
+            auto timeSinceLastRetry = std::chrono::duration_cast<std::chrono::hours>(now - lastRetryTime);
+            if (timeSinceLastRetry.count() >= 1) {
+                retryCount = 0;
+            }
+            
             LOG_INFO("Starting FuelFlux Controller...");
             // Create console emulator
             ConsoleEmulator emulator;
@@ -252,29 +270,29 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
             // Use real hardware display with configuration from environment variables
             LOG_INFO("Using real hardware display (NHD-C12864A1Z-FSW-FBW-HTT)");
 
-        // Get hardware configuration from environment or use defaults
-        std::string spiDevice = "/dev/spidev1.0";
-        std::string gpioChip = "/dev/gpiochip0";
-        int dcPin = 262;
-        int rstPin = 226;
-        std::string fontPath = "/usr/share/fonts/truetype/ubuntu/UbuntuMono-B.ttf";
+            // Get hardware configuration from environment or use defaults
+            std::string spiDevice = "/dev/spidev1.0";
+            std::string gpioChip = "/dev/gpiochip0";
+            int dcPin = 262;
+            int rstPin = 226;
+            std::string fontPath = "/usr/share/fonts/truetype/ubuntu/UbuntuMono-B.ttf";
 
-        if (const char* env = std::getenv("FUELFLUX_SPI_DEVICE")) spiDevice = env;
-        if (const char* env = std::getenv("FUELFLUX_GPIO_CHIP")) gpioChip = env;
-        if (const char* env = std::getenv("FUELFLUX_DC_PIN")) dcPin = std::atoi(env);
-        if (const char* env = std::getenv("FUELFLUX_RST_PIN")) rstPin = std::atoi(env);
-        if (const char* env = std::getenv("FUELFLUX_FONT_PATH")) fontPath = env;
+            if (const char* env = std::getenv("FUELFLUX_SPI_DEVICE")) spiDevice = env;
+            if (const char* env = std::getenv("FUELFLUX_GPIO_CHIP")) gpioChip = env;
+            if (const char* env = std::getenv("FUELFLUX_DC_PIN")) dcPin = std::atoi(env);
+            if (const char* env = std::getenv("FUELFLUX_RST_PIN")) rstPin = std::atoi(env);
+            if (const char* env = std::getenv("FUELFLUX_FONT_PATH")) fontPath = env;
 
-        LOG_INFO("Display hardware configuration:");
-        LOG_INFO("  SPI Device: {}", spiDevice);
-        LOG_INFO("  GPIO Chip: {}", gpioChip);
-        LOG_INFO("  D/C Pin: {}", dcPin);
-        LOG_INFO("  RST Pin: {}", rstPin);
-        LOG_INFO("  Font Path: {}", fontPath);
+            LOG_INFO("Display hardware configuration:");
+            LOG_INFO("  SPI Device: {}", spiDevice);
+            LOG_INFO("  GPIO Chip: {}", gpioChip);
+            LOG_INFO("  D/C Pin: {}", dcPin);
+            LOG_INFO("  RST Pin: {}", rstPin);
+            LOG_INFO("  Font Path: {}", fontPath);
 
-        auto display = std::make_unique<peripherals::RealDisplay>(
-            spiDevice, gpioChip, dcPin, rstPin, fontPath
-        );
+            auto display = std::make_unique<peripherals::RealDisplay>(
+                spiDevice, gpioChip, dcPin, rstPin, fontPath
+            );
             controller.setDisplay(std::move(display));
 #else
             controller.setDisplay(emulator.createDisplay());
@@ -296,40 +314,40 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
             int pumpLine = peripherals::pump_defaults::RELAY_PIN;
             bool pumpActiveLow = peripherals::pump_defaults::ACTIVE_LOW;
 
-        if (const char* env = std::getenv("FUELFLUX_PUMP_GPIO_CHIP")) {
-            if (*env != '\0') {
-                pumpChip = env;
-            } else {
-                LOG_WARN("FUELFLUX_PUMP_GPIO_CHIP is set but empty; using default {}", pumpChip);
+            if (const char* env = std::getenv("FUELFLUX_PUMP_GPIO_CHIP")) {
+                if (*env != '\0') {
+                    pumpChip = env;
+                } else {
+                    LOG_WARN("FUELFLUX_PUMP_GPIO_CHIP is set but empty; using default {}", pumpChip);
+                }
             }
-        }
-        if (const char* env = std::getenv("FUELFLUX_PUMP_RELAY_PIN")) {
-            if (*env != '\0') {
-                try {
-                    int parsed = std::stoi(env);
-                    if (parsed >= 0) {
-                        pumpLine = parsed;
-                    } else {
-                        LOG_WARN("Ignoring FUELFLUX_PUMP_RELAY_PIN='{}': negative values are invalid; using default {}", env, pumpLine);
+            if (const char* env = std::getenv("FUELFLUX_PUMP_RELAY_PIN")) {
+                if (*env != '\0') {
+                    try {
+                        int parsed = std::stoi(env);
+                        if (parsed >= 0) {
+                            pumpLine = parsed;
+                        } else {
+                            LOG_WARN("Ignoring FUELFLUX_PUMP_RELAY_PIN='{}': negative values are invalid; using default {}", env, pumpLine);
+                        }
+                    } catch (const std::exception& ex) {
+                        LOG_WARN("Failed to parse FUELFLUX_PUMP_RELAY_PIN='{}': {}; using default {}", env, ex.what(), pumpLine);
                     }
-                } catch (const std::exception& ex) {
-                    LOG_WARN("Failed to parse FUELFLUX_PUMP_RELAY_PIN='{}': {}; using default {}", env, ex.what(), pumpLine);
+                } else {
+                    LOG_WARN("FUELFLUX_PUMP_RELAY_PIN is set but empty; using default {}", pumpLine);
                 }
-            } else {
-                LOG_WARN("FUELFLUX_PUMP_RELAY_PIN is set but empty; using default {}", pumpLine);
             }
-        }
-        if (const char* env = std::getenv("FUELFLUX_PUMP_ACTIVE_LOW")) {
-            if (*env != '\0') {
-                std::string value = env;
-                for (auto& ch : value) {
-                    ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+            if (const char* env = std::getenv("FUELFLUX_PUMP_ACTIVE_LOW")) {
+                if (*env != '\0') {
+                    std::string value = env;
+                    for (auto& ch : value) {
+                        ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+                    }
+                    pumpActiveLow = (value == "1" || value == "true" || value == "yes" || value == "on");
+                } else {
+                    LOG_WARN("FUELFLUX_PUMP_ACTIVE_LOW is set but empty; using default {}", pumpActiveLow);
                 }
-                pumpActiveLow = (value == "1" || value == "true" || value == "yes" || value == "on");
-            } else {
-                LOG_WARN("FUELFLUX_PUMP_ACTIVE_LOW is set but empty; using default {}", pumpActiveLow);
             }
-        }
 
             LOG_INFO("Pump relay configuration:");
             LOG_INFO("  GPIO Chip: {}", pumpChip);
@@ -362,17 +380,25 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
                 controller.run();
             });
             
-            // Main thread waits for shutdown signal
-            while (g_running) {
-                std::this_thread::sleep_for(std::chrono::milliseconds(100));
-            }
-            
-            LOG_INFO("Shutting down...");
-            
-            // Shutdown controller
-            controller.shutdown();
+            // Ensure threads are cleaned up even if exceptions occur
+            try {
+                // Main thread waits for shutdown signal
+                while (g_running) {
+                    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                }
+                
+                LOG_INFO("Shutting down...");
+                
+                // Shutdown controller
+                controller.shutdown();
 
-            backlogWorker.Stop();
+                backlogWorker.Stop();
+            } catch (...) {
+                // Ensure controller is stopped even if exception occurs
+                controller.shutdown();
+                backlogWorker.Stop();
+                throw; // Re-throw to be caught by outer handler
+            }
             
             // Wait for threads to finish
             if (inputThread.joinable()) {
@@ -386,12 +412,21 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
             LOG_INFO("Shutdown complete");
         } catch (const std::exception& e) {
             LOG_CRITICAL("Error: {}", e.what());
+            retryCount++;
+            lastRetryTime = std::chrono::steady_clock::now();
         } catch (...) {
             LOG_CRITICAL("Unknown error occurred");
+            retryCount++;
+            lastRetryTime = std::chrono::steady_clock::now();
         }
 
         if (g_running) {
-            LOG_WARN("Recovering after error; restarting controller loop");
+            if (retryCount >= MAX_RETRIES) {
+                LOG_CRITICAL("Maximum retry limit ({}) reached, stopping controller", MAX_RETRIES);
+                g_running = false;
+                break;
+            }
+            LOG_WARN("Recovering after error (attempt {}/{}); restarting controller loop", retryCount, MAX_RETRIES);
             std::this_thread::sleep_for(std::chrono::seconds(1));
         }
     }

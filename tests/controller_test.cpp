@@ -391,26 +391,56 @@ TEST_F(ControllerTest, InitializationFailureForcesErrorState) {
 }
 
 TEST_F(ControllerTest, ErrorCancelReinitializesDevice) {
-    EXPECT_CALL(*mockDisplay, initialize()).Times(2);
-    EXPECT_CALL(*mockKeyboard, initialize()).Times(2);
-    EXPECT_CALL(*mockCardReader, initialize()).Times(2);
-    EXPECT_CALL(*mockPump, initialize()).Times(2);
-    EXPECT_CALL(*mockFlowMeter, initialize()).Times(2);
-
-    EXPECT_CALL(*mockDisplay, shutdown()).Times(2);
-    EXPECT_CALL(*mockKeyboard, shutdown()).Times(2);
-    EXPECT_CALL(*mockCardReader, shutdown()).Times(2);
-    EXPECT_CALL(*mockPump, shutdown()).Times(2);
-    EXPECT_CALL(*mockFlowMeter, shutdown()).Times(2);
-
+    using ::testing::InSequence;
+    
+    // Use InSequence to verify that shutdown happens before initialize in reinitialization
+    InSequence seq;
+    
+    // First initialization (normal startup)
+    EXPECT_CALL(*mockDisplay, initialize()).Times(1).WillOnce(Return(true));
+    EXPECT_CALL(*mockKeyboard, initialize()).Times(1).WillOnce(Return(true));
+    EXPECT_CALL(*mockCardReader, initialize()).Times(1).WillOnce(Return(true));
+    EXPECT_CALL(*mockPump, initialize()).Times(1).WillOnce(Return(true));
+    EXPECT_CALL(*mockFlowMeter, initialize()).Times(1).WillOnce(Return(true));
+    
     controller->initialize();
-    controller->getStateMachine().processEvent(Event::Error);
-    EXPECT_EQ(controller->getStateMachine().getCurrentState(), SystemState::Error);
-
-    controller->getStateMachine().processEvent(Event::CancelPressed);
-    EXPECT_EQ(controller->getStateMachine().getCurrentState(), SystemState::Waiting);
-
+    
+    // Start controller event loop in a separate thread
+    std::thread controllerThread([this]() { controller->run(); });
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    
+    // Trigger error state
+    controller->postEvent(Event::Error);
+    ASSERT_TRUE(waitForState(SystemState::Error));
+    
+    // Reinitialization sequence: shutdown all peripherals first, then initialize
+    EXPECT_CALL(*mockDisplay, shutdown()).Times(1);
+    EXPECT_CALL(*mockKeyboard, shutdown()).Times(1);
+    EXPECT_CALL(*mockCardReader, shutdown()).Times(1);
+    EXPECT_CALL(*mockPump, shutdown()).Times(1);
+    EXPECT_CALL(*mockFlowMeter, shutdown()).Times(1);
+    
+    EXPECT_CALL(*mockDisplay, initialize()).Times(1).WillOnce(Return(true));
+    EXPECT_CALL(*mockKeyboard, initialize()).Times(1).WillOnce(Return(true));
+    EXPECT_CALL(*mockCardReader, initialize()).Times(1).WillOnce(Return(true));
+    EXPECT_CALL(*mockPump, initialize()).Times(1).WillOnce(Return(true));
+    EXPECT_CALL(*mockFlowMeter, initialize()).Times(1).WillOnce(Return(true));
+    
+    // Trigger reinitialization via Cancel button in Error state
+    controller->postEvent(Event::CancelPressed);
+    ASSERT_TRUE(waitForState(SystemState::Waiting));
+    
+    // Final shutdown (normal shutdown)
+    EXPECT_CALL(*mockDisplay, shutdown()).Times(1);
+    EXPECT_CALL(*mockKeyboard, shutdown()).Times(1);
+    EXPECT_CALL(*mockCardReader, shutdown()).Times(1);
+    EXPECT_CALL(*mockPump, shutdown()).Times(1);
+    EXPECT_CALL(*mockFlowMeter, shutdown()).Times(1);
+    
     controller->shutdown();
+    if (controllerThread.joinable()) {
+        controllerThread.join();
+    }
 }
 
 // Test display update
