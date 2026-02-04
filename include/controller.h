@@ -29,6 +29,29 @@ class Controller {
     bool initialize();
     void shutdown();
     void run();
+    /**
+     * Reinitialize the device and all connected peripherals.
+     *
+     * This method performs a controlled shutdown of the current controller state,
+     * including stopping active operations, shutting down and reinitializing all
+     * configured peripherals (display, keyboard, card reader, pump, flow meter, etc.),
+     * and resetting in‑memory session data (current user, input, selected tank,
+     * refuel/intake state, and related runtime fields) to a clean initial state.
+     *
+     * Typical use cases:
+     *  - Recovering from non‑recoverable peripheral errors without restarting the process.
+     *  - Applying configuration or backend changes that require a full device restart.
+     *
+     * Threading and state machine considerations:
+     *  - This function is intended to be called from the controller's main thread /
+     *    event loop context, not concurrently with other Controller methods.
+     *  - Ongoing operations managed by the internal state machine will be aborted and
+     *    the state machine returned to its initial state as part of reinitialization.
+     *
+     * @return true if the device and all peripherals were successfully reinitialized;
+     *         false if reinitialization failed and the controller remains in an
+     *         error or partially initialized state.
+     */
     bool reinitializeDevice();
 
     // Peripheral management
