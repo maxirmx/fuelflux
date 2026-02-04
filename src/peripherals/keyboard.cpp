@@ -23,6 +23,7 @@ namespace fuelflux::peripherals {
 namespace {
 constexpr uint8_t kRowMask = 0b0000'1111;
 constexpr uint8_t kColMask = 0b1111'0000;
+constexpr int kScanDelayUs = 300;
 
 constexpr char kKeymap[4][4] = {
     {'1', '2', '3', 'A'},
@@ -40,7 +41,7 @@ char scanKey(hardware::MCP23017& mcp) {
     for (int r = 0; r < 4 && !found; r++) {
         uint8_t out = static_cast<uint8_t>(rowsIdle() & ~(1u << r));
         mcp.writeOlatA(out);
-        std::this_thread::sleep_for(std::chrono::microseconds(300));
+        std::this_thread::sleep_for(std::chrono::microseconds(kScanDelayUs));
         uint8_t cols = static_cast<uint8_t>(mcp.readGpioA() & kColMask);
         if (cols != kColMask) {
             for (int c = 0; c < 4; c++) {
