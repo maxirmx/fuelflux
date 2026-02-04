@@ -198,7 +198,14 @@ nlohmann::json Backend::HttpRequestWrapper(const std::string& endpoint,
             client.set_keep_alive(true);
 #ifdef TARGET_SIM800C
             if (ShouldBindToPppInterface(host)) {
+                LOG_BCK_DEBUG("Binding to {} for host {}", kPppInterface, host);
                 client.set_interface(kPppInterface);
+            } else {
+                if (host == "localhost" || host == "127.0.0.1" || host == "::1") {
+                    LOG_BCK_DEBUG("Skipping {} binding for localhost/local IP: {}", kPppInterface, host);
+                } else {
+                    LOG_BCK_DEBUG("Skipping {} binding for host {} (interface unavailable)", kPppInterface, host);
+                }
             }
 #endif
 
