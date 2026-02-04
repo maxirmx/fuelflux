@@ -1,9 +1,3 @@
-<!--
-Copyright (C) 2025 Maxim [maxirmx] Samsonov (www.sw.consulting)
-All rights reserved.
-This file is a part of fuelflux application
--->
-
 ﻿# State Machine Visual Reference
 
 ## State Transition Flow - Refuel Scenario (Customer)
