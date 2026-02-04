@@ -9,8 +9,42 @@
 #include <mutex>
 #include <sstream>
 #include <stdexcept>
+#ifdef TARGET_SIM800C
+#include <ifaddrs.h>
+#include <cstring>
+#endif
 
 namespace fuelflux {
+
+#ifdef TARGET_SIM800C
+namespace {
+constexpr const char kPppInterface[] = "ppp0";
+
+bool IsPppInterfaceAvailable() {
+    struct ifaddrs* ifaddr = nullptr;
+    if (getifaddrs(&ifaddr) != 0) {
+        return false;
+    }
+
+    bool found = false;
+    for (struct ifaddrs* ifa = ifaddr; ifa != nullptr; ifa = ifa->ifa_next) {
+        if (ifa->ifa_name && std::strcmp(ifa->ifa_name, kPppInterface) == 0) {
+            found = true;
+            break;
+        }
+    }
+    freeifaddrs(ifaddr);
+    return found;
+}
+
+bool ShouldBindToPppInterface(const std::string& host) {
+    if (host == "localhost" || host == "127.0.0.1" || host == "::1") {
+        return false;
+    }
+    return IsPppInterfaceAvailable();
+}
+} // namespace
+#endif
 
 Backend::Backend(const std::string& baseAPI, const std::string& controllerUid, std::shared_ptr<MessageStorage> storage)
     : BackendBase(controllerUid, std::move(storage))
@@ -160,6 +194,11 @@ nlohmann::json Backend::HttpRequestWrapper(const std::string& endpoint,
             client.set_read_timeout(10, 0);      // 10 seconds
             client.set_write_timeout(10, 0);     // 10 seconds
             client.set_keep_alive(true);
+#ifdef TARGET_SIM800C
+            if (ShouldBindToPppInterface(host)) {
+                client.set_interface(kPppInterface);
+            }
+#endif
 
             if (method == "POST") {
                 return client.Post(endpoint.c_str(), headers, bodyStr, "application/json");

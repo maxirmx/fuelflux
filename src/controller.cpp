@@ -14,45 +14,16 @@
 #include <chrono>
 #include <cmath>
 
-#ifdef TARGET_SIM800C
-#include "sim800c_backend.h"
-#endif
 
 namespace fuelflux {
 
 std::unique_ptr<IBackend> Controller::CreateDefaultBackend(std::shared_ptr<MessageStorage> storage) {
-#ifdef TARGET_SIM800C
-    return std::make_unique<Sim800cBackend>(BACKEND_API_URL,
-                                            CONTROLLER_UID,
-                                            SIM800C_DEVICE_PATH,
-                                            SIM800C_BAUD_RATE,
-                                            SIM800C_APN,
-                                            SIM800C_APN_USER,
-                                            SIM800C_APN_PASSWORD,
-                                            SIM800C_CONNECT_TIMEOUT_MS,
-                                            SIM800C_RESPONSE_TIMEOUT_MS,
-                                            storage);
-#else
     return std::make_unique<Backend>(BACKEND_API_URL, CONTROLLER_UID, storage);
-#endif
 }
 
 std::shared_ptr<IBackend> Controller::CreateDefaultBackendShared(const std::string& controllerUid, 
                                                                   std::shared_ptr<MessageStorage> storage) {
-#ifdef TARGET_SIM800C
-    return std::make_shared<Sim800cBackend>(BACKEND_API_URL,
-                                            controllerUid,
-                                            SIM800C_DEVICE_PATH,
-                                            SIM800C_BAUD_RATE,
-                                            SIM800C_APN,
-                                            SIM800C_APN_USER,
-                                            SIM800C_APN_PASSWORD,
-                                            SIM800C_CONNECT_TIMEOUT_MS,
-                                            SIM800C_RESPONSE_TIMEOUT_MS,
-                                            storage);
-#else
     return std::make_shared<Backend>(BACKEND_API_URL, controllerUid, storage);
-#endif
 }
 
 Controller::Controller(ControllerId controllerId, std::unique_ptr<IBackend> backend)
