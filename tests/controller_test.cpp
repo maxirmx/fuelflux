@@ -338,17 +338,36 @@ TEST_F(ControllerTest, HandleKeyPressDigit) {
 // Test key press handling - clear
 TEST_F(ControllerTest, HandleKeyPressClear) {
     controller->initialize();
+
+    // Start controller event loop in background thread
+    std::thread controllerThread([this]() {
+        controller->run();
+        });
+
+    // Small delay to let event loop start
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
     
     controller->handleKeyPress(KeyCode::Key1);
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
     controller->handleKeyPress(KeyCode::Key2);
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
     controller->handleKeyPress(KeyCode::Key3);
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
     EXPECT_EQ(controller->getCurrentInput(), "123");
     
     controller->handleKeyPress(KeyCode::KeyClear);
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
     EXPECT_EQ(controller->getCurrentInput(), "12");
     
     controller->handleKeyPress(KeyCode::KeyClear);
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
     EXPECT_EQ(controller->getCurrentInput(), "1");
+
+    // Shutdown to stop event loop
+    controller->shutdown();
+    if (controllerThread.joinable()) {
+        controllerThread.join();
+    }
 }
 
 // Test state machine initial state
