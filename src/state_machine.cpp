@@ -321,7 +321,7 @@ void StateMachine::setupTransitions() {
     transitions_[{SystemState::Error, Event::IntakeVolumeEntered}] = {SystemState::Error,             noOp};
     transitions_[{SystemState::Error, Event::IntakeComplete}]      = {SystemState::Error,             noOp};
     transitions_[{SystemState::Error, Event::CancelPressed}]       = {SystemState::Waiting,           [this]() { onErrorCancelPressed();   }};
-    transitions_[{SystemState::Error, Event::Timeout}]             = {SystemState::Waiting,           [this]() { onTimeout();              }};
+    transitions_[{SystemState::Error, Event::Timeout}]             = {SystemState::Error,             [this]() { onTimeout();              }};
     transitions_[{SystemState::Error, Event::Error}]               = {SystemState::Error,             noOp};
     
     LOG_SM_DEBUG("State machine transitions configured with {} entries", transitions_.size());
