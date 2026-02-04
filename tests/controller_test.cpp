@@ -438,7 +438,9 @@ TEST_F(ControllerTest, ErrorCancelReinitializesDevice) {
     EXPECT_CALL(*mockFlowMeter, shutdown()).Times(1);
     
     controller->shutdown();
-    if (controllerThread.joinable()) controllerThread.join();
+    if (controllerThread.joinable()) {
+        controllerThread.join();
+    }
 }
 
 // Test display update
