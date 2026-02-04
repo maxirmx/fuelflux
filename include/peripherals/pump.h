@@ -1,3 +1,7 @@
+// Copyright (C) 2025 Maxim [maxirmx] Samsonov (www.sw.consulting)
+// All rights reserved.
+// This file is a part of fuelflux application
+
 #pragma once
 
 #include "peripheral_interface.h"
@@ -12,7 +16,7 @@ namespace fuelflux::peripherals {
 #ifdef TARGET_REAL_PUMP
 namespace pump_defaults {
     constexpr const char* GPIO_CHIP = "/dev/gpiochip0";
-    constexpr int RELAY_PIN = 259;
+    constexpr int RELAY_PIN = 272;
     constexpr bool ACTIVE_LOW = true;
 }
 #endif
