@@ -32,7 +32,7 @@ public:
     void enableInput(bool enabled) override;
 
 private:
-    bool isConnected_{false};
+    std::atomic<bool> isConnected_{false};
     std::atomic<bool> inputEnabled_{false};
     KeyPressCallback keyPressCallback_;
     std::mutex callbackMutex_;
