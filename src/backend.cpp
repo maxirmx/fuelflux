@@ -81,36 +81,53 @@ bool IsLocalhost(const std::string& host) {
         if (segments.size() == 8) {
             bool is_loopback = true;
             for (size_t i = 0; i < 7; ++i) {
-                // Empty segments are invalid in full IPv6 notation
-                if (segments[i].empty()) {
+                // Empty segments or segments longer than 4 chars are invalid
+                if (segments[i].empty() || segments[i].length() > 4) {
                     is_loopback = false;
                     break;
                 }
-                // Check if segment is all zeros (contains only '0' chars)
+                // Check if segment contains valid hex and is all zeros
                 bool all_zeros = true;
                 for (char c : segments[i]) {
-                    if (c != '0') {
+                    if (!std::isxdigit(static_cast<unsigned char>(c))) {
+                        is_loopback = false;
                         all_zeros = false;
                         break;
                     }
+                    if (c != '0') {
+                        all_zeros = false;
+                    }
                 }
-                if (!all_zeros) {
+                if (!is_loopback || !all_zeros) {
                     is_loopback = false;
                     break;
                 }
             }
             
             // Check last segment is 1
-            if (is_loopback && !segments[7].empty()) {
-                unsigned long last_val = 0;
-                try {
-                    size_t pos = 0;
-                    last_val = std::stoul(segments[7], &pos, 16);
-                    // Ensure entire string was parsed
-                    if (pos != segments[7].length() || last_val != 1) {
+            if (is_loopback && !segments[7].empty() && segments[7].length() <= 4) {
+                // Validate all characters are hex digits
+                bool valid_hex = true;
+                for (char c : segments[7]) {
+                    if (!std::isxdigit(static_cast<unsigned char>(c))) {
+                        valid_hex = false;
+                        break;
+                    }
+                }
+                
+                if (valid_hex) {
+                    unsigned long last_val = 0;
+                    try {
+                        size_t pos = 0;
+                        last_val = std::stoul(segments[7], &pos, 16);
+                        // Ensure entire string was parsed
+                        if (pos != segments[7].length() || last_val != 1) {
+                            is_loopback = false;
+                        }
+                    } catch (...) {
                         is_loopback = false;
                     }
-                } catch (...) {
+                } else {
                     is_loopback = false;
                 }
             } else {
