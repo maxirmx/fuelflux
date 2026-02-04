@@ -69,6 +69,7 @@ private:
     void onIntakeVolumeEntered();
     void onIntakeComplete();
     void onCancelPressed();
+    void onErrorCancelPressed();
     void onTimeout();
     void onError();
 

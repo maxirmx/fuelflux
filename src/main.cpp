@@ -203,12 +203,10 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
     signal(SIGTERM, signalHandler);
     
     // Initialize logging system first (before any logging calls)
-    if (!Logger::initialize()) {
+    bool loggerReady = Logger::initialize();
+    if (!loggerReady) {
         std::cerr << "Failed to initialize logging system" << std::endl;
-        return 1;
     }
-    
-    LOG_INFO("Starting FuelFlux Controller...");
     
     // On Windows, set console to UTF-8 and enable virtual terminal processing
 #ifdef _WIN32
@@ -233,24 +231,26 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
         controllerId = envId;
     }
     
-    try {
-        // Create console emulator
-        ConsoleEmulator emulator;
-        emulator.printWelcome();
-        
-        auto storage = std::make_shared<MessageStorage>(STORAGE_DB_PATH);
-        auto backend = Controller::CreateDefaultBackend(storage);
-        auto backlogBackend = Controller::CreateDefaultBackendShared(controllerId, nullptr);
-        BacklogWorker backlogWorker(storage, backlogBackend, std::chrono::seconds(30));
-        backlogWorker.Start();
+    while (g_running) {
+        try {
+            LOG_INFO("Starting FuelFlux Controller...");
+            // Create console emulator
+            ConsoleEmulator emulator;
+            emulator.printWelcome();
+            
+            auto storage = std::make_shared<MessageStorage>(STORAGE_DB_PATH);
+            auto backend = Controller::CreateDefaultBackend(storage);
+            auto backlogBackend = Controller::CreateDefaultBackendShared(controllerId, nullptr);
+            BacklogWorker backlogWorker(storage, backlogBackend, std::chrono::seconds(30));
+            backlogWorker.Start();
 
-        // Create controller
-        Controller controller(controllerId, std::move(backend));
-        
-        // Create and setup peripherals
+            // Create controller
+            Controller controller(controllerId, std::move(backend));
+            
+            // Create and setup peripherals
 #ifdef TARGET_REAL_DISPLAY
-        // Use real hardware display with configuration from environment variables
-        LOG_INFO("Using real hardware display (NHD-C12864A1Z-FSW-FBW-HTT)");
+            // Use real hardware display with configuration from environment variables
+            LOG_INFO("Using real hardware display (NHD-C12864A1Z-FSW-FBW-HTT)");
 
         // Get hardware configuration from environment or use defaults
         std::string spiDevice = "/dev/spidev1.0";
@@ -275,26 +275,26 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
         auto display = std::make_unique<peripherals::RealDisplay>(
             spiDevice, gpioChip, dcPin, rstPin, fontPath
         );
-        controller.setDisplay(std::move(display));
+            controller.setDisplay(std::move(display));
 #else
-        controller.setDisplay(emulator.createDisplay());
+            controller.setDisplay(emulator.createDisplay());
 #endif
 
-        controller.setKeyboard(emulator.createKeyboard());
+            controller.setKeyboard(emulator.createKeyboard());
 
 #ifdef TARGET_REAL_CARD_READER
-        LOG_INFO("Using real NFC card reader (libnfc)");
-        auto cardReader = std::make_unique<peripherals::HardwareCardReader>();
-        controller.setCardReader(std::move(cardReader));
+            LOG_INFO("Using real NFC card reader (libnfc)");
+            auto cardReader = std::make_unique<peripherals::HardwareCardReader>();
+            controller.setCardReader(std::move(cardReader));
 #else
-        controller.setCardReader(emulator.createCardReader());
+            controller.setCardReader(emulator.createCardReader());
 #endif
 
 #ifdef TARGET_REAL_PUMP
-        LOG_INFO("Using real pump relay control");
-        std::string pumpChip = peripherals::pump_defaults::GPIO_CHIP;
-        int pumpLine = peripherals::pump_defaults::RELAY_PIN;
-        bool pumpActiveLow = peripherals::pump_defaults::ACTIVE_LOW;
+            LOG_INFO("Using real pump relay control");
+            std::string pumpChip = peripherals::pump_defaults::GPIO_CHIP;
+            int pumpLine = peripherals::pump_defaults::RELAY_PIN;
+            bool pumpActiveLow = peripherals::pump_defaults::ACTIVE_LOW;
 
         if (const char* env = std::getenv("FUELFLUX_PUMP_GPIO_CHIP")) {
             if (*env != '\0') {
@@ -331,70 +331,70 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
             }
         }
 
-        LOG_INFO("Pump relay configuration:");
-        LOG_INFO("  GPIO Chip: {}", pumpChip);
-        LOG_INFO("  Relay Line: {}", pumpLine);
-        LOG_INFO("  Active Low: {}", pumpActiveLow);
+            LOG_INFO("Pump relay configuration:");
+            LOG_INFO("  GPIO Chip: {}", pumpChip);
+            LOG_INFO("  Relay Line: {}", pumpLine);
+            LOG_INFO("  Active Low: {}", pumpActiveLow);
 
-        controller.setPump(std::make_unique<peripherals::HardwarePump>(
-            pumpChip, pumpLine, pumpActiveLow));
+            controller.setPump(std::make_unique<peripherals::HardwarePump>(
+                pumpChip, pumpLine, pumpActiveLow));
 #else
-        controller.setPump(emulator.createPump());
+            controller.setPump(emulator.createPump());
 #endif
-        controller.setFlowMeter(emulator.createFlowMeter());
-        
-        // Initialize controller
-        if (!controller.initialize()) {
-            LOG_ERROR("Failed to initialize controller");
-            return 1;
-        }
-        
-        LOG_INFO("Controller initialized successfully");
-        emulator.logLine("[Main] Type 'help' for available commands");
-        
-        // Start input dispatcher thread (handles both command and key modes)
-        std::thread inputThread(inputDispatcher, std::ref(emulator));
-        
-        // Start controller main loop in a separate thread
-        std::thread controllerThread([&controller]() {
-            controller.run();
-        });
-        
-        // Main thread waits for shutdown signal
-        while (g_running) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(100));
-        }
-        
-        LOG_INFO("Shutting down...");
-        
-        // Shutdown controller
-        controller.shutdown();
+            controller.setFlowMeter(emulator.createFlowMeter());
+            
+            // Initialize controller
+            if (!controller.initialize()) {
+                LOG_ERROR("Failed to initialize controller; entering error state");
+            }
+            
+            LOG_INFO("Controller initialized successfully");
+            emulator.logLine("[Main] Type 'help' for available commands");
+            
+            // Start input dispatcher thread (handles both command and key modes)
+            std::thread inputThread(inputDispatcher, std::ref(emulator));
+            
+            // Start controller main loop in a separate thread
+            std::thread controllerThread([&controller]() {
+                controller.run();
+            });
+            
+            // Main thread waits for shutdown signal
+            while (g_running) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            }
+            
+            LOG_INFO("Shutting down...");
+            
+            // Shutdown controller
+            controller.shutdown();
 
-        backlogWorker.Stop();
-        
-        // Wait for threads to finish
-        if (inputThread.joinable()) {
-            inputThread.join();
+            backlogWorker.Stop();
+            
+            // Wait for threads to finish
+            if (inputThread.joinable()) {
+                inputThread.join();
+            }
+            
+            if (controllerThread.joinable()) {
+                controllerThread.join();
+            }
+            
+            LOG_INFO("Shutdown complete");
+        } catch (const std::exception& e) {
+            LOG_CRITICAL("Error: {}", e.what());
+        } catch (...) {
+            LOG_CRITICAL("Unknown error occurred");
         }
-        
-        if (controllerThread.joinable()) {
-            controllerThread.join();
+
+        if (g_running) {
+            LOG_WARN("Recovering after error; restarting controller loop");
+            std::this_thread::sleep_for(std::chrono::seconds(1));
         }
-        
-        LOG_INFO("Shutdown complete");
-        
-        // Shutdown logging system last
-        Logger::shutdown();
-        
-    } catch (const std::exception& e) {
-        LOG_CRITICAL("Error: {}", e.what());
-        Logger::shutdown();
-        return 1;
-    } catch (...) {
-        LOG_CRITICAL("Unknown error occurred");
-        Logger::shutdown();
-        return 1;
     }
     
+    if (loggerReady) {
+        Logger::shutdown();
+    }
     return 0;
 }

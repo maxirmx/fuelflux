@@ -29,6 +29,7 @@ class Controller {
     bool initialize();
     void shutdown();
     void run();
+    bool reinitializeDevice();
 
     // Peripheral management
     void setDisplay(std::unique_ptr<peripherals::IDisplay> display);
@@ -151,6 +152,8 @@ class Controller {
     TankNumber parseTankFromInput() const;
     void resetSessionData();
     void selectIntakeDirection(IntakeDirection direction);
+    bool initializePeripherals();
+    void shutdownPeripherals();
 };
 
 } // namespace fuelflux

@@ -122,7 +122,7 @@ void StateMachine::reset() {
 
 void StateMachine::setupTransitions() {
     // Default no-op handler
-    auto noOp = [this]() { 
+    auto noOp = []() { 
         LOG_SM_DEBUG("No operation for this transition"); 
     };
 
@@ -320,7 +320,7 @@ void StateMachine::setupTransitions() {
     transitions_[{SystemState::Error, Event::IntakeSelected}]      = {SystemState::Error,             noOp};
     transitions_[{SystemState::Error, Event::IntakeVolumeEntered}] = {SystemState::Error,             noOp};
     transitions_[{SystemState::Error, Event::IntakeComplete}]      = {SystemState::Error,             noOp};
-    transitions_[{SystemState::Error, Event::CancelPressed}]       = {SystemState::Waiting,           [this]() { onCancelPressed();        }};
+    transitions_[{SystemState::Error, Event::CancelPressed}]       = {SystemState::Waiting,           [this]() { onErrorCancelPressed();   }};
     transitions_[{SystemState::Error, Event::Timeout}]             = {SystemState::Waiting,           [this]() { onTimeout();              }};
     transitions_[{SystemState::Error, Event::Error}]               = {SystemState::Error,             noOp};
     
@@ -561,6 +561,16 @@ void StateMachine::onCancelPressed() {
     LOG_SM_INFO("Cancel pressed");
     if (controller_) {
         controller_->endCurrentSession();
+    }
+}
+
+void StateMachine::onErrorCancelPressed() {
+    LOG_SM_WARN("Cancel pressed in error state; reinitializing device");
+    if (controller_) {
+        bool ok = controller_->reinitializeDevice();
+        if (!ok) {
+            controller_->postEvent(Event::Error);
+        }
     }
 }
 
