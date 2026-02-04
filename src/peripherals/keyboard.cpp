@@ -211,7 +211,14 @@ void HardwareKeyboard::pollLoop() {
         if (!waitingRelease) {
             if (found != '\0') {
                 std::this_thread::sleep_for(std::chrono::milliseconds(debounceMs_));
-                char confirm = scanKey(*mcp_);
+                char confirm = '\0';
+                try {
+                    confirm = scanKey(*mcp_);
+                } catch (const std::exception& ex) {
+                    LOG_ERROR("Keyboard scan failed: {}", ex.what());
+                    isConnected_ = false;
+                    return;
+                }
                 if (confirm == found) {
                     KeyCode keyCode = charToKeyCode(found);
                     if (keyCode != static_cast<KeyCode>(0)) {
@@ -226,7 +233,14 @@ void HardwareKeyboard::pollLoop() {
         } else {
             if (found == '\0') {
                 std::this_thread::sleep_for(std::chrono::milliseconds(releaseMs_));
-                char confirm = scanKey(*mcp_);
+                char confirm = '\0';
+                try {
+                    confirm = scanKey(*mcp_);
+                } catch (const std::exception& ex) {
+                    LOG_ERROR("Keyboard scan failed: {}", ex.what());
+                    isConnected_ = false;
+                    return;
+                }
                 if (confirm == '\0') {
                     waitingRelease = false;
                 }
