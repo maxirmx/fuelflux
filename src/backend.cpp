@@ -99,7 +99,6 @@ bool IsLocalhost(const std::string& host) {
                     }
                 }
                 if (!is_loopback || !all_zeros) {
-                    is_loopback = false;
                     break;
                 }
             }
@@ -116,12 +115,10 @@ bool IsLocalhost(const std::string& host) {
                 }
                 
                 if (valid_hex) {
-                    unsigned long last_val = 0;
                     try {
-                        size_t pos = 0;
-                        last_val = std::stoul(segments[7], &pos, 16);
-                        // Ensure entire string was parsed
-                        if (pos != segments[7].length() || last_val != 1) {
+                        // All chars are hex, so stoul will parse the entire string
+                        unsigned long last_val = std::stoul(segments[7], nullptr, 16);
+                        if (last_val != 1) {
                             is_loopback = false;
                         }
                     } catch (...) {
