@@ -29,6 +29,30 @@ class Controller {
     bool initialize();
     void shutdown();
     void run();
+    /**
+     * Reinitialize the device and all connected peripherals.
+     *
+     * This method performs a controlled shutdown of the current controller state,
+     * including stopping active operations, shutting down and reinitializing all
+     * configured peripherals (display, keyboard, card reader, pump, flow meter, etc.),
+     * and resetting in‑memory session data (current user, input, selected tank,
+     * refuel/intake state, and related runtime fields) to a clean initial state.
+     *
+     * Typical use cases:
+     *  - Recovering from non‑recoverable peripheral errors without restarting the process.
+     *  - Applying configuration or backend changes that require a full device restart.
+     *
+     * Threading and state machine considerations:
+     *  - This function is intended to be called from the controller's main thread /
+     *    event loop context, not concurrently with other Controller methods.
+     *  - Ongoing operations managed by the internal state machine will be aborted and
+     *    the state machine returned to its initial state as part of reinitialization.
+     *
+     * @return true if the device and all peripherals were successfully reinitialized;
+     *         false if reinitialization failed and the controller remains in an
+     *         error or partially initialized state.
+     */
+    bool reinitializeDevice();
 
     // Peripheral management
     void setDisplay(std::unique_ptr<peripherals::IDisplay> display);
@@ -151,6 +175,26 @@ class Controller {
     TankNumber parseTankFromInput() const;
     void resetSessionData();
     void selectIntakeDirection(IntakeDirection direction);
+    /**
+     * Initializes all configured peripherals (display, keyboard, card reader, pump, flow meter, backend).
+     *
+     * Returns true if all peripherals are successfully initialized and the controller is ready to run.
+     * Returns false if any peripheral fails to initialize. In that case, some peripherals may already
+     * be initialized while others are not. The caller is responsible for handling this partially
+     * initialized state, typically by invoking shutdownPeripherals() to clean up any initialized
+     * components and updating lastErrorMessage_ with a user-visible error description.
+     */
+    bool initializePeripherals();
+    /**
+     * Shuts down all peripherals that have been initialized for this controller instance.
+     *
+     * This method should attempt to cleanly release resources for any peripheral that is currently
+     * initialized, regardless of whether initialization completed successfully or only partially.
+     * It is safe to call this even if initializePeripherals() previously failed or was never called;
+     * implementations should check each peripheral pointer and perform best-effort cleanup without
+     * throwing exceptions.
+     */
+    void shutdownPeripherals();
 };
 
 } // namespace fuelflux
