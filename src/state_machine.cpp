@@ -63,6 +63,8 @@ bool StateMachine::processEvent(Event event) {
         toState = it->second.first;
         action = it->second.second;
         previousState_ = fromState;
+        // Clear any previous override before executing new action
+        overrideTargetState_.reset();
     }
 
     // Only call exit/enter if state actually changes
@@ -81,6 +83,17 @@ bool StateMachine::processEvent(Event event) {
             LOG_SM_ERROR("Exception in transition action: {}", e.what());
         } catch (...) {
             LOG_SM_ERROR("Unknown exception in transition action");
+        }
+    }
+
+    // Check if the action set an override target state and consume it
+    {
+        std::scoped_lock lock(mutex_);
+        if (overrideTargetState_.has_value()) {
+            toState = overrideTargetState_.value();
+            stateChanged = (fromState != toState);
+            // Reset after consuming the override
+            overrideTargetState_.reset();
         }
     }
 
@@ -320,7 +333,7 @@ void StateMachine::setupTransitions() {
     transitions_[{SystemState::Error, Event::IntakeSelected}]      = {SystemState::Error,             noOp};
     transitions_[{SystemState::Error, Event::IntakeVolumeEntered}] = {SystemState::Error,             noOp};
     transitions_[{SystemState::Error, Event::IntakeComplete}]      = {SystemState::Error,             noOp};
-    transitions_[{SystemState::Error, Event::CancelPressed}]       = {SystemState::Waiting,           [this]() { onErrorCancelPressed();   }};
+    transitions_[{SystemState::Error, Event::CancelPressed}]       = {SystemState::Error,             [this]() { onErrorCancelPressed();   }};
     transitions_[{SystemState::Error, Event::Timeout}]             = {SystemState::Error,             [this]() { onTimeout();              }};
     transitions_[{SystemState::Error, Event::Error}]               = {SystemState::Error,             noOp};
     
@@ -568,9 +581,13 @@ void StateMachine::onErrorCancelPressed() {
     LOG_SM_WARN("Cancel pressed in error state; reinitializing device");
     if (controller_) {
         bool ok = controller_->reinitializeDevice();
-        if (!ok) {
-            controller_->postEvent(Event::Error);
+        if (ok) {
+            // On successful reinit, override the target state to Waiting
+            // Must hold mutex_ to safely set overrideTargetState_
+            std::scoped_lock lock(mutex_);
+            overrideTargetState_ = SystemState::Waiting;
         }
+        // On failure, state remains Error (no override, transition table says Error->Error)
     }
 }
 
