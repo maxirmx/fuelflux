@@ -24,7 +24,7 @@ constexpr const char kPppInterface[] = "ppp0";
 bool IsPppInterfaceAvailable() {
     struct ifaddrs* ifaddr = nullptr;
     if (getifaddrs(&ifaddr) != 0) {
-        LOG_BCK_ERROR("Failed to get network interfaces: {} (errno: {})", std::strerror(errno), errno);
+        LOG_BCK_ERROR("Failed to get network interfaces (errno: {}): {}", errno, std::strerror(errno));
         return false;
     }
 
