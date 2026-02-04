@@ -89,8 +89,11 @@ private:
     
     bool isTimeoutEnabled() const;
 
-    // Override target state for conditional transitions
-    // When set by a transition action, processEvent will use this instead of the table's target
+    // Override target state for conditional transitions.
+    // When set by a transition action (under mutex_), processEvent will use this 
+    // instead of the transition table's target state.
+    // MUST be accessed only while holding mutex_ to prevent race conditions.
+    // Reset before each action executes and consumed after action completes.
     std::optional<SystemState> overrideTargetState_;
 
     // Concurrency

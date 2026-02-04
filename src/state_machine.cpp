@@ -63,7 +63,7 @@ bool StateMachine::processEvent(Event event) {
         toState = it->second.first;
         action = it->second.second;
         previousState_ = fromState;
-        // Clear any previous override
+        // Clear any previous override before executing new action
         overrideTargetState_.reset();
     }
 
@@ -86,12 +86,13 @@ bool StateMachine::processEvent(Event event) {
         }
     }
 
-    // Check if the action set an override target state
+    // Check if the action set an override target state and consume it
     {
         std::scoped_lock lock(mutex_);
         if (overrideTargetState_.has_value()) {
             toState = overrideTargetState_.value();
             stateChanged = (fromState != toState);
+            // Reset after consuming the override
             overrideTargetState_.reset();
         }
     }
@@ -582,6 +583,7 @@ void StateMachine::onErrorCancelPressed() {
         bool ok = controller_->reinitializeDevice();
         if (ok) {
             // On successful reinit, override the target state to Waiting
+            // Must hold mutex_ to safely set overrideTargetState_
             std::scoped_lock lock(mutex_);
             overrideTargetState_ = SystemState::Waiting;
         }
