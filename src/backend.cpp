@@ -199,7 +199,11 @@ nlohmann::json Backend::HttpRequestWrapper(const std::string& endpoint,
                 LOG_BCK_DEBUG("Binding to {} for host {}", kPppInterface, host);
                 client.set_interface(kPppInterface);
             } else {
-                LOG_BCK_DEBUG("Skipping {} binding for host {} (localhost/local IP or interface unavailable)", kPppInterface, host);
+                if (host == "localhost" || host == "127.0.0.1" || host == "::1") {
+                    LOG_BCK_DEBUG("Skipping {} binding for localhost/local IP: {}", kPppInterface, host);
+                } else {
+                    LOG_BCK_DEBUG("Skipping {} binding for host {} (interface unavailable)", kPppInterface, host);
+                }
             }
 #endif
 
