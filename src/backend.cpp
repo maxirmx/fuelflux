@@ -9,8 +9,147 @@
 #include <mutex>
 #include <sstream>
 #include <stdexcept>
+#ifdef TARGET_SIM800C
+#include <ifaddrs.h>
+#include <cstring>
+#include <algorithm>
+#include <cctype>
+#include <vector>
+#include <cerrno>
+#endif
 
 namespace fuelflux {
+
+#ifdef TARGET_SIM800C
+namespace {
+constexpr const char kPppInterface[] = "ppp0";
+
+bool IsPppInterfaceAvailable() {
+    struct ifaddrs* ifaddr = nullptr;
+    if (getifaddrs(&ifaddr) != 0) {
+        LOG_BCK_ERROR("Failed to get network interfaces (errno: {}): {}", errno, std::strerror(errno));
+        return false;
+    }
+
+    bool found = false;
+    for (struct ifaddrs* ifa = ifaddr; ifa != nullptr; ifa = ifa->ifa_next) {
+        if (ifa->ifa_name && std::strcmp(ifa->ifa_name, kPppInterface) == 0) {
+            found = true;
+            break;
+        }
+    }
+    freeifaddrs(ifaddr);
+    return found;
+}
+
+bool IsLocalhost(const std::string& host) {
+    // Check case-insensitive "localhost"
+    std::string lower_host = host;
+    std::transform(lower_host.begin(), lower_host.end(), lower_host.begin(),
+                   [](unsigned char c) { return std::tolower(c); });
+    if (lower_host == "localhost") {
+        return true;
+    }
+
+    // Check IPv4 loopback range (127.0.0.0/8)
+    // Any address starting with "127." is in the loopback range
+    if (host.length() >= 4 && host.substr(0, 4) == "127.") {
+        return true;
+    }
+
+    // Check IPv6 loopback - compact form
+    if (host == "::1") {
+        return true;
+    }
+
+    // Check IPv6 loopback - full forms
+    // Handle both "0:0:0:0:0:0:0:1" and "0000:0000:0000:0000:0000:0000:0000:0001"
+    // or any variation with leading zeros
+    // Skip if already handled by compact form or doesn't contain colons
+    if (host.find(':') != std::string::npos && host != "::1") {
+        // Split by colons and check if we have 8 segments where first 7 are zero and last is 1
+        std::vector<std::string> segments;
+        size_t start = 0;
+        size_t end = host.find(':');
+        
+        while (end != std::string::npos) {
+            segments.push_back(host.substr(start, end - start));
+            start = end + 1;
+            end = host.find(':', start);
+        }
+        segments.push_back(host.substr(start));
+        
+        // Must have exactly 8 segments for full IPv6 address
+        if (segments.size() == 8) {
+            bool is_loopback = true;
+            for (size_t i = 0; i < 7; ++i) {
+                // Empty segments or segments longer than 4 chars are invalid
+                if (segments[i].empty() || segments[i].length() > 4) {
+                    is_loopback = false;
+                    break;
+                }
+                // Check if segment contains valid hex and is all zeros
+                bool all_zeros = true;
+                for (char c : segments[i]) {
+                    if (!std::isxdigit(static_cast<unsigned char>(c))) {
+                        is_loopback = false;
+                        all_zeros = false;
+                        break;
+                    }
+                    if (c != '0') {
+                        all_zeros = false;
+                    }
+                }
+                if (!is_loopback || !all_zeros) {
+                    break;
+                }
+            }
+            
+            // Check last segment is 1
+            if (is_loopback && !segments[7].empty() && segments[7].length() <= 4) {
+                // Validate all characters are hex digits
+                bool valid_hex = true;
+                for (char c : segments[7]) {
+                    if (!std::isxdigit(static_cast<unsigned char>(c))) {
+                        valid_hex = false;
+                        break;
+                    }
+                }
+                
+                if (valid_hex) {
+                    try {
+                        // All chars are hex, so stoul will parse the entire string
+                        unsigned long last_val = std::stoul(segments[7], nullptr, 16);
+                        if (last_val != 1) {
+                            is_loopback = false;
+                        }
+                    } catch (...) {
+                        is_loopback = false;
+                    }
+                } else {
+                    is_loopback = false;
+                }
+            } else {
+                is_loopback = false;
+            }
+            
+            if (is_loopback) {
+                return true;
+            }
+        }
+    }
+
+    return false;
+}
+
+bool ShouldBindToPppInterface(const std::string& host) {
+    if (IsLocalhost(host)) {
+        return false;
+    }
+    return IsPppInterfaceAvailable();
+}
+} // namespace
+#endif
 
 Backend::Backend(const std::string& baseAPI, const std::string& controllerUid, std::shared_ptr<MessageStorage> storage)
     : BackendBase(controllerUid, std::move(storage))
@@ -160,6 +299,18 @@ nlohmann::json Backend::HttpRequestWrapper(const std::string& endpoint,
             client.set_read_timeout(10, 0);      // 10 seconds
             client.set_write_timeout(10, 0);     // 10 seconds
             client.set_keep_alive(true);
+#ifdef TARGET_SIM800C
+            if (ShouldBindToPppInterface(host)) {
+                LOG_BCK_DEBUG("Binding to {} for host {}", kPppInterface, host);
+                client.set_interface(kPppInterface);
+            } else {
+                if (host == "localhost" || host == "127.0.0.1" || host == "::1") {
+                    LOG_BCK_DEBUG("Skipping {} binding for localhost/local IP: {}", kPppInterface, host);
+                } else {
+                    LOG_BCK_DEBUG("Skipping {} binding for host {} (interface unavailable)", kPppInterface, host);
+                }
+            }
+#endif
 
             if (method == "POST") {
                 return client.Post(endpoint.c_str(), headers, bodyStr, "application/json");

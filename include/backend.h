@@ -105,7 +105,7 @@ private:
     nlohmann::json HttpRequestWrapper(const std::string& endpoint, 
                                        const std::string& method,
                                        const nlohmann::json& requestBody,
-                                       bool useBearerToken = false);
+                                       bool useBearerToken = false) override;
 
     // Base URL of backend REST API
     std::string baseAPI_;

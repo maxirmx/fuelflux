@@ -9,9 +9,6 @@
 #include "console_emulator.h"
 #include "logger.h"
 #include "message_storage.h"
-#ifdef TARGET_SIM800C
-#include "sim800c_backend.h"
-#endif
 #ifdef TARGET_REAL_DISPLAY
 #include "peripherals/display.h"
 #endif

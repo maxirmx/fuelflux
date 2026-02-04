@@ -20,7 +20,7 @@ endif()
 
 # Real hardware peripheral flags: set by default on ARM, unset on Windows
 if(MSVC)
-    option(TARGET_SIM800C "Enable SIM800C backend" OFF) 
+    option(TARGET_SIM800C "Enable PPP interface binding for HTTP backend" OFF) 
     option(TARGET_REAL_DISPLAY "Use real NHD display hardware" OFF)
     option(TARGET_REAL_KEYBOARD "Use real keyboard hardware" OFF)
     option(TARGET_REAL_CARD_READER "Use real card reader hardware" OFF)
@@ -28,7 +28,7 @@ if(MSVC)
     option(TARGET_REAL_FLOW_METER "Use real flow meter hardware" OFF)
     option(ENABLE_TESTING "Enable testing" ON)
 else()
-    option(TARGET_SIM800C "Use SIM800C backend" ON) 
+    option(TARGET_SIM800C "Use PPP interface binding for HTTP backend" ON) 
     option(TARGET_REAL_DISPLAY "Use real NHD display hardware" OFF)   # OFF for now
     option(TARGET_REAL_KEYBOARD "Use real keyboard hardware" OFF)
     option(TARGET_REAL_CARD_READER "Use real card reader hardware" ON)
@@ -38,7 +38,7 @@ else()
 endif()
 
 if(TARGET_SIM800C)
-    message(STATUS "Targeting SIM800C backend")
+    message(STATUS "TARGET_SIM800C enabled: HTTP backend will bind to ppp0")
     add_compile_definitions(TARGET_SIM800C)
 endif()
 
@@ -147,12 +147,6 @@ set(SOURCES
     src/backend_base.cpp
 )
 
-# Add SIM800C backend only on non-MSVC platforms (Linux/ARM)
-# It uses Linux-specific headers like <sys/select.h>, <termios.h>, <unistd.h>
-if(TARGET_SIM800C)
-    list(APPEND SOURCES src/sim800c_backend.cpp)
-endif()
-
 # Add shared GPIO implementation for real hardware targets
 if(TARGET_REAL_DISPLAY OR TARGET_REAL_PUMP)
     list(APPEND SOURCES src/peripherals/gpio_gpiod.cpp )
@@ -187,11 +181,6 @@ set(HEADERS
     include/backend.h
     include/types.h
 )
-
-# Add SIM800C backend header only on non-MSVC platforms
-if(TARGET_SIM800C)
-    list(APPEND HEADERS include/sim800c_backend.h)
-endif()
 
 # Add shared GPIO header for real hardware targets
 if(TARGET_REAL_DISPLAY OR TARGET_REAL_PUMP)
@@ -322,10 +311,6 @@ if(ENABLE_TESTING)
         src/backend_base.cpp
     )
 
-    if(TARGET_SIM800C)
-        list(APPEND LIB_SOURCES src/sim800c_backend.cpp)
-    endif()
-    
     # Add shared GPIO implementation for real hardware targets
     if(TARGET_REAL_DISPLAY OR TARGET_REAL_PUMP)
         list(APPEND LIB_SOURCES
