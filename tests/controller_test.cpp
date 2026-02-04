@@ -376,6 +376,43 @@ TEST_F(ControllerTest, StateMachineInitialState) {
     EXPECT_EQ(controller->getStateMachine().getCurrentState(), SystemState::Waiting);
 }
 
+TEST_F(ControllerTest, InitializationFailureForcesErrorState) {
+    EXPECT_CALL(*mockDisplay, initialize()).WillOnce(Return(false));
+    EXPECT_CALL(*mockKeyboard, initialize()).Times(1);
+    EXPECT_CALL(*mockCardReader, initialize()).Times(1);
+    EXPECT_CALL(*mockPump, initialize()).Times(1);
+    EXPECT_CALL(*mockFlowMeter, initialize()).Times(1);
+
+    bool ok = controller->initialize();
+    EXPECT_FALSE(ok);
+    EXPECT_EQ(controller->getStateMachine().getCurrentState(), SystemState::Error);
+
+    controller->shutdown();
+}
+
+TEST_F(ControllerTest, ErrorCancelReinitializesDevice) {
+    EXPECT_CALL(*mockDisplay, initialize()).Times(2);
+    EXPECT_CALL(*mockKeyboard, initialize()).Times(2);
+    EXPECT_CALL(*mockCardReader, initialize()).Times(2);
+    EXPECT_CALL(*mockPump, initialize()).Times(2);
+    EXPECT_CALL(*mockFlowMeter, initialize()).Times(2);
+
+    EXPECT_CALL(*mockDisplay, shutdown()).Times(2);
+    EXPECT_CALL(*mockKeyboard, shutdown()).Times(2);
+    EXPECT_CALL(*mockCardReader, shutdown()).Times(2);
+    EXPECT_CALL(*mockPump, shutdown()).Times(2);
+    EXPECT_CALL(*mockFlowMeter, shutdown()).Times(2);
+
+    controller->initialize();
+    controller->getStateMachine().processEvent(Event::Error);
+    EXPECT_EQ(controller->getStateMachine().getCurrentState(), SystemState::Error);
+
+    controller->getStateMachine().processEvent(Event::CancelPressed);
+    EXPECT_EQ(controller->getStateMachine().getCurrentState(), SystemState::Waiting);
+
+    controller->shutdown();
+}
+
 // Test display update
 TEST_F(ControllerTest, UpdateDisplay) {
     controller->initialize();

@@ -46,32 +46,9 @@ Controller::~Controller() {
 
 bool Controller::initialize() {
     LOG_CTRL_INFO("Initializing controller: {}", controllerId_);
-    
-    // Initialize all peripherals
-    if (display_ && !display_->initialize()) {
-        LOG_CTRL_ERROR("Failed to initialize display");
-        return false;
-    }
-    
-    if (keyboard_ && !keyboard_->initialize()) {
-        LOG_CTRL_ERROR("Failed to initialize keyboard");
-        return false;
-    }
-    
-    if (cardReader_ && !cardReader_->initialize()) {
-        LOG_CTRL_ERROR("Failed to initialize card reader");
-        return false;
-    }
-    
-    if (pump_ && !pump_->initialize()) {
-        LOG_CTRL_ERROR("Failed to initialize pump");
-        return false;
-    }
-    
-    if (flowMeter_ && !flowMeter_->initialize()) {
-        LOG_CTRL_ERROR("Failed to initialize flow meter");
-        return false;
-    }
+
+    lastErrorMessage_.clear();
+    bool ok = initializePeripherals();
     
     // Setup peripheral callbacks
     setupPeripheralCallbacks();
@@ -80,8 +57,13 @@ bool Controller::initialize() {
     stateMachine_.initialize();
     
     isRunning_ = true;
-    LOG_CTRL_INFO("Initialization complete");
-    return true;
+    if (!ok) {
+        LOG_CTRL_ERROR("Initialization completed with errors");
+        stateMachine_.processEvent(Event::Error);
+    } else {
+        LOG_CTRL_INFO("Initialization complete");
+    }
+    return ok;
 }
 
 void Controller::shutdown() {
@@ -93,13 +75,26 @@ void Controller::shutdown() {
     eventCv_.notify_all();
     
     // Shutdown peripherals
-    if (display_) display_->shutdown();
-    if (keyboard_) keyboard_->shutdown();
-    if (cardReader_) cardReader_->shutdown();
-    if (pump_) pump_->shutdown();
-    if (flowMeter_) flowMeter_->shutdown();
+    shutdownPeripherals();
 
     LOG_CTRL_INFO("Shutdown complete");
+}
+
+bool Controller::reinitializeDevice() {
+    LOG_CTRL_WARN("Reinitializing device after error");
+    lastErrorMessage_.clear();
+    shutdownPeripherals();
+    bool ok = initializePeripherals();
+    setupPeripheralCallbacks();
+    resetSessionData();
+    // Clear input without triggering display update
+    currentInput_.clear();
+    if (!ok) {
+        LOG_CTRL_ERROR("Device reinitialization failed");
+    } else {
+        LOG_CTRL_INFO("Device reinitialization complete");
+    }
+    return ok;
 }
 
 void Controller::run() {
@@ -641,6 +636,61 @@ void Controller::resetSessionData() {
     selectedIntakeDirection_ = IntakeDirection::In;
     currentRefuelVolume_ = 0.0;
     targetRefuelVolume_ = 0.0;
+}
+
+bool Controller::initializePeripherals() {
+    bool ok = true;
+    if (display_ && !display_->initialize()) {
+        LOG_CTRL_ERROR("Failed to initialize display");
+        lastErrorMessage_ = "Ошибка дисплея";
+        ok = false;
+    }
+
+    if (keyboard_ && !keyboard_->initialize()) {
+        LOG_CTRL_ERROR("Failed to initialize keyboard");
+        if (lastErrorMessage_.empty()) {
+            lastErrorMessage_ = "Ошибка клавиатуры";
+        }
+        ok = false;
+    }
+
+    if (cardReader_ && !cardReader_->initialize()) {
+        LOG_CTRL_ERROR("Failed to initialize card reader");
+        if (lastErrorMessage_.empty()) {
+            lastErrorMessage_ = "Ошибка считывателя карт";
+        }
+        ok = false;
+    }
+
+    if (pump_ && !pump_->initialize()) {
+        LOG_CTRL_ERROR("Failed to initialize pump");
+        if (lastErrorMessage_.empty()) {
+            lastErrorMessage_ = "Ошибка насоса";
+        }
+        ok = false;
+    }
+
+    if (flowMeter_ && !flowMeter_->initialize()) {
+        LOG_CTRL_ERROR("Failed to initialize flow meter");
+        if (lastErrorMessage_.empty()) {
+            lastErrorMessage_ = "Ошибка расходомера";
+        }
+        ok = false;
+    }
+
+    if (!ok && lastErrorMessage_.empty()) {
+        lastErrorMessage_ = "Критическая ошибка инициализации";
+    }
+
+    return ok;
+}
+
+void Controller::shutdownPeripherals() {
+    if (display_) display_->shutdown();
+    if (keyboard_) keyboard_->shutdown();
+    if (cardReader_) cardReader_->shutdown();
+    if (pump_) pump_->shutdown();
+    if (flowMeter_) flowMeter_->shutdown();
 }
 
 } // namespace fuelflux
