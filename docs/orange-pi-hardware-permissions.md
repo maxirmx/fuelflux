@@ -1,3 +1,9 @@
+<!--
+Copyright (C) 2025 Maxim [maxirmx] Samsonov (www.sw.consulting)
+All rights reserved.
+This file is a part of fuelflux application
+-->
+
 # Hardware Access Setup (SPI / GPIO)
 ## Orange Pi Zero 2W — No sudo required
 

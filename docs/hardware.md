@@ -1,3 +1,9 @@
+<!--
+Copyright (C) 2025 Maxim [maxirmx] Samsonov (www.sw.consulting)
+All rights reserved.
+This file is a part of fuelflux application
+-->
+
 # Hardware Integration
 
 This guide consolidates wiring and configuration for FuelFlux hardware peripherals.

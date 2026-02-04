@@ -1,3 +1,9 @@
+<!--
+Copyright (C) 2025 Maxim [maxirmx] Samsonov (www.sw.consulting)
+All rights reserved.
+This file is a part of fuelflux application
+-->
+
 ﻿# fuelflux
 FuelFlux Controller Software - A modern fuel station management system with comprehensive logging.
 
