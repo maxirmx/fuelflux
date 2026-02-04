@@ -15,6 +15,7 @@
 #include <algorithm>
 #include <cctype>
 #include <vector>
+#include <cerrno>
 #endif
 
 namespace fuelflux {
@@ -26,6 +27,7 @@ constexpr const char kPppInterface[] = "ppp0";
 bool IsPppInterfaceAvailable() {
     struct ifaddrs* ifaddr = nullptr;
     if (getifaddrs(&ifaddr) != 0) {
+        LOG_BCK_ERROR("Failed to get network interfaces (errno: {}): {}", errno, std::strerror(errno));
         return false;
     }
 
