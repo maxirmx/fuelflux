@@ -63,7 +63,8 @@ bool IsLocalhost(const std::string& host) {
     // Check IPv6 loopback - full forms
     // Handle both "0:0:0:0:0:0:0:1" and "0000:0000:0000:0000:0000:0000:0000:0001"
     // or any variation with leading zeros
-    if (host.find(':') != std::string::npos) {
+    // Skip if already handled by compact form or doesn't contain colons
+    if (host.find(':') != std::string::npos && host != "::1") {
         // Split by colons and check if we have 8 segments where first 7 are zero and last is 1
         std::vector<std::string> segments;
         size_t start = 0;
@@ -80,7 +81,12 @@ bool IsLocalhost(const std::string& host) {
         if (segments.size() == 8) {
             bool is_loopback = true;
             for (size_t i = 0; i < 7; ++i) {
-                // Check if segment is all zeros (empty or contains only '0' chars)
+                // Empty segments are invalid in full IPv6 notation
+                if (segments[i].empty()) {
+                    is_loopback = false;
+                    break;
+                }
+                // Check if segment is all zeros (contains only '0' chars)
                 bool all_zeros = true;
                 for (char c : segments[i]) {
                     if (c != '0') {
@@ -88,25 +94,27 @@ bool IsLocalhost(const std::string& host) {
                         break;
                     }
                 }
-                if (!all_zeros && !segments[i].empty()) {
+                if (!all_zeros) {
                     is_loopback = false;
                     break;
                 }
             }
             
             // Check last segment is 1
-            if (is_loopback) {
+            if (is_loopback && !segments[7].empty()) {
                 unsigned long last_val = 0;
                 try {
-                    if (!segments[7].empty()) {
-                        last_val = std::stoul(segments[7], nullptr, 16);
+                    size_t pos = 0;
+                    last_val = std::stoul(segments[7], &pos, 16);
+                    // Ensure entire string was parsed
+                    if (pos != segments[7].length() || last_val != 1) {
+                        is_loopback = false;
                     }
                 } catch (...) {
                     is_loopback = false;
                 }
-                if (last_val != 1) {
-                    is_loopback = false;
-                }
+            } else {
+                is_loopback = false;
             }
             
             if (is_loopback) {
