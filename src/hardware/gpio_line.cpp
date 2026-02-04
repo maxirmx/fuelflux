@@ -2,7 +2,7 @@
 // All rights reserved.
 // This file is a part of fuelflux application
 
-#include "peripherals/gpio_gpiod.h"
+#include "hardware/gpio_line.h"
 #include <gpiod.h>
 #include <stdexcept>
 #include <thread>

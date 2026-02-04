@@ -3,6 +3,7 @@
 // This file is a part of fuelflux application
 
 #include "console_emulator.h"
+#include "peripherals/keyboard_utils.h"
 #include "logger.h"
 #include <iostream>
 #include <sstream>
@@ -372,19 +373,6 @@ void ConsoleKeyboard::injectKey(char c) {
     if (keyCode == static_cast<KeyCode>(0)) return;
     std::lock_guard<std::mutex> lock(callbackMutex_);
     if (keyPressCallback_) keyPressCallback_(keyCode);
-}
-
-KeyCode ConsoleKeyboard::charToKeyCode(char c) const {
-    switch (std::toupper(static_cast<unsigned char>(c))) {
-        case '0': case '1': case '2': case '3': case '4':
-        case '5': case '6': case '7': case '8': case '9':
-            return static_cast<KeyCode>(c);
-        case '*': return KeyCode::KeyMax;
-        case '#': return KeyCode::KeyClear;
-        case 'A': return KeyCode::KeyStart;
-        case 'B': return KeyCode::KeyStop;
-        default: return static_cast<KeyCode>(0);
-    }
 }
 
 void ConsoleKeyboard::printKeyboardHelp() const {

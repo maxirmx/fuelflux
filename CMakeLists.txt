@@ -50,7 +50,8 @@ else()
 endif()
 
 if(TARGET_REAL_KEYBOARD)
-    message(STATUS "TARGET_REAL_KEYBOARD enabled (placeholder - not yet implemented)")
+    message(STATUS "TARGET_REAL_KEYBOARD enabled - using real keyboard hardware")
+    add_compile_definitions(TARGET_REAL_KEYBOARD)
 endif()
 if(TARGET_REAL_CARD_READER)
     message(STATUS "TARGET_REAL_CARD_READER enabled - using real NFC card reader")
@@ -149,7 +150,10 @@ set(SOURCES
 
 # Add shared GPIO implementation for real hardware targets
 if(TARGET_REAL_DISPLAY OR TARGET_REAL_PUMP)
-    list(APPEND SOURCES src/peripherals/gpio_gpiod.cpp )
+    list(APPEND SOURCES src/hardware/gpio_line.cpp )
+endif()
+if(TARGET_REAL_KEYBOARD)
+    list(APPEND SOURCES src/hardware/mcp23017.cpp)
 endif()
 
 # Add NHD library sources if TARGET_REAL_DISPLAY is enabled
@@ -173,6 +177,7 @@ set(HEADERS
     include/backlog_worker.h
     include/peripherals/display.h
     include/peripherals/keyboard.h
+    include/peripherals/keyboard_utils.h
     include/peripherals/card_reader.h
     include/peripherals/pump.h
     include/peripherals/flow_meter.h
@@ -184,7 +189,10 @@ set(HEADERS
 
 # Add shared GPIO header for real hardware targets
 if(TARGET_REAL_DISPLAY OR TARGET_REAL_PUMP)
-    list(APPEND HEADERS include/peripherals/gpio_gpiod.h)
+    list(APPEND HEADERS include/hardware/gpio_line.h)
+endif()
+if(TARGET_REAL_KEYBOARD)
+    list(APPEND HEADERS include/hardware/mcp23017.h)
 endif()
 
 # Add NHD library headers if TARGET_REAL_DISPLAY is enabled
@@ -314,7 +322,12 @@ if(ENABLE_TESTING)
     # Add shared GPIO implementation for real hardware targets
     if(TARGET_REAL_DISPLAY OR TARGET_REAL_PUMP)
         list(APPEND LIB_SOURCES
-            src/peripherals/gpio_gpiod.cpp
+            src/hardware/gpio_line.cpp
+        )
+    endif()
+    if(TARGET_REAL_KEYBOARD)
+        list(APPEND LIB_SOURCES
+            src/hardware/mcp23017.cpp
         )
     endif()
 

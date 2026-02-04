@@ -18,6 +18,9 @@
 #ifdef TARGET_REAL_PUMP
 #include "peripherals/pump.h"
 #endif
+#ifdef TARGET_REAL_KEYBOARD
+#include "peripherals/keyboard.h"
+#endif
 #include <iostream>
 #include <string>
 #include <thread>
@@ -298,7 +301,12 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
             controller.setDisplay(emulator.createDisplay());
 #endif
 
+#ifdef TARGET_REAL_KEYBOARD
+            LOG_INFO("Using real hardware keyboard");
+            controller.setKeyboard(std::make_unique<peripherals::HardwareKeyboard>());
+#else
             controller.setKeyboard(emulator.createKeyboard());
+#endif
 
 #ifdef TARGET_REAL_CARD_READER
             LOG_INFO("Using real NFC card reader (libnfc)");

@@ -9,7 +9,7 @@ class GpioLine {
 public:
     GpioLine(int line_offset, bool output, bool initial_value,
              std::string chip_path = "/dev/gpiochip0",
-             std::string consumer = "nhd12864");
+             std::string consumer = "fuelflux");
     ~GpioLine();
 
     GpioLine(const GpioLine&) = delete;

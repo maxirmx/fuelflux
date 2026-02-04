@@ -9,7 +9,7 @@
 #include "nhd/four_line_display.h"
 #include "nhd/st7565.h"
 #include "nhd/spi_linux.h"
-#include "peripherals/gpio_gpiod.h"
+#include "hardware/gpio_line.h"
 #include <stdexcept>
 
 namespace fuelflux::peripherals {

@@ -6,7 +6,7 @@
 #include <cstdint>
 #include <vector>
 #include "nhd/spi_linux.h"
-#include "peripherals/gpio_gpiod.h"
+#include "hardware/gpio_line.h"
 
 class St7565 {
 public:
