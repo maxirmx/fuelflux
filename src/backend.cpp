@@ -12,6 +12,9 @@
 #ifdef TARGET_SIM800C
 #include <ifaddrs.h>
 #include <cstring>
+#include <algorithm>
+#include <cctype>
+#include <vector>
 #endif
 
 namespace fuelflux {
@@ -37,8 +40,86 @@ bool IsPppInterfaceAvailable() {
     return found;
 }
 
+bool IsLocalhost(const std::string& host) {
+    // Check case-insensitive "localhost"
+    std::string lower_host = host;
+    std::transform(lower_host.begin(), lower_host.end(), lower_host.begin(),
+                   [](unsigned char c) { return std::tolower(c); });
+    if (lower_host == "localhost") {
+        return true;
+    }
+
+    // Check IPv4 loopback range (127.0.0.0/8)
+    // Any address starting with "127." is in the loopback range
+    if (host.length() >= 4 && host.substr(0, 4) == "127.") {
+        return true;
+    }
+
+    // Check IPv6 loopback - compact form
+    if (host == "::1") {
+        return true;
+    }
+
+    // Check IPv6 loopback - full forms
+    // Handle both "0:0:0:0:0:0:0:1" and "0000:0000:0000:0000:0000:0000:0000:0001"
+    // or any variation with leading zeros
+    if (host.find(':') != std::string::npos) {
+        // Split by colons and check if we have 8 segments where first 7 are zero and last is 1
+        std::vector<std::string> segments;
+        size_t start = 0;
+        size_t end = host.find(':');
+        
+        while (end != std::string::npos) {
+            segments.push_back(host.substr(start, end - start));
+            start = end + 1;
+            end = host.find(':', start);
+        }
+        segments.push_back(host.substr(start));
+        
+        // Must have exactly 8 segments for full IPv6 address
+        if (segments.size() == 8) {
+            bool is_loopback = true;
+            for (size_t i = 0; i < 7; ++i) {
+                // Check if segment is all zeros (empty or contains only '0' chars)
+                bool all_zeros = true;
+                for (char c : segments[i]) {
+                    if (c != '0') {
+                        all_zeros = false;
+                        break;
+                    }
+                }
+                if (!all_zeros && !segments[i].empty()) {
+                    is_loopback = false;
+                    break;
+                }
+            }
+            
+            // Check last segment is 1
+            if (is_loopback) {
+                unsigned long last_val = 0;
+                try {
+                    if (!segments[7].empty()) {
+                        last_val = std::stoul(segments[7], nullptr, 16);
+                    }
+                } catch (...) {
+                    is_loopback = false;
+                }
+                if (last_val != 1) {
+                    is_loopback = false;
+                }
+            }
+            
+            if (is_loopback) {
+                return true;
+            }
+        }
+    }
+
+    return false;
+}
+
 bool ShouldBindToPppInterface(const std::string& host) {
-    if (host == "localhost" || host == "127.0.0.1" || host == "::1") {
+    if (IsLocalhost(host)) {
         return false;
     }
     return IsPppInterfaceAvailable();
