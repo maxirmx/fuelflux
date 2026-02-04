@@ -344,12 +344,15 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
             controller.setFlowMeter(emulator.createFlowMeter());
             
             // Initialize controller
-            if (!controller.initialize()) {
+            bool initOk = controller.initialize();
+            if (!initOk) {
                 LOG_ERROR("Failed to initialize controller; entering error state");
+                LOG_WARN("Controller started in error state; awaiting reinitialization");
+                emulator.logLine("[Main] Controller failed to initialize; type 'help' for diagnostic commands");
+            } else {
+                LOG_INFO("Controller initialized successfully");
+                emulator.logLine("[Main] Type 'help' for available commands");
             }
-            
-            LOG_INFO("Controller initialized successfully");
-            emulator.logLine("[Main] Type 'help' for available commands");
             
             // Start input dispatcher thread (handles both command and key modes)
             std::thread inputThread(inputDispatcher, std::ref(emulator));
