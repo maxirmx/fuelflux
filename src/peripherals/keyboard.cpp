@@ -60,7 +60,7 @@ bool parseEnvU8(const char* env, uint8_t& out) {
     if (!env || *env == '\0') return false;
     char* end = nullptr;
     long value = std::strtol(env, &end, 0);
-    if (!end || *end != '\0' || value < 0 || value > 0x7F) return false;
+    if (!end || *end != '\0' || value < 0 || value > 0xFF) return false;
     out = static_cast<uint8_t>(value);
     return true;
 }
