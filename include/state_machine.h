@@ -8,6 +8,7 @@
 #include <atomic>
 #include <mutex>
 #include <string>
+#include <optional>
 
 namespace fuelflux {
 
@@ -87,6 +88,10 @@ private:
     static constexpr std::chrono::seconds TIMEOUT_DURATION{30};
     
     bool isTimeoutEnabled() const;
+
+    // Override target state for conditional transitions
+    // When set by a transition action, processEvent will use this instead of the table's target
+    std::optional<SystemState> overrideTargetState_;
 
     // Concurrency
     mutable std::recursive_mutex mutex_;

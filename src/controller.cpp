@@ -87,7 +87,8 @@ bool Controller::reinitializeDevice() {
     bool ok = initializePeripherals();
     setupPeripheralCallbacks();
     resetSessionData();
-    clearInput();
+    // Clear input without triggering display update
+    currentInput_.clear();
     if (!ok) {
         LOG_CTRL_ERROR("Device reinitialization failed");
     } else {
