@@ -1,3 +1,7 @@
+// Copyright (C) 2025, 2026 Maxim [maxirmx] Samsonov (www.sw.consulting)
+// All rights reserved.
+// This file is a part of fuelflux application
+
 #include "nhd/four_line_display.h"
 #include "nhd/ft_text.h"
 #include "nhd/graphics.h"

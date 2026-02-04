@@ -1,3 +1,7 @@
+# Copyright (C) 2025, 2026 Maxim [maxirmx] Samsonov (www.sw.consulting)
+# All rights reserved.
+# This file is a part of fuelflux application
+
 *.md text eol=lf
 *.c text eol=lf
 *.cpp text eol=lf
