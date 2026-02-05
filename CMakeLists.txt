@@ -39,7 +39,7 @@ endif()
 
 if(TARGET_SIM800C)
     message(STATUS "TARGET_SIM800C enabled: HTTP backend will bind to ppp0")
-    add_compile_definitions(TARGET_SIM800C)
+    add_compile_definitions(TARGET_SIM800C USE_IF2IP)
 endif()
 
 if(TARGET_REAL_DISPLAY)
