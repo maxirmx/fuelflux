@@ -30,7 +30,7 @@ if(MSVC)
 else()
     option(TARGET_SIM800C "Use PPP interface binding for HTTP backend" ON) 
     option(TARGET_REAL_DISPLAY "Use real NHD display hardware" OFF)   # OFF for now
-    option(TARGET_REAL_KEYBOARD "Use real keyboard hardware" OFF)
+    option(TARGET_REAL_KEYBOARD "Use real keyboard hardware" ON)
     option(TARGET_REAL_CARD_READER "Use real card reader hardware" ON)
     option(TARGET_REAL_PUMP "Use real pump hardware" ON)
     option(TARGET_REAL_FLOW_METER "Use real flow meter hardware" OFF)
