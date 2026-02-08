@@ -244,11 +244,22 @@ nlohmann::json Backend::HttpRequestWrapper(const std::string& endpoint,
         size_t schemePos = url.find("://");
         if (schemePos != std::string::npos) {
             std::string afterScheme = url.substr(schemePos + 3);
-            size_t portOrPathPos = afterScheme.find_first_of(":/");
-            if (portOrPathPos != std::string::npos) {
-                host = afterScheme.substr(0, portOrPathPos);
+            
+            // Handle IPv6 addresses in brackets [::1] or [2001:db8::1]
+            if (!afterScheme.empty() && afterScheme[0] == '[') {
+                size_t bracketEnd = afterScheme.find(']');
+                if (bracketEnd != std::string::npos) {
+                    // Extract IPv6 address without brackets
+                    host = afterScheme.substr(1, bracketEnd - 1);
+                }
             } else {
-                host = afterScheme;
+                // IPv4 or hostname - extract until first : or /
+                size_t portOrPathPos = afterScheme.find_first_of(":/");
+                if (portOrPathPos != std::string::npos) {
+                    host = afterScheme.substr(0, portOrPathPos);
+                } else {
+                    host = afterScheme;
+                }
             }
         }
 
