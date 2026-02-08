@@ -97,7 +97,7 @@ FetchContent_Declare(
     GIT_TAG        v1.12.0
 )
 
-# Fetch cpp-httplib
+# Fetch cpp-httplib (only for tests mock server)
 FetchContent_Declare(
     httplib
     GIT_REPOSITORY https://github.com/yhirose/cpp-httplib.git
@@ -105,7 +105,7 @@ FetchContent_Declare(
 )
 
 # Make dependencies available
-FetchContent_MakeAvailable(fmt nlohmann_json spdlog httplib)
+FetchContent_MakeAvailable(fmt nlohmann_json spdlog)
 
 # Conditional dependencies for real hardware
 if(TARGET_REAL_DISPLAY OR TARGET_REAL_PUMP OR TARGET_REAL_CARD_READER)
@@ -221,14 +221,13 @@ if(TARGET_REAL_CARD_READER)
     target_include_directories(fuelflux PRIVATE ${LIBNFC_INCLUDE_DIRS})
 endif()
 
-# Try to find OpenSSL and enable cpp-httplib SSL support (optional)
-find_package(OpenSSL)
-if(OpenSSL_FOUND)
-    message(STATUS "Found OpenSSL: enabling cpp-httplib SSL support")
-    target_compile_definitions(fuelflux PRIVATE CPPHTTPLIB_OPENSSL_SUPPORT)
-    target_link_libraries(fuelflux PRIVATE OpenSSL::SSL OpenSSL::Crypto)
+# Find CURL (required)
+find_package(CURL REQUIRED)
+if(CURL_FOUND)
+    message(STATUS "Found CURL: ${CURL_LIBRARIES}")
+    target_include_directories(fuelflux PRIVATE ${CURL_INCLUDE_DIRS})
 else()
-    message(WARNING "OpenSSL not found. HTTPS support will be disabled, builds will succeed but HTTPS backends will be rejected at runtime.")
+    message(FATAL_ERROR "CURL not found. Please install libcurl development package.")
 endif()
 
 # SQLite for persistent message storage
@@ -240,7 +239,7 @@ target_link_libraries(fuelflux
     fmt::fmt
     nlohmann_json::nlohmann_json 
     spdlog::spdlog
-    httplib::httplib
+    ${CURL_LIBRARIES}
     SQLite::SQLite3
 )
 
@@ -290,7 +289,7 @@ if(ENABLE_TESTING)
     # For Windows: Prevent overriding the parent project's compiler/linker settings
     set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
 
-    FetchContent_MakeAvailable(googletest)
+    FetchContent_MakeAvailable(googletest httplib)
 
     enable_testing()
 
@@ -355,6 +354,7 @@ if(ENABLE_TESTING)
     if(TARGET_REAL_CARD_READER)
         target_include_directories(fuelflux_lib PUBLIC ${LIBNFC_INCLUDE_DIRS})
     endif()
+    target_include_directories(fuelflux_lib PUBLIC ${CURL_INCLUDE_DIRS})
 
     # Link libraries to library target
     target_link_libraries(fuelflux_lib
@@ -362,7 +362,7 @@ if(ENABLE_TESTING)
         fmt::fmt
         nlohmann_json::nlohmann_json
         spdlog::spdlog
-        httplib::httplib
+        ${CURL_LIBRARIES}
         SQLite::SQLite3
     )
     
@@ -377,11 +377,8 @@ if(ENABLE_TESTING)
         target_link_libraries(fuelflux_lib PUBLIC ${LIBNFC_LIBRARIES})
     endif()
 
-    # Handle OpenSSL for library
-    if(OpenSSL_FOUND)
-        target_compile_definitions(fuelflux_lib PUBLIC CPPHTTPLIB_OPENSSL_SUPPORT)
-        target_link_libraries(fuelflux_lib PUBLIC OpenSSL::SSL OpenSSL::Crypto)
-    endif()
+    # Handle OpenSSL for library (not needed anymore as curl handles it internally)
+    # Remove OpenSSL linking for httplib
 
     # Update main executable to use library
     target_link_libraries(fuelflux PRIVATE fuelflux_lib)
@@ -395,6 +392,7 @@ if(ENABLE_TESTING)
         fuelflux_lib
         GTest::gtest_main
         GTest::gmock
+        httplib::httplib
     )
 
     # Set output directory for tests
