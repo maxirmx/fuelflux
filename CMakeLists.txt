@@ -223,12 +223,8 @@ endif()
 
 # Find CURL (required)
 find_package(CURL REQUIRED)
-if(CURL_FOUND)
-    message(STATUS "Found CURL: ${CURL_LIBRARIES}")
-    target_include_directories(fuelflux PRIVATE ${CURL_INCLUDE_DIRS})
-else()
-    message(FATAL_ERROR "CURL not found. Please install libcurl development package.")
-endif()
+message(STATUS "Found CURL: ${CURL_LIBRARIES}")
+target_include_directories(fuelflux PRIVATE ${CURL_INCLUDE_DIRS})
 
 # SQLite for persistent message storage
 find_package(SQLite3 REQUIRED)
@@ -376,9 +372,6 @@ if(ENABLE_TESTING)
     if(TARGET_REAL_CARD_READER)
         target_link_libraries(fuelflux_lib PUBLIC ${LIBNFC_LIBRARIES})
     endif()
-
-    # Handle OpenSSL for library (not needed anymore as curl handles it internally)
-    # Remove OpenSSL linking for httplib
 
     # Update main executable to use library
     target_link_libraries(fuelflux PRIVATE fuelflux_lib)
