@@ -69,7 +69,7 @@ if(TARGET_REAL_PUMP)
     message(STATUS "TARGET_REAL_PUMP enabled - using real pump relay control")
     add_compile_definitions(TARGET_REAL_PUMP)
 else()
-    message(STATUS "TARGET_REAL_PUMP enabled - using pump relay simulation")
+    message(STATUS "TARGET_REAL_PUMP disabled - using pump relay simulation")
 endif()
 
 if(TARGET_REAL_FLOW_METER)
