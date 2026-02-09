@@ -295,9 +295,17 @@ nlohmann::json Backend::HttpRequestWrapper(const std::string& endpoint,
 
         // helper lambda to perform request on either Client or SSLClient
         auto doRequest = [&](auto &client) -> httplib::Result {
-            client.set_connection_timeout(5, 0); // 5 seconds
-            client.set_read_timeout(10, 0);      // 10 seconds
-            client.set_write_timeout(10, 0);     // 10 seconds
+#ifdef TARGET_SIM800C
+            // GPRS/2G connections via SIM800C have very high latency (1-3 seconds per round trip)
+            // Increase timeouts significantly to accommodate slow mobile networks
+            client.set_connection_timeout(30, 0); // 30 seconds for TCP handshake
+            client.set_read_timeout(60, 0);       // 60 seconds for response
+            client.set_write_timeout(30, 0);      // 30 seconds for request
+#else
+            client.set_connection_timeout(5, 0);  // 5 seconds
+            client.set_read_timeout(10, 0);       // 10 seconds
+            client.set_write_timeout(10, 0);      // 10 seconds
+#endif
             client.set_keep_alive(true);
 #ifdef TARGET_SIM800C
             if (ShouldBindToPppInterface(host)) {
