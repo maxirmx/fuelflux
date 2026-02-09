@@ -5,7 +5,7 @@
 #include "backend.h"
 #include "backend_utils.h"
 #include "logger.h"
-#include <httplib.h>
+#include <curl/curl.h>
 #include <mutex>
 #include <sstream>
 #include <stdexcept>
@@ -20,8 +20,17 @@
 
 namespace fuelflux {
 
-#ifdef TARGET_SIM800C
 namespace {
+
+// Callback function to write received data into a string
+size_t WriteCallback(void* contents, size_t size, size_t nmemb, void* userp) {
+    size_t totalSize = size * nmemb;
+    std::string* response = static_cast<std::string*>(userp);
+    response->append(static_cast<char*>(contents), totalSize);
+    return totalSize;
+}
+
+#ifdef TARGET_SIM800C
 constexpr const char kPppInterface[] = "ppp0";
 
 bool IsPppInterfaceAvailable() {
@@ -148,30 +157,50 @@ bool ShouldBindToPppInterface(const std::string& host) {
     }
     return IsPppInterfaceAvailable();
 }
-} // namespace
+
+std::string ExtractHostFromUrl(const std::string& url) {
+    std::string urlToParse = url;
+    size_t schemePos = urlToParse.find("://");
+    if (schemePos != std::string::npos) {
+        urlToParse = urlToParse.substr(schemePos + 3);
+    }
+    
+    // Handle IPv6 addresses in brackets
+    if (!urlToParse.empty() && urlToParse[0] == '[') {
+        size_t bracketEnd = urlToParse.find(']');
+        if (bracketEnd != std::string::npos) {
+            return urlToParse.substr(1, bracketEnd - 1);
+        }
+    }
+    
+    // Find port or path separator
+    size_t portPos = urlToParse.find(':');
+    size_t pathPos = urlToParse.find('/');
+    
+    if (portPos != std::string::npos && (pathPos == std::string::npos || portPos < pathPos)) {
+        return urlToParse.substr(0, portPos);
+    }
+    if (pathPos != std::string::npos) {
+        return urlToParse.substr(0, pathPos);
+    }
+    return urlToParse;
+}
 #endif
+
+} // namespace
 
 Backend::Backend(const std::string& baseAPI, const std::string& controllerUid, std::shared_ptr<MessageStorage> storage)
     : BackendBase(controllerUid, std::move(storage))
     , baseAPI_(baseAPI)
 {
-// If the user configured an HTTPS backend but cpp-httplib was built without OpenSSL,
-// reject early with a clear error message.
-#ifndef CPPHTTPLIB_OPENSSL_SUPPORT
-    if (!baseAPI_.empty()) {
-        const std::string https_prefix = "https://";
-        if (baseAPI_.compare(0, https_prefix.size(), https_prefix) == 0) {
-            std::string err = "HTTPS backend requested but OpenSSL support is not available in this build";
-            LOG_ERROR("{}", err);
-            throw std::runtime_error(err);
-        }
-    }
-#endif
-
+    // Initialize libcurl globally (thread-safe initialization)
+    curl_global_init(CURL_GLOBAL_DEFAULT);
     LOG_BCK_INFO("Backend initialized with base API: {} and controller UID: {}", baseAPI_, controllerUid_);
 }
 
-Backend::~Backend() = default;
+Backend::~Backend() {
+    curl_global_cleanup();
+}
 
 nlohmann::json Backend::HttpRequestWrapper(const std::string& endpoint,
                                            const std::string& method,
@@ -181,232 +210,121 @@ nlohmann::json Backend::HttpRequestWrapper(const std::string& endpoint,
 
     networkError_ = false;
 
+    CURL* curl = curl_easy_init();
+    if (!curl) {
+        LOG_BCK_ERROR("Failed to initialize curl");
+        networkError_ = true;
+        return BuildWrapperErrorResponse();
+    }
+
     try {
-        // Parse the base URL to extract host and port
-        std::string host;
-        int port = 80;
-        std::string scheme = "http";
+        std::string url = baseAPI_ + endpoint;
+        std::string responseBody;
+        
+        LOG_BCK_DEBUG("Request: {} {} with body: {}", method, endpoint, requestBody.dump());
 
-        // Simple URL parsing
-        std::string urlToParse = baseAPI_;
+        // Set URL
+        curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+        
+        // Set user agent
+        curl_easy_setopt(curl, CURLOPT_USERAGENT, "fuelflux/0.1.0");
+        
+        // Set callback for response
+        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteCallback);
+        curl_easy_setopt(curl, CURLOPT_WRITEDATA, &responseBody);
+        
+        // Set timeouts
+#ifdef TARGET_SIM800C
+        // GPRS/2G connections via SIM800C have very high latency (1-3 seconds per round trip)
+        // Increase timeouts significantly to accommodate slow mobile networks
+        curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 30L);  // 30 seconds for TCP handshake
+        curl_easy_setopt(curl, CURLOPT_TIMEOUT, 90L);          // 90 seconds total timeout
+#else
+        curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 5L);   // 5 seconds
+        curl_easy_setopt(curl, CURLOPT_TIMEOUT, 15L);          // 15 seconds total timeout
+#endif
 
-        // Extract scheme
-        size_t schemePos = urlToParse.find("://");
-        if (schemePos != std::string::npos) {
-            scheme = urlToParse.substr(0, schemePos);
-            urlToParse = urlToParse.substr(schemePos + 3);
-        }
+        // Enable TCP keepalive
+        curl_easy_setopt(curl, CURLOPT_TCP_KEEPALIVE, 1L);
 
-        // Set default port based on scheme
-        if (scheme == "https") {
-            port = 443;
-        }
-
-        // Extract host and port
-        // Handle IPv6 addresses in brackets [::1] or [2001:db8::1]
-        size_t portPos = std::string::npos;
-        size_t pathPos = urlToParse.find('/');
-        bool isIPv6 = false;
-
-        if (!urlToParse.empty() && urlToParse[0] == '[') {
-            // IPv6 address in brackets
-            isIPv6 = true;
-            size_t bracketEnd = urlToParse.find(']');
-            if (bracketEnd != std::string::npos) {
-                host = urlToParse.substr(1, bracketEnd - 1); // Extract without brackets
-                // Check for port after the closing bracket
-                if (bracketEnd + 1 < urlToParse.size() && urlToParse[bracketEnd + 1] == ':') {
-                    portPos = bracketEnd + 1;
-                }
-            } else {
-                // Malformed IPv6 address - missing closing bracket
-                LOG_BCK_WARN("Malformed IPv6 address in URL: {}", urlToParse);
-                host = urlToParse.substr(1); // Try to use what we have
-            }
+#ifdef TARGET_SIM800C
+        // Bind to PPP interface if available and not localhost
+        std::string host = ExtractHostFromUrl(baseAPI_);
+        if (ShouldBindToPppInterface(host)) {
+            LOG_BCK_DEBUG("Binding to {} for host {}", kPppInterface, host);
+            curl_easy_setopt(curl, CURLOPT_INTERFACE, kPppInterface);
         } else {
-            // IPv4 or hostname - look for port after last colon before path
-            portPos = urlToParse.find(':');
-        }
-
-        if (!isIPv6 && portPos != std::string::npos && (pathPos == std::string::npos || portPos < pathPos)) {
-            host = urlToParse.substr(0, portPos);
-            std::string portStr;
-            if (pathPos != std::string::npos) {
-                portStr = urlToParse.substr(portPos + 1, pathPos - portPos - 1);
-            }
-            else {
-                portStr = urlToParse.substr(portPos + 1);
-            }
-            port = std::stoi(portStr);
-        }
-        else if (isIPv6 && portPos != std::string::npos) {
-            // IPv6 with port: already extracted host, now extract port
-            std::string portStr;
-            if (pathPos != std::string::npos) {
-                portStr = urlToParse.substr(portPos + 1, pathPos - portPos - 1);
+            if (host == "localhost" || host == "127.0.0.1" || host == "::1") {
+                LOG_BCK_DEBUG("Skipping {} binding for localhost/local IP: {}", kPppInterface, host);
             } else {
-                portStr = urlToParse.substr(portPos + 1);
+                LOG_BCK_DEBUG("Skipping {} binding for host {} (interface unavailable)", kPppInterface, host);
             }
-            port = std::stoi(portStr);
         }
-        else if (!isIPv6 && pathPos != std::string::npos) {
-            host = urlToParse.substr(0, pathPos);
-        }
-        else if (!isIPv6 && host.empty()) {
-            host = urlToParse;
-        }
-
-        // Validate that we have a host
-        if (host.empty()) {
-            LOG_BCK_ERROR("Failed to parse host from URL: {}", baseAPI_);
-            networkError_ = true;
-            return BuildWrapperErrorResponse();
-        }
-
-        LOG_BCK_DEBUG("Connecting to {}:{} for endpoint: {} (scheme={})", host, port, endpoint, scheme);
+#endif
 
         // Prepare headers
-        std::string hostHeader;
-        // IPv6 addresses must be enclosed in brackets in the Host header
-        if (isIPv6) {
-            hostHeader = "[" + host + "]";
-        } else {
-            hostHeader = host;
-        }
-        // Include port in Host header only when it is non-default for the scheme
-        if (!((scheme == "http" && port == 80) || (scheme == "https" && port == 443))) {
-            hostHeader += ":" + std::to_string(port);
-        }
-
-        httplib::Headers headers = {
-            {"User-Agent", "fuelflux/0.1.0"},
-            {"Accept", "*/*"},
-            {"Host", hostHeader}
-        };
-
+        struct curl_slist* headers = nullptr;
+        headers = curl_slist_append(headers, "Accept: */*");
+        headers = curl_slist_append(headers, "Content-Type: application/json");
+        
         if (useBearerToken && !token_.empty()) {
-            headers.insert({"Authorization", "Bearer " + token_});
+            std::string authHeader = "Authorization: Bearer " + token_;
+            headers = curl_slist_append(headers, authHeader.c_str());
         }
+        
+        curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
 
-        // Prepare request body
+        // Set method and body
         std::string bodyStr = requestBody.dump();
-
-        LOG_BCK_DEBUG("Request: {} {} with body: {}", method, endpoint, bodyStr);
-
-        // helper lambda to perform request on either Client or SSLClient
-        auto doRequest = [&](auto &client) -> httplib::Result {
-#ifdef TARGET_SIM800C
-            // GPRS/2G connections via SIM800C have very high latency (1-3 seconds per round trip)
-            // Increase timeouts significantly to accommodate slow mobile networks
-            client.set_connection_timeout(30, 0); // 30 seconds for TCP handshake
-            client.set_read_timeout(60, 0);       // 60 seconds for response
-            client.set_write_timeout(30, 0);      // 30 seconds for request
-#else
-            client.set_connection_timeout(5, 0);  // 5 seconds
-            client.set_read_timeout(10, 0);       // 10 seconds
-            client.set_write_timeout(10, 0);      // 10 seconds
-#endif
-            client.set_keep_alive(true);
-#ifdef TARGET_SIM800C
-            if (ShouldBindToPppInterface(host)) {
-                LOG_BCK_DEBUG("Binding to {} for host {}", kPppInterface, host);
-                client.set_interface(kPppInterface);
-            } else {
-                if (host == "localhost" || host == "127.0.0.1" || host == "::1") {
-                    LOG_BCK_DEBUG("Skipping {} binding for localhost/local IP: {}", kPppInterface, host);
-                } else {
-                    LOG_BCK_DEBUG("Skipping {} binding for host {} (interface unavailable)", kPppInterface, host);
-                }
-            }
-#endif
-
-            if (method == "POST") {
-                return client.Post(endpoint.c_str(), headers, bodyStr, "application/json");
-            }
-            else if (method == "GET") {
-                return client.Get(endpoint.c_str(), headers);
-            }
-            LOG_BCK_ERROR("Unsupported HTTP method: {}", method);
-            return httplib::Result();
-        };
-
-        httplib::Result res;
-        if (scheme == "https") {
-#ifdef CPPHTTPLIB_OPENSSL_SUPPORT
-            httplib::SSLClient sslClient(host.c_str(), port);
-            // By default SSL verification is enabled. To customize CA path/cert use sslClient.set_ca_cert_file(...)
-            res = doRequest(sslClient);
-#else
-            std::string err = "HTTPS requested but cpp-httplib built without OpenSSL support";
-            LOG_BCK_ERROR("{}", err);
-            networkError_ = true;
-            return BuildWrapperErrorResponse();
-#endif
+        if (method == "POST") {
+            curl_easy_setopt(curl, CURLOPT_POST, 1L);
+            curl_easy_setopt(curl, CURLOPT_POSTFIELDS, bodyStr.c_str());
+            curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, static_cast<long>(bodyStr.size()));
+        } else if (method == "GET") {
+            curl_easy_setopt(curl, CURLOPT_HTTPGET, 1L);
         } else {
-            httplib::Client client(host.c_str(), port);
-            res = doRequest(client);
-        }
-
-        // Check if request succeeded
-        if (!res) {
-            std::string errorMsg = "HTTP request failed: ";
-            switch (res.error()) {
-                case httplib::Error::Connection:
-                    errorMsg += "Connection error";
-                    break;
-                case httplib::Error::BindIPAddress:
-                    errorMsg += "Bind IP address error";
-                    break;
-                case httplib::Error::Read:
-                    errorMsg += "Read error";
-                    break;
-                case httplib::Error::Write:
-                    errorMsg += "Write error";
-                    break;
-                case httplib::Error::ExceedRedirectCount:
-                    errorMsg += "Exceed redirect count";
-                    break;
-                case httplib::Error::Canceled:
-                    errorMsg += "Canceled";
-                    break;
-                case httplib::Error::SSLConnection:
-                    errorMsg += "SSL connection error";
-                    break;
-                case httplib::Error::SSLLoadingCerts:
-                    errorMsg += "SSL loading certs error";
-                    break;
-                case httplib::Error::SSLServerVerification:
-                    errorMsg += "SSL server verification error";
-                    break;
-                case httplib::Error::UnsupportedMultipartBoundaryChars:
-                    errorMsg += "Unsupported multipart boundary chars";
-                    break;
-                case httplib::Error::Compression:
-                    errorMsg += "Compression error";
-                    break;
-                default:
-                    errorMsg += "Unknown error";
-                    break;
-            }
-            LOG_BCK_ERROR("{}", errorMsg);
+            LOG_BCK_ERROR("Unsupported HTTP method: {}", method);
+            curl_slist_free_all(headers);
+            curl_easy_cleanup(curl);
             networkError_ = true;
             return BuildWrapperErrorResponse();
         }
 
-        LOG_BCK_DEBUG("Response status: {} body: {}", res->status, res->body);
+        // Perform request
+        CURLcode res = curl_easy_perform(curl);
+        
+        // Clean up headers
+        curl_slist_free_all(headers);
+
+        if (res != CURLE_OK) {
+            std::string errorMsg = "HTTP request failed: ";
+            errorMsg += curl_easy_strerror(res);
+            LOG_BCK_ERROR("{}", errorMsg);
+            curl_easy_cleanup(curl);
+            networkError_ = true;
+            return BuildWrapperErrorResponse();
+        }
+
+        // Get HTTP status code
+        long httpCode = 0;
+        curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &httpCode);
+        
+        LOG_BCK_DEBUG("Response status: {} body: {}", httpCode, responseBody);
+        
+        curl_easy_cleanup(curl);
 
         // Check HTTP status code
-        if (res->status >= 200 && res->status < 300) {
+        if (httpCode >= 200 && httpCode < 300) {
             // Success response
             nlohmann::json responseJson;
 
             // Handle empty or "null" response
-            if (res->body.empty() || res->body == "null") {
+            if (responseBody.empty() || responseBody == "null") {
                 responseJson = nlohmann::json(nullptr);
             }
             else {
                 try {
-                    responseJson = nlohmann::json::parse(res->body);
+                    responseJson = nlohmann::json::parse(responseBody);
                 }
                 catch (const std::exception& e) {
                     LOG_BCK_ERROR("Failed to parse response JSON: {}", e.what());
@@ -420,7 +338,7 @@ nlohmann::json Backend::HttpRequestWrapper(const std::string& endpoint,
         else {
             // HTTP error response
             std::ostringstream oss;
-            oss << "System error, code " << res->status;
+            oss << "System error, code " << httpCode;
             LOG_BCK_ERROR("{}", oss.str());
             networkError_ = true;
             return BuildWrapperErrorResponse();
@@ -428,6 +346,7 @@ nlohmann::json Backend::HttpRequestWrapper(const std::string& endpoint,
     }
     catch (const std::exception& e) {
         LOG_BCK_ERROR("HTTP request exception: {}", e.what());
+        curl_easy_cleanup(curl);
         networkError_ = true;
         return BuildWrapperErrorResponse();
     }
