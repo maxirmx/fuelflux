@@ -41,7 +41,7 @@ if(TARGET_SIM800C)
     message(STATUS "TARGET_SIM800C enabled - HTTP backend will bind to ppp0")
     add_compile_definitions(TARGET_SIM800C USE_IF2IP)
 else()
-    message(STATUS "TARGET_SIM800C enabled - HTTP backend will bind to dafault interface")
+    message(STATUS "TARGET_SIM800C disabled - HTTP backend will bind to default interface")
 endif()
 
 if(TARGET_REAL_DISPLAY)
