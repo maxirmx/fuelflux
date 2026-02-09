@@ -787,10 +787,10 @@ void ConsoleEmulator::printHelp() const {
     help += "keymode         : Switch to key input mode\n";
     help += "help            : Show this help\n";
     help += "exit            : Exit application\n";
-    help += "tab             : Switch between command/key modes\n";
     help += "========================\n";
     help += "  Command mode  : Type full commands, press Enter\n";
     help += "  Key mode      : Press individual keys (A, B, 0-9, *, #)\n";
+    help += "  Tab key       : Switch between command and key input modes\n";
     help += "========================\n";
     logBlock(help);
 }
