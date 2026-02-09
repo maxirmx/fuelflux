@@ -26,7 +26,11 @@ namespace {
 std::once_flag curl_init_flag;
 
 void InitCurlGlobally() {
-    curl_global_init(CURL_GLOBAL_DEFAULT);
+    CURLcode res = curl_global_init(CURL_GLOBAL_DEFAULT);
+    if (res != CURLE_OK) {
+        throw std::runtime_error("Failed to initialize libcurl globally: " + 
+                                 std::string(curl_easy_strerror(res)));
+    }
 }
 
 // RAII wrapper for CURL handle
@@ -65,7 +69,11 @@ public:
     CurlSlist& operator=(const CurlSlist&) = delete;
     
     void append(const char* str) {
-        list_ = curl_slist_append(list_, str);
+        struct curl_slist* new_list = curl_slist_append(list_, str);
+        if (!new_list) {
+            throw std::bad_alloc();
+        }
+        list_ = new_list;
     }
     
     struct curl_slist* get() const { return list_; }
