@@ -22,6 +22,58 @@ namespace fuelflux {
 
 namespace {
 
+// Ensure curl_global_init is called exactly once at process startup
+std::once_flag curl_init_flag;
+
+void InitCurlGlobally() {
+    curl_global_init(CURL_GLOBAL_DEFAULT);
+}
+
+// RAII wrapper for CURL handle
+class CurlHandle {
+public:
+    CurlHandle() : curl_(curl_easy_init()) {}
+    ~CurlHandle() {
+        if (curl_) {
+            curl_easy_cleanup(curl_);
+        }
+    }
+    
+    // Non-copyable, non-movable
+    CurlHandle(const CurlHandle&) = delete;
+    CurlHandle& operator=(const CurlHandle&) = delete;
+    
+    CURL* get() const { return curl_; }
+    explicit operator bool() const { return curl_ != nullptr; }
+    
+private:
+    CURL* curl_;
+};
+
+// RAII wrapper for curl_slist
+class CurlSlist {
+public:
+    CurlSlist() : list_(nullptr) {}
+    ~CurlSlist() {
+        if (list_) {
+            curl_slist_free_all(list_);
+        }
+    }
+    
+    // Non-copyable, non-movable
+    CurlSlist(const CurlSlist&) = delete;
+    CurlSlist& operator=(const CurlSlist&) = delete;
+    
+    void append(const char* str) {
+        list_ = curl_slist_append(list_, str);
+    }
+    
+    struct curl_slist* get() const { return list_; }
+    
+private:
+    struct curl_slist* list_;
+};
+
 // Callback function to write received data into a string
 size_t WriteCallback(void* contents, size_t size, size_t nmemb, void* userp) {
     size_t totalSize = size * nmemb;
@@ -193,13 +245,14 @@ Backend::Backend(const std::string& baseAPI, const std::string& controllerUid, s
     : BackendBase(controllerUid, std::move(storage))
     , baseAPI_(baseAPI)
 {
-    // Initialize libcurl globally (thread-safe initialization)
-    curl_global_init(CURL_GLOBAL_DEFAULT);
+    // Initialize libcurl globally exactly once (thread-safe)
+    std::call_once(curl_init_flag, InitCurlGlobally);
     LOG_BCK_INFO("Backend initialized with base API: {} and controller UID: {}", baseAPI_, controllerUid_);
 }
 
 Backend::~Backend() {
-    curl_global_cleanup();
+    // Do not call curl_global_cleanup() here - it's process-global and may affect other users
+    // Cleanup should happen at process shutdown, not per Backend instance
 }
 
 nlohmann::json Backend::HttpRequestWrapper(const std::string& endpoint,
@@ -210,7 +263,8 @@ nlohmann::json Backend::HttpRequestWrapper(const std::string& endpoint,
 
     networkError_ = false;
 
-    CURL* curl = curl_easy_init();
+    // Use RAII wrapper for CURL handle
+    CurlHandle curl;
     if (!curl) {
         LOG_BCK_ERROR("Failed to initialize curl");
         networkError_ = true;
@@ -221,38 +275,40 @@ nlohmann::json Backend::HttpRequestWrapper(const std::string& endpoint,
         std::string url = baseAPI_ + endpoint;
         std::string responseBody;
         
-        LOG_BCK_DEBUG("Request: {} {} with body: {}", method, endpoint, requestBody.dump());
+        // Compute body string once and reuse for both logging and POST
+        std::string bodyStr = requestBody.dump();
+        LOG_BCK_DEBUG("Request: {} {} with body: {}", method, endpoint, bodyStr);
 
         // Set URL
-        curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+        curl_easy_setopt(curl.get(), CURLOPT_URL, url.c_str());
         
         // Set user agent
-        curl_easy_setopt(curl, CURLOPT_USERAGENT, "fuelflux/0.1.0");
+        curl_easy_setopt(curl.get(), CURLOPT_USERAGENT, "fuelflux/0.1.0");
         
         // Set callback for response
-        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteCallback);
-        curl_easy_setopt(curl, CURLOPT_WRITEDATA, &responseBody);
+        curl_easy_setopt(curl.get(), CURLOPT_WRITEFUNCTION, WriteCallback);
+        curl_easy_setopt(curl.get(), CURLOPT_WRITEDATA, &responseBody);
         
         // Set timeouts
 #ifdef TARGET_SIM800C
         // GPRS/2G connections via SIM800C have very high latency (1-3 seconds per round trip)
         // Increase timeouts significantly to accommodate slow mobile networks
-        curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 30L);  // 30 seconds for TCP handshake
-        curl_easy_setopt(curl, CURLOPT_TIMEOUT, 90L);          // 90 seconds total timeout
+        curl_easy_setopt(curl.get(), CURLOPT_CONNECTTIMEOUT, 30L);  // 30 seconds for TCP handshake
+        curl_easy_setopt(curl.get(), CURLOPT_TIMEOUT, 90L);          // 90 seconds total timeout
 #else
-        curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 5L);   // 5 seconds
-        curl_easy_setopt(curl, CURLOPT_TIMEOUT, 15L);          // 15 seconds total timeout
+        curl_easy_setopt(curl.get(), CURLOPT_CONNECTTIMEOUT, 5L);   // 5 seconds
+        curl_easy_setopt(curl.get(), CURLOPT_TIMEOUT, 15L);          // 15 seconds total timeout
 #endif
 
         // Enable TCP keepalive
-        curl_easy_setopt(curl, CURLOPT_TCP_KEEPALIVE, 1L);
+        curl_easy_setopt(curl.get(), CURLOPT_TCP_KEEPALIVE, 1L);
 
 #ifdef TARGET_SIM800C
         // Bind to PPP interface if available and not localhost
         std::string host = ExtractHostFromUrl(baseAPI_);
         if (ShouldBindToPppInterface(host)) {
             LOG_BCK_DEBUG("Binding to {} for host {}", kPppInterface, host);
-            curl_easy_setopt(curl, CURLOPT_INTERFACE, kPppInterface);
+            curl_easy_setopt(curl.get(), CURLOPT_INTERFACE, kPppInterface);
         } else {
             if (host == "localhost" || host == "127.0.0.1" || host == "::1") {
                 LOG_BCK_DEBUG("Skipping {} binding for localhost/local IP: {}", kPppInterface, host);
@@ -262,56 +318,47 @@ nlohmann::json Backend::HttpRequestWrapper(const std::string& endpoint,
         }
 #endif
 
-        // Prepare headers
-        struct curl_slist* headers = nullptr;
-        headers = curl_slist_append(headers, "Accept: */*");
-        headers = curl_slist_append(headers, "Content-Type: application/json");
+        // Prepare headers using RAII wrapper
+        CurlSlist headers;
+        headers.append("Accept: */*");
+        headers.append("Content-Type: application/json");
         
         if (useBearerToken && !token_.empty()) {
             std::string authHeader = "Authorization: Bearer " + token_;
-            headers = curl_slist_append(headers, authHeader.c_str());
+            headers.append(authHeader.c_str());
         }
         
-        curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+        curl_easy_setopt(curl.get(), CURLOPT_HTTPHEADER, headers.get());
 
         // Set method and body
-        std::string bodyStr = requestBody.dump();
         if (method == "POST") {
-            curl_easy_setopt(curl, CURLOPT_POST, 1L);
-            curl_easy_setopt(curl, CURLOPT_POSTFIELDS, bodyStr.c_str());
-            curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, static_cast<long>(bodyStr.size()));
+            curl_easy_setopt(curl.get(), CURLOPT_POST, 1L);
+            curl_easy_setopt(curl.get(), CURLOPT_POSTFIELDS, bodyStr.c_str());
+            curl_easy_setopt(curl.get(), CURLOPT_POSTFIELDSIZE, static_cast<long>(bodyStr.size()));
         } else if (method == "GET") {
-            curl_easy_setopt(curl, CURLOPT_HTTPGET, 1L);
+            curl_easy_setopt(curl.get(), CURLOPT_HTTPGET, 1L);
         } else {
             LOG_BCK_ERROR("Unsupported HTTP method: {}", method);
-            curl_slist_free_all(headers);
-            curl_easy_cleanup(curl);
             networkError_ = true;
             return BuildWrapperErrorResponse();
         }
 
         // Perform request
-        CURLcode res = curl_easy_perform(curl);
-        
-        // Clean up headers
-        curl_slist_free_all(headers);
+        CURLcode res = curl_easy_perform(curl.get());
 
         if (res != CURLE_OK) {
             std::string errorMsg = "HTTP request failed: ";
             errorMsg += curl_easy_strerror(res);
             LOG_BCK_ERROR("{}", errorMsg);
-            curl_easy_cleanup(curl);
             networkError_ = true;
             return BuildWrapperErrorResponse();
         }
 
         // Get HTTP status code
         long httpCode = 0;
-        curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &httpCode);
+        curl_easy_getinfo(curl.get(), CURLINFO_RESPONSE_CODE, &httpCode);
         
         LOG_BCK_DEBUG("Response status: {} body: {}", httpCode, responseBody);
-        
-        curl_easy_cleanup(curl);
 
         // Check HTTP status code
         if (httpCode >= 200 && httpCode < 300) {
@@ -346,7 +393,6 @@ nlohmann::json Backend::HttpRequestWrapper(const std::string& endpoint,
     }
     catch (const std::exception& e) {
         LOG_BCK_ERROR("HTTP request exception: {}", e.what());
-        curl_easy_cleanup(curl);
         networkError_ = true;
         return BuildWrapperErrorResponse();
     }
