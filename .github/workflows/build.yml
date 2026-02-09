@@ -39,7 +39,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends pkg-config libsqlite3-dev libgpiod-dev \
                build-essential cmake ninja-build g++ ca-certificates git libssl-dev libnfc-dev   \
-               libcurl-dev
+               libcurl4-openssl-dev
 
       - name: Configure CMake
         run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DENABLE_TESTING=ON
@@ -89,7 +89,7 @@ jobs:
               apt-get update
               apt-get install -y --no-install-recommends pkg-config libsqlite3-dev libgpiod-dev \
                 build-essential cmake ninja-build g++ ca-certificates git libssl-dev libnfc-dev \
-                libcurl-dev
+                libcurl4-openssl-dev
               git config --global --add safe.directory /work/build-arm64/_deps/fmt-src
               git config --global --add safe.directory /work/build-arm64/_deps/nlohmann_json-src
               git config --global --add safe.directory /work/build-arm64/_deps/spdlog-src
