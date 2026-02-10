@@ -83,7 +83,22 @@ If you use MSVC toolchain instead of Ninja/gcc, change the `-G "Ninja"` to your 
 - **CMake 3.16+** 
 - **spdlog** - High performance logging library
 - **nlohmann/json** - JSON parsing and configuration
+- **libcurl** - HTTP client library
+- **c-ares** (ARM/Linux with TARGET_SIM800C only) - DNS resolution library
 - **libgpiod** (ARM/Linux only) - GPIO control for real hardware display
 - **freetype2** (ARM/Linux only) - Font rendering for real hardware display
+- **libnfc** (ARM/Linux only) - NFC card reader support
 
-Core dependencies are automatically fetched via CMake FetchContent. Hardware dependencies (libgpiod, freetype2) are only required when building with `TARGET_REAL_HARDWARE=ON`.
+Core dependencies are automatically fetched via CMake FetchContent. Hardware dependencies (c-ares, libgpiod, freetype2, libnfc) are only required when building with corresponding target flags enabled.
+
+### Installing System Dependencies on Debian/Ubuntu
+
+For TARGET_SIM800C builds (ppp0 interface binding):
+```bash
+sudo apt-get install libc-ares-dev
+```
+
+For real hardware builds:
+```bash
+sudo apt-get install libgpiod-dev libfreetype-dev libnfc-dev
+```

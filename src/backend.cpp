@@ -16,6 +16,13 @@
 #include <cctype>
 #include <vector>
 #include <cerrno>
+#include <ares.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <net/if.h>
+#include <unistd.h>
+#include <sys/select.h>
 #endif
 
 namespace fuelflux {
@@ -245,6 +252,107 @@ std::string ExtractHostFromUrl(const std::string& url) {
     }
     return urlToParse;
 }
+
+// Callback for c-ares DNS resolution
+static void AresHostCallback(void* arg, int status, int timeouts, struct hostent* host) {
+    std::string* result = static_cast<std::string*>(arg);
+    
+    if (status == ARES_SUCCESS && host && host->h_addr_list[0]) {
+        char ip[INET_ADDRSTRLEN];
+        inet_ntop(AF_INET, host->h_addr_list[0], ip, sizeof(ip));
+        *result = ip;
+        LOG_BCK_INFO("DNS resolved to: {}", ip);
+    } else {
+        LOG_BCK_ERROR("DNS resolution failed: {}", ares_strerror(status));
+    }
+}
+
+// Socket callback to bind all DNS sockets to ppp0
+static int AresSocketCallback(ares_socket_t sock, int type, void* data) {
+    if (setsockopt(sock, SOL_SOCKET, SO_BINDTODEVICE, 
+                  kPppInterface, strlen(kPppInterface)) < 0) {
+        LOG_BCK_ERROR("Failed to bind DNS socket to {}: {}", 
+                     kPppInterface, std::strerror(errno));
+        return -1;
+    }
+    LOG_BCK_DEBUG("Bound DNS socket to {}", kPppInterface);
+    return 0;
+}
+
+// Resolve DNS using c-ares bound to ppp0
+std::string ResolveDnsViaPpp0(const std::string& hostname) {
+    ares_channel channel;
+    struct ares_options options;
+    memset(&options, 0, sizeof(options));
+    
+    int optmask = 0;
+    
+    if (ares_init_options(&channel, &options, optmask) != ARES_SUCCESS) {
+        LOG_BCK_ERROR("Failed to initialize c-ares");
+        return "";
+    }
+    
+    // Set DNS servers (Yandex: 77.88.8.8, 77.88.8.1)
+    struct ares_addr_node dns_servers[2];
+    memset(dns_servers, 0, sizeof(dns_servers));
+    
+    // Primary: 77.88.8.8
+    dns_servers[0].family = AF_INET;
+    inet_pton(AF_INET, "77.88.8.8", &dns_servers[0].addr.addr4);
+    dns_servers[0].next = &dns_servers[1];
+    
+    // Secondary: 77.88.8.1
+    dns_servers[1].family = AF_INET;
+    inet_pton(AF_INET, "77.88.8.1", &dns_servers[1].addr.addr4);
+    dns_servers[1].next = nullptr;
+    
+    if (ares_set_servers(channel, dns_servers) != ARES_SUCCESS) {
+        LOG_BCK_ERROR("Failed to set DNS servers");
+        ares_destroy(channel);
+        return "";
+    }
+    
+    // Set socket callback to bind to ppp0
+    ares_set_socket_callback(channel, AresSocketCallback, nullptr);
+    
+    // Start async query
+    std::string result;
+    ares_gethostbyname(channel, hostname.c_str(), AF_INET, AresHostCallback, &result);
+    
+    // Wait for completion (with timeout)
+    int timeout_ms = 10000; // 10 seconds for GPRS
+    int elapsed_ms = 0;
+    
+    while (elapsed_ms < timeout_ms) {
+        fd_set read_fds, write_fds;
+        FD_ZERO(&read_fds);
+        FD_ZERO(&write_fds);
+        
+        int nfds = ares_fds(channel, &read_fds, &write_fds);
+        if (nfds == 0) {
+            break; // Query completed
+        }
+        
+        struct timeval tv;
+        tv.tv_sec = 0;
+        tv.tv_usec = 100000; // 100ms
+        
+        int ret = select(nfds, &read_fds, &write_fds, nullptr, &tv);
+        if (ret > 0) {
+            ares_process(channel, &read_fds, &write_fds);
+        }
+        
+        elapsed_ms += 100;
+    }
+    
+    ares_destroy(channel);
+    
+    if (result.empty()) {
+        LOG_BCK_ERROR("DNS resolution timeout for {}", hostname);
+    }
+    
+    return result;
+}
 #endif
 
 } // namespace
@@ -317,8 +425,36 @@ nlohmann::json Backend::HttpRequestWrapper(const std::string& endpoint,
         if (ShouldBindToPppInterface(host)) {
             LOG_BCK_DEBUG("Binding to {} for host {}", kPppInterface, host);
             curl_easy_setopt(curl.get(), CURLOPT_INTERFACE, kPppInterface);
-            // Also use ppp0 for DNS resolution
-            curl_easy_setopt(curl.get(), CURLOPT_DNS_INTERFACE, kPppInterface);
+            
+            // Resolve DNS through ppp0 using c-ares
+            std::string resolved_ip = ResolveDnsViaPpp0(host);
+            if (!resolved_ip.empty()) {
+                // Extract port from URL
+                std::string port = "443"; // default HTTPS
+                if (baseAPI_.find("http://") == 0) {
+                    port = "80";
+                }
+                size_t scheme_end = baseAPI_.find("://");
+                if (scheme_end != std::string::npos) {
+                    size_t port_pos = baseAPI_.find(":", scheme_end + 3);
+                    size_t path_pos = baseAPI_.find("/", scheme_end + 3);
+                    
+                    if (port_pos != std::string::npos && 
+                        (path_pos == std::string::npos || port_pos < path_pos)) {
+                        size_t port_end = path_pos != std::string::npos ? path_pos : baseAPI_.length();
+                        port = baseAPI_.substr(port_pos + 1, port_end - port_pos - 1);
+                    }
+                }
+                
+                // Inject resolved IP into curl
+                std::string resolve_entry = host + ":" + port + ":" + resolved_ip;
+                CurlSlist resolve_list;
+                resolve_list.append(resolve_entry.c_str());
+                curl_easy_setopt(curl.get(), CURLOPT_RESOLVE, resolve_list.get());
+                LOG_BCK_INFO("Using pre-resolved DNS: {}", resolve_entry);
+            } else {
+                LOG_BCK_WARNING("DNS resolution via {} failed, falling back to system resolver", kPppInterface);
+            }
         } else {
             if (host == "localhost" || host == "127.0.0.1" || host == "::1") {
                 LOG_BCK_DEBUG("Skipping {} binding for localhost/local IP: {}", kPppInterface, host);
