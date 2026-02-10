@@ -87,29 +87,45 @@ include(FetchContent)
 # Use fmt directly and share it with spdlog to avoid duplicate bundled copies
 set(SPDLOG_FMT_EXTERNAL ON)
 
-# Fetch fmt
-FetchContent_Declare(
-    fmt
-    GIT_REPOSITORY https://github.com/fmtlib/fmt.git
-    GIT_TAG        11.0.2
-)
+# Try to find system packages first, fall back to FetchContent
+find_package(fmt QUIET)
+if(NOT fmt_FOUND)
+    message(STATUS "fmt not found, fetching from GitHub...")
+    FetchContent_Declare(
+        fmt
+        GIT_REPOSITORY https://github.com/fmtlib/fmt.git
+        GIT_TAG        11.0.2
+    )
+    FetchContent_MakeAvailable(fmt)
+else()
+    message(STATUS "Using system fmt: ${fmt_VERSION}")
+endif()
 
-# Fetch nlohmann/json
-FetchContent_Declare(
-    nlohmann_json
-    GIT_REPOSITORY https://github.com/nlohmann/json.git
-    GIT_TAG        v3.12.0
-)
+find_package(nlohmann_json QUIET)
+if(NOT nlohmann_json_FOUND)
+    message(STATUS "nlohmann_json not found, fetching from GitHub...")
+    FetchContent_Declare(
+        nlohmann_json
+        GIT_REPOSITORY https://github.com/nlohmann/json.git
+        GIT_TAG        v3.12.0
+    )
+    FetchContent_MakeAvailable(nlohmann_json)
+else()
+    message(STATUS "Using system nlohmann_json: ${nlohmann_json_VERSION}")
+endif()
 
-# Fetch spdlog
-FetchContent_Declare(
-    spdlog
-    GIT_REPOSITORY https://github.com/gabime/spdlog.git
-    GIT_TAG        v1.12.0
-)
-
-# Make dependencies available
-FetchContent_MakeAvailable(fmt nlohmann_json spdlog)
+find_package(spdlog QUIET)
+if(NOT spdlog_FOUND)
+    message(STATUS "spdlog not found, fetching from GitHub...")
+    FetchContent_Declare(
+        spdlog
+        GIT_REPOSITORY https://github.com/gabime/spdlog.git
+        GIT_TAG        v1.12.0
+    )
+    FetchContent_MakeAvailable(spdlog)
+else()
+    message(STATUS "Using system spdlog: ${spdlog_VERSION}")
+endif()
 
 # Find libcurl
 find_package(CURL REQUIRED)

@@ -106,14 +106,6 @@ Paste:
 
 **Important:** Replace `"internet"` with your carrier APN.
 
-Examples:
-
-  Carrier       APN
-  ------------- --------------------
-  Vodafone DE   `web.vodafone.de`
-  Telekom DE    `internet.t-d1.de`
-  O2 DE         `internet`
-
 ------------------------------------------------------------------------
 
 ## 5) Create PPP peer file
@@ -124,23 +116,19 @@ Create:
 sudo nano /etc/ppp/peers/sim800
 ```
 
-Paste:
-
-    /dev/ttyS1
-    115200
-    crtscts
-    modem
-    defaultroute
-    usepeerdns
-    noauth
-    persist
-    maxfail 0
-    novj
-    novjccomp
-    nocrtscts
-    local
-    lock
-    connect "/usr/sbin/chat -v -f /etc/chatscripts/sim800"
+/dev/ttyS1
+115200
+modem
+noauth
+persist
+maxfail 0
+novj
+novjccomp
+nocrtscts
+local
+lock
+nodefaultroute
+connect "/usr/sbin/chat -v -f /etc/chatscripts/sim800"
 
 ------------------------------------------------------------------------
 
