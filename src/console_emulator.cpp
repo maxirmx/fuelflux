@@ -533,10 +533,11 @@ void ConsoleFlowMeter::startMeasurement() {
     if (!isConnected_) return;
 
     // Use atomic compare_exchange to ensure only one thread prints the message
-    bool expected = false;
-    if (isMeasuring_.compare_exchange_strong(expected, true)) {
-        logLine(fmt::format("[FlowMeter] Started measurement at {:.2f} L/s", flowRate_));
-    }
+     bool expected = false;
+    // if (isMeasuring_.compare_exchange_strong(expected, true)) {
+        // logLine(fmt::format("[FlowMeter] Started measurement at {:.2f} L/s", flowRate_));
+    // }
+    isMeasuring_.compare_exchange_strong(expected, true);
 }
 
 void ConsoleFlowMeter::stopMeasurement() {
@@ -556,7 +557,7 @@ void ConsoleFlowMeter::stopMeasurement() {
         }
 
         shouldStop_ = false;
-        logLine("[FlowMeter] Stopped measurement");
+        // logLine("[FlowMeter] Stopped measurement");
     }
 }
 
@@ -565,7 +566,7 @@ void ConsoleFlowMeter::resetCounter() {
         std::lock_guard<std::mutex> lock(volumeMutex_);
         currentVolume_ = 0.0;
     }
-    logLine("[FlowMeter] Counter reset");
+    // logLine("[FlowMeter] Counter reset");
     notifyFlowUpdate();
 }
 
@@ -600,23 +601,23 @@ void ConsoleFlowMeter::simulateFlow(Volume targetVolume) {
     // Create and start the simulation thread
     simulationThread_ = std::thread(&ConsoleFlowMeter::simulationThreadFunction, this, targetVolume);
 
-    logLine(fmt::format("[FlowMeter] Simulation thread started for target: {:.2f} L", targetVolume));
+    // logLine(fmt::format("[FlowMeter] Simulation thread started for target: {:.2f} L", targetVolume));
 }
 
 void ConsoleFlowMeter::simulationThreadFunction(Volume targetVolume) {
     const auto updateInterval = std::chrono::milliseconds(100);
     const Volume volumePerUpdate = flowRate_ * 0.1; // 100ms updates = 0.1 seconds
 
-    logLine(fmt::format("[FlowMeter] Simulation thread running - Target: {:.2f} L at {:.2f} L/s",
-                        targetVolume, flowRate_));
-    logLine(fmt::format("[FlowMeter] Volume per update: {:.2f} L", volumePerUpdate));
+    //logLine(fmt::format("[FlowMeter] Simulation thread running - Target: {:.2f} L at {:.2f} L/s",
+    //                    targetVolume, flowRate_));
+    //logLine(fmt::format("[FlowMeter] Volume per update: {:.2f} L", volumePerUpdate));
 
     int updateCount = 0;
 
     while (!shouldStop_) {
         // Check if measurement is still active
         if (!isMeasuring_) {
-            logLine("[FlowMeter] Measurement stopped, exiting simulation thread");
+            // logLine("[FlowMeter] Measurement stopped, exiting simulation thread");
             break;
         }
 
@@ -628,8 +629,8 @@ void ConsoleFlowMeter::simulationThreadFunction(Volume targetVolume) {
 
         // Check if we've reached the target
         if (currentVol >= targetVolume) {
-            logLine(fmt::format("[FlowMeter] Target volume reached: {:.2f} L after {} updates",
-                                currentVol, updateCount));
+            // logLine(fmt::format("[FlowMeter] Target volume reached: {:.2f} L after {} updates",
+            //                    currentVol, updateCount));
             break;
         }
 
@@ -638,11 +639,11 @@ void ConsoleFlowMeter::simulationThreadFunction(Volume targetVolume) {
 
         // Check flags again after sleep
         if (!isMeasuring_ || shouldStop_) {
-            logLine(fmt::format("[FlowMeter] Stopping: isMeasuring={}, shouldStop={}",
-                                isMeasuring_.load(), shouldStop_.load()));
+            // logLine(fmt::format("[FlowMeter] Stopping: isMeasuring={}, shouldStop={}",
+            //                    isMeasuring_.load(), shouldStop_.load()));
             break;
         }
-
+         
         // Update volume
         Volume newVolume;
         {
@@ -662,7 +663,7 @@ void ConsoleFlowMeter::simulationThreadFunction(Volume targetVolume) {
         //                    newVolume, targetVolume, updateCount));
     }
 
-    logLine("[FlowMeter] Simulation thread exiting");
+    // logLine("[FlowMeter] Simulation thread exiting");
 }
 
 void ConsoleFlowMeter::notifyFlowUpdate() {
@@ -785,15 +786,11 @@ void ConsoleEmulator::printHelp() const {
 #endif
     help += "keymode         : Switch to key input mode\n";
     help += "help            : Show this help\n";
-    help += "exit       : Exit application\n";
-    help += "\n=== MODE SWITCHING ===\n";
-    help += "Tab             : Switch between command/key modes\n";
+    help += "exit            : Exit application\n";
+    help += "========================\n";
     help += "  Command mode  : Type full commands, press Enter\n";
     help += "  Key mode      : Press individual keys (A, B, 0-9, *, #)\n";
-    help += "\n=== AUTOMATIC FLOW ===\n";
-    help += "When refueling starts, flow automatically runs at 5 L/s\n";
-    help += "until target volume is reached or Cancel (B) is pressed.\n";
-    help += "The 'flow' command is for manual testing only.\n";
+    help += "  Tab key       : Switch between command and key input modes\n";
     help += "========================\n";
     logBlock(help);
 }

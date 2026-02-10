@@ -38,8 +38,10 @@ else()
 endif()
 
 if(TARGET_SIM800C)
-    message(STATUS "TARGET_SIM800C enabled: HTTP backend will bind to ppp0")
+    message(STATUS "TARGET_SIM800C enabled - HTTP backend will bind to ppp0")
     add_compile_definitions(TARGET_SIM800C USE_IF2IP)
+else()
+    message(STATUS "TARGET_SIM800C disabled - HTTP backend will bind to default interface")
 endif()
 
 if(TARGET_REAL_DISPLAY)
@@ -52,15 +54,24 @@ endif()
 if(TARGET_REAL_KEYBOARD)
     message(STATUS "TARGET_REAL_KEYBOARD enabled - using real keyboard hardware")
     add_compile_definitions(TARGET_REAL_KEYBOARD)
+else()
+    message(STATUS "TARGET_REAL_KEYBOARD disabled - using keyboard emulation")
 endif()
+
 if(TARGET_REAL_CARD_READER)
     message(STATUS "TARGET_REAL_CARD_READER enabled - using real NFC card reader")
     add_compile_definitions(TARGET_REAL_CARD_READER)
+else()
+    message(STATUS "TARGET_REAL_CARD_READER disabled - using simulated NFC card reader")
 endif()
+
 if(TARGET_REAL_PUMP)
     message(STATUS "TARGET_REAL_PUMP enabled - using real pump relay control")
     add_compile_definitions(TARGET_REAL_PUMP)
+else()
+    message(STATUS "TARGET_REAL_PUMP disabled - using pump relay simulation")
 endif()
+
 if(TARGET_REAL_FLOW_METER)
     message(STATUS "TARGET_REAL_FLOW_METER enabled (placeholder - not yet implemented)")
 endif()
@@ -97,15 +108,11 @@ FetchContent_Declare(
     GIT_TAG        v1.12.0
 )
 
-# Fetch cpp-httplib
-FetchContent_Declare(
-    httplib
-    GIT_REPOSITORY https://github.com/yhirose/cpp-httplib.git
-    GIT_TAG        v0.15.3
-)
-
 # Make dependencies available
-FetchContent_MakeAvailable(fmt nlohmann_json spdlog httplib)
+FetchContent_MakeAvailable(fmt nlohmann_json spdlog)
+
+# Find libcurl
+find_package(CURL REQUIRED)
 
 # Conditional dependencies for real hardware
 if(TARGET_REAL_DISPLAY OR TARGET_REAL_PUMP OR TARGET_REAL_CARD_READER)
@@ -221,15 +228,8 @@ if(TARGET_REAL_CARD_READER)
     target_include_directories(fuelflux PRIVATE ${LIBNFC_INCLUDE_DIRS})
 endif()
 
-# Try to find OpenSSL and enable cpp-httplib SSL support (optional)
-find_package(OpenSSL)
-if(OpenSSL_FOUND)
-    message(STATUS "Found OpenSSL: enabling cpp-httplib SSL support")
-    target_compile_definitions(fuelflux PRIVATE CPPHTTPLIB_OPENSSL_SUPPORT)
-    target_link_libraries(fuelflux PRIVATE OpenSSL::SSL OpenSSL::Crypto)
-else()
-    message(WARNING "OpenSSL not found. HTTPS support will be disabled, builds will succeed but HTTPS backends will be rejected at runtime.")
-endif()
+# libcurl provides its own SSL support, no need to check for OpenSSL separately
+message(STATUS "Using libcurl: ${CURL_VERSION_STRING}")
 
 # SQLite for persistent message storage
 find_package(SQLite3 REQUIRED)
@@ -240,7 +240,7 @@ target_link_libraries(fuelflux
     fmt::fmt
     nlohmann_json::nlohmann_json 
     spdlog::spdlog
-    httplib::httplib
+    CURL::libcurl
     SQLite::SQLite3
 )
 
@@ -290,7 +290,14 @@ if(ENABLE_TESTING)
     # For Windows: Prevent overriding the parent project's compiler/linker settings
     set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
 
-    FetchContent_MakeAvailable(googletest)
+    # Fetch cpp-httplib for test mock server
+    FetchContent_Declare(
+        httplib
+        GIT_REPOSITORY https://github.com/yhirose/cpp-httplib.git
+        GIT_TAG        v0.15.3
+    )
+
+    FetchContent_MakeAvailable(googletest httplib)
 
     enable_testing()
 
@@ -362,7 +369,7 @@ if(ENABLE_TESTING)
         fmt::fmt
         nlohmann_json::nlohmann_json
         spdlog::spdlog
-        httplib::httplib
+        CURL::libcurl
         SQLite::SQLite3
     )
     
@@ -377,11 +384,7 @@ if(ENABLE_TESTING)
         target_link_libraries(fuelflux_lib PUBLIC ${LIBNFC_LIBRARIES})
     endif()
 
-    # Handle OpenSSL for library
-    if(OpenSSL_FOUND)
-        target_compile_definitions(fuelflux_lib PUBLIC CPPHTTPLIB_OPENSSL_SUPPORT)
-        target_link_libraries(fuelflux_lib PUBLIC OpenSSL::SSL OpenSSL::Crypto)
-    endif()
+    # libcurl handles SSL internally, no additional setup needed
 
     # Update main executable to use library
     target_link_libraries(fuelflux PRIVATE fuelflux_lib)
@@ -395,6 +398,7 @@ if(ENABLE_TESTING)
         fuelflux_lib
         GTest::gtest_main
         GTest::gmock
+        httplib::httplib
     )
 
     # Set output directory for tests
