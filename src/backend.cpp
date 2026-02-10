@@ -21,6 +21,7 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <net/if.h>
+#include <netdb.h>
 #include <unistd.h>
 #include <sys/select.h>
 #endif
@@ -255,6 +256,7 @@ std::string ExtractHostFromUrl(const std::string& url) {
 
 // Callback for c-ares DNS resolution
 static void AresHostCallback(void* arg, int status, int timeouts, struct hostent* host) {
+    (void)timeouts;
     std::string* result = static_cast<std::string*>(arg);
     
     if (status == ARES_SUCCESS && host && host->h_addr_list[0]) {
@@ -269,6 +271,8 @@ static void AresHostCallback(void* arg, int status, int timeouts, struct hostent
 
 // Socket callback to bind all DNS sockets to ppp0
 static int AresSocketCallback(ares_socket_t sock, int type, void* data) {
+    (void)type;
+    (void)data;
     if (setsockopt(sock, SOL_SOCKET, SO_BINDTODEVICE, 
                   kPppInterface, strlen(kPppInterface)) < 0) {
         LOG_BCK_ERROR("Failed to bind DNS socket to {}: {}", 
@@ -453,7 +457,7 @@ nlohmann::json Backend::HttpRequestWrapper(const std::string& endpoint,
                 curl_easy_setopt(curl.get(), CURLOPT_RESOLVE, resolve_list.get());
                 LOG_BCK_INFO("Using pre-resolved DNS: {}", resolve_entry);
             } else {
-                LOG_BCK_WARNING("DNS resolution via {} failed, falling back to system resolver", kPppInterface);
+                LOG_BCK_WARN("DNS resolution via {} failed, falling back to system resolver", kPppInterface);
             }
         } else {
             if (host == "localhost" || host == "127.0.0.1" || host == "::1") {
