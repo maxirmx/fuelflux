@@ -317,6 +317,8 @@ nlohmann::json Backend::HttpRequestWrapper(const std::string& endpoint,
         if (ShouldBindToPppInterface(host)) {
             LOG_BCK_DEBUG("Binding to {} for host {}", kPppInterface, host);
             curl_easy_setopt(curl.get(), CURLOPT_INTERFACE, kPppInterface);
+            // Also use ppp0 for DNS resolution
+            curl_easy_setopt(curl.get(), CURLOPT_DNS_INTERFACE, kPppInterface);
         } else {
             if (host == "localhost" || host == "127.0.0.1" || host == "::1") {
                 LOG_BCK_DEBUG("Skipping {} binding for localhost/local IP: {}", kPppInterface, host);
