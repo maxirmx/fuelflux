@@ -93,12 +93,10 @@ TEST_F(DnsResolutionTest, HostnameWithNullChar) {
     hostname_with_null += '\0';
     hostname_with_null += "com";
     
-    std::string result = dns::ResolveDnsViaPpp0(hostname_with_null);
-    
-    // Hostname with null character should be handled safely
-    // Either returns empty (treats null as end of string) or resolves "example"
-    // We don't test for specific behavior but ensure no crash
-    EXPECT_TRUE(result.empty() || !result.empty());
+    // This test primarily verifies that null characters don't cause crashes
+    // The function should handle this gracefully - we don't assert specific behavior
+    // as it depends on how c-ares handles null-terminated strings internally
+    EXPECT_NO_THROW(dns::ResolveDnsViaPpp0(hostname_with_null));
 }
 
 // Test multiple concurrent DNS resolutions
