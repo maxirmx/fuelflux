@@ -189,9 +189,9 @@ protected:
     MockFlowMeter* mockFlowMeter;
 
     void SetUp() override {
-        auto backend = std::make_unique<NiceMock<MockBackend>>();
+        auto backend = std::make_shared<NiceMock<MockBackend>>();
         mockBackend = backend.get();
-        controller = std::make_unique<Controller>(CONTROLLER_UID, std::move(backend));
+        controller = std::make_unique<Controller>(CONTROLLER_UID, backend);
         
         // Create mocks (use raw pointers as Controller takes ownership)
         auto display = std::make_unique<NiceMock<MockDisplay>>();

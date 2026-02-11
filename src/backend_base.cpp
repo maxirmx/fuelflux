@@ -138,8 +138,8 @@ bool BackendBase::Deauthorize() {
                 if (auto self = weakSelf.lock()) {
                     try {
                         nlohmann::json requestBody = nlohmann::json::object();
-                        // Note: We don't check the result - backend will drop session on timeout
-                        self->HttpRequestWrapper("/api/pump/deauthorize", "POST", requestBody, true);
+                        // Use explicit token overload to avoid reading cleared session
+                        self->HttpRequestWrapper("/api/pump/deauthorize", "POST", requestBody, token);
                         LOG_BCK_INFO("Deauthorization request completed");
                     } catch (const std::exception& e) {
                         LOG_BCK_WARN("Deauthorization request failed (ignored): {}", e.what());
@@ -151,7 +151,7 @@ bool BackendBase::Deauthorize() {
             // Send synchronous request but still return immediately after clearing state
             try {
                 nlohmann::json requestBody = nlohmann::json::object();
-                HttpRequestWrapper("/api/pump/deauthorize", "POST", requestBody, true);
+                HttpRequestWrapper("/api/pump/deauthorize", "POST", requestBody, token);
                 LOG_BCK_INFO("Deauthorization request completed (sync fallback)");
             } catch (const std::exception& e) {
                 LOG_BCK_WARN("Deauthorization request failed (ignored): {}", e.what());

@@ -82,6 +82,12 @@ protected:
                                               const std::string& method,
                                               const nlohmann::json& requestBody,
                                               bool useBearerToken) = 0;
+    
+    // Overload that accepts explicit token for async deauthorization
+    virtual nlohmann::json HttpRequestWrapper(const std::string& endpoint,
+                                              const std::string& method,
+                                              const nlohmann::json& requestBody,
+                                              const std::string& bearerToken) = 0;
 
     std::string controllerUid_;
     std::string authorizedUid_;
@@ -113,6 +119,12 @@ private:
                                        const std::string& method,
                                        const nlohmann::json& requestBody,
                                        bool useBearerToken = false) override;
+    
+    // Overload that accepts explicit token for async deauthorization
+    nlohmann::json HttpRequestWrapper(const std::string& endpoint,
+                                       const std::string& method,
+                                       const nlohmann::json& requestBody,
+                                       const std::string& bearerToken) override;
 
     // Base URL of backend REST API
     std::string baseAPI_;

@@ -17,8 +17,8 @@
 
 namespace fuelflux {
 
-std::unique_ptr<IBackend> Controller::CreateDefaultBackend(std::shared_ptr<MessageStorage> storage) {
-    return std::make_unique<Backend>(BACKEND_API_URL, CONTROLLER_UID, storage);
+std::shared_ptr<IBackend> Controller::CreateDefaultBackend(std::shared_ptr<MessageStorage> storage) {
+    return std::make_shared<Backend>(BACKEND_API_URL, CONTROLLER_UID, storage);
 }
 
 std::shared_ptr<IBackend> Controller::CreateDefaultBackendShared(const std::string& controllerUid, 
@@ -26,7 +26,7 @@ std::shared_ptr<IBackend> Controller::CreateDefaultBackendShared(const std::stri
     return std::make_shared<Backend>(BACKEND_API_URL, controllerUid, storage);
 }
 
-Controller::Controller(ControllerId controllerId, std::unique_ptr<IBackend> backend)
+Controller::Controller(ControllerId controllerId, std::shared_ptr<IBackend> backend)
     : controllerId_(std::move(controllerId))
     , stateMachine_(this)
     , backend_(backend ? std::move(backend) : CreateDefaultBackend())
