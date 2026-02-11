@@ -42,7 +42,14 @@
       "buildCommandArgs": "",
       "ctestCommandArgs": "",
       "inheritEnvironments": [ "linux_x64" ],
-      "wslPath": "${defaultWSLPath}"
+      "wslPath": "${defaultWSLPath}",
+      "variables": [
+        {
+          "name": "ENABLE_TESTING",
+          "value": "True",
+          "type": "BOOL"
+        }
+      ]
     }
   ]
 }
