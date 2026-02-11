@@ -1,12 +1,6 @@
-<!--
-Copyright (C) 2025, 2026 Maxim [maxirmx] Samsonov (www.sw.consulting)
-All rights reserved.
-This file is a part of fuelflux application
--->
-
-﻿# fuelflux
-FuelFlux Controller Software - A modern fuel station management system with comprehensive logging.
-
+[![Build FuelFlux](https://github.com/maxirmx/fuelflux/actions/workflows/build.yml/badge.svg)](https://github.com/maxirmx/fuelflux/actions/workflows/build.yml)
+﻿
+# FuelFlux Controller Software
 ## Features
 
 - **State Machine Architecture**: Robust state management for fuel station operations
