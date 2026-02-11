@@ -771,11 +771,13 @@ bool ConsoleEmulator::processKeyboardInput(char c, SystemState state) {
 
 void ConsoleEmulator::printWelcome() const {
     // Box width is 64 characters (62 inside the borders)
+    constexpr int kBoxInnerWidth = 62;
+    
     // Calculate centered version text
     std::string versionText = "Version " + std::string(FUELFLUX_VERSION);
-    int totalWidth = 62;
-    int padding = (totalWidth - static_cast<int>(versionText.length())) / 2;
-    std::string paddedVersion = std::string(padding, ' ') + versionText + std::string(totalWidth - padding - versionText.length(), ' ');
+    int padding = (kBoxInnerWidth - static_cast<int>(versionText.length())) / 2;
+    std::string paddedVersion = std::string(padding, ' ') + versionText + 
+                                std::string(kBoxInnerWidth - padding - versionText.length(), ' ');
     
     std::string welcomeMsg = 
         "╔══════════════════════════════════════════════════════════════╗\n"
