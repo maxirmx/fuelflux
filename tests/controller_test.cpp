@@ -25,7 +25,7 @@ using ::testing::NiceMock;
 class MockBackend : public IBackend {
 public:
     MOCK_METHOD(bool, Authorize, (const std::string& uid), (override));
-    MOCK_METHOD(bool, Deauthorize, (), (override));
+    MOCK_METHOD(void, Deauthorize, (), (override));
     MOCK_METHOD(bool, Refuel, (TankNumber tankNumber, Volume volume), (override));
     MOCK_METHOD(bool, Intake, (TankNumber tankNumber, Volume volume, IntakeDirection direction), (override));
     MOCK_METHOD(bool, RefuelPayload, (const std::string& payload), (override));
@@ -222,7 +222,6 @@ protected:
         ON_CALL(*mockBackend, IsAuthorized()).WillByDefault(ReturnPointee(&mockBackend->authorized_));
         ON_CALL(*mockBackend, Deauthorize()).WillByDefault([&]() {
             mockBackend->authorized_ = false;
-            return true;
         });
         ON_CALL(*mockBackend, GetToken()).WillByDefault(ReturnRef(mockBackend->tokenStorage_));
         ON_CALL(*mockBackend, GetRoleId()).WillByDefault(ReturnPointee(&mockBackend->roleId_));
@@ -509,7 +508,6 @@ TEST_F(ControllerTest, RefuelingCompletionDisplaysFinalVolume) {
     EXPECT_CALL(*mockBackend, Refuel(1, 10.0)).WillOnce(Return(true));
     EXPECT_CALL(*mockBackend, Deauthorize()).WillOnce([this]() {
         mockBackend->authorized_ = false;
-        return true;
         });
 
     controller->initialize();
@@ -936,7 +934,7 @@ TEST_F(ControllerTest, CustomerRefuelWorkflow) {
     EXPECT_CALL(*mockBackend, IsAuthorized())
         .WillRepeatedly(Return(true));
     EXPECT_CALL(*mockBackend, Deauthorize())
-        .WillOnce(Return(true));
+        .Times(1);
 
     controller->initialize();
 

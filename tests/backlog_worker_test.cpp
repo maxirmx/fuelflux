@@ -15,7 +15,7 @@ using ::testing::StrictMock;
 class MockBackendForBacklog : public IBackend {
 public:
     MOCK_METHOD(bool, Authorize, (const std::string& uid), (override));
-    MOCK_METHOD(bool, Deauthorize, (), (override));
+    MOCK_METHOD(void, Deauthorize, (), (override));
     MOCK_METHOD(bool, Refuel, (TankNumber tankNumber, Volume volume), (override));
     MOCK_METHOD(bool, Intake, (TankNumber tankNumber, Volume volume, IntakeDirection direction), (override));
     MOCK_METHOD(bool, RefuelPayload, (const std::string& payload), (override));
@@ -37,7 +37,7 @@ TEST(BacklogWorkerTest, ProcessesBacklogSuccessfully) {
     auto backend = std::make_shared<StrictMock<MockBackendForBacklog>>();
     EXPECT_CALL(*backend, Authorize("uid-1")).WillOnce(Return(true));
     EXPECT_CALL(*backend, RefuelPayload("{\"TankNumber\":1}")).WillOnce(Return(true));
-    EXPECT_CALL(*backend, Deauthorize()).WillOnce(Return(true));
+    EXPECT_CALL(*backend, Deauthorize()).Times(1);
 
     BacklogWorker worker(storage, backend, std::chrono::milliseconds(1));
     EXPECT_TRUE(worker.ProcessOnce());
@@ -66,11 +66,11 @@ TEST(BacklogWorkerTest, MovesToDeadOnNonNetworkError) {
     auto backend = std::make_shared<StrictMock<MockBackendForBacklog>>();
     EXPECT_CALL(*backend, Authorize("uid-3")).WillOnce(Return(true));
     EXPECT_CALL(*backend, RefuelPayload("{\"TankNumber\":3}")).WillOnce(Return(false));
-    EXPECT_CALL(*backend, Deauthorize()).WillOnce(Return(true));
+    EXPECT_CALL(*backend, Deauthorize()).Times(1);
     EXPECT_CALL(*backend, IsNetworkError()).WillOnce(Return(false));
 
     BacklogWorker worker(storage, backend, std::chrono::milliseconds(1));
-    EXPECT_TRUE(worker.ProcessOnce());
+    EXPECT_FALSE(worker.ProcessOnce());
     EXPECT_EQ(storage->BacklogCount(), 0);
     EXPECT_EQ(storage->DeadMessageCount(), 1);
 }

@@ -26,7 +26,7 @@ class IBackend {
 public:
     virtual ~IBackend() = default;
     virtual bool Authorize(const std::string& uid) = 0;
-    virtual bool Deauthorize() = 0;
+    virtual void Deauthorize() = 0;
     virtual bool Refuel(TankNumber tankNumber, Volume volume) = 0;
     virtual bool Intake(TankNumber tankNumber, Volume volume, IntakeDirection direction) = 0;
     virtual bool RefuelPayload(const std::string& payload) = 0;
@@ -52,7 +52,7 @@ public:
     ~BackendBase() override = default;
 
     bool Authorize(const std::string& uid) override;
-    bool Deauthorize() override;
+    void Deauthorize() override;
     bool Refuel(TankNumber tankNumber, Volume volume) override;
     bool Intake(TankNumber tankNumber, Volume volume, IntakeDirection direction) override;
     bool RefuelPayload(const std::string& payload) override;

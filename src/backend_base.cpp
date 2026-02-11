@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <chrono>
 #include <stdexcept>
+#include <thread>
 
 #include "backend_utils.h"
 #include "logger.h"
@@ -104,57 +105,41 @@ bool BackendBase::Authorize(const std::string& uid) {
     }
 }
 
-bool BackendBase::Deauthorize() {
-    try {
-        if (!isAuthorized_) {
-            LOG_BCK_ERROR("{}", "Not authorized. Call Authorize first.");
-            lastError_ = StdControllerError;
-            return false;
-        }
-
-        LOG_BCK_INFO("Deauthorizing");
-
-        nlohmann::json requestBody = nlohmann::json::object();
-        nlohmann::json response = HttpRequestWrapper("/api/pump/deauthorize", "POST", requestBody, true);
-        std::string responseError;
-        if (IsErrorResponse(response, &responseError)) {
-            token_.clear();
-            roleId_ = 0;
-            allowance_ = 0.0;
-            price_ = 0.0;
-            fuelTanks_.clear();
-            isAuthorized_ = false;
-            authorizedUid_.clear();
-
-            LOG_BCK_ERROR("Deauthorization failed: {} (state cleared for safety)", responseError);
-            lastError_ = responseError;
-            return false;
-        }
-
-        token_.clear();
-        roleId_ = 0;
-        allowance_ = 0.0;
-        price_ = 0.0;
-        fuelTanks_.clear();
-        isAuthorized_ = false;
-        authorizedUid_.clear();
-        lastError_.clear();
-
-        LOG_BCK_INFO("Deauthorization successful");
-        return true;
-    } catch (const std::exception& e) {
-        token_.clear();
-        roleId_ = 0;
-        allowance_ = 0.0;
-        price_ = 0.0;
-        fuelTanks_.clear();
-        isAuthorized_ = false;
-        authorizedUid_.clear();
-
-        LOG_BCK_ERROR("Deauthorization failed: {} (state cleared for safety)", e.what());
+void BackendBase::Deauthorize() {
+    if (!isAuthorized_) {
+        LOG_BCK_ERROR("{}", "Not authorized. Call Authorize first.");
         lastError_ = StdControllerError;
-        return false;
+        return;
     }
+
+    LOG_BCK_INFO("Deauthorizing (async)");
+
+    // Clear local state immediately
+    token_.clear();
+    roleId_ = 0;
+    allowance_ = 0.0;
+    price_ = 0.0;
+    fuelTanks_.clear();
+    isAuthorized_ = false;
+    authorizedUid_.clear();
+    lastError_.clear();
+
+    // Fire off the deauthorization request asynchronously without waiting for result
+    // Backend will drop the session on timeout anyway, so we don't need to wait
+    std::thread([this]() {
+        try {
+            nlohmann::json requestBody = nlohmann::json::object();
+            nlohmann::json response = HttpRequestWrapper("/api/pump/deauthorize", "POST", requestBody, true);
+            std::string responseError;
+            if (IsErrorResponse(response, &responseError)) {
+                LOG_BCK_WARN("Async deauthorization failed: {} (local state already cleared)", responseError);
+            } else {
+                LOG_BCK_INFO("Async deauthorization successful");
+            }
+        } catch (const std::exception& e) {
+            LOG_BCK_WARN("Async deauthorization exception: {} (local state already cleared)", e.what());
+        }
+    }).detach();
 }
 
 bool BackendBase::Refuel(TankNumber tankNumber, Volume volume) {

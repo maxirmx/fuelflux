@@ -326,7 +326,7 @@ void Controller::endCurrentSession() {
         flowMeter_->stopMeasurement();
     }
     if (backend_ && backend_->IsAuthorized()) {
-        (void)backend_->Deauthorize();
+        backend_->Deauthorize();
     }
     updateDisplay();
 }
@@ -459,7 +459,7 @@ void Controller::completeRefueling() {
     // After completing refuel, deauthorize the user to close the session
     // Do not reset session data here so the final pumped volume remains visible
     if (backend_ && backend_->IsAuthorized()) {
-        (void)backend_->Deauthorize();
+        backend_->Deauthorize();
     }
 }
 

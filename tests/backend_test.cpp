@@ -6,6 +6,8 @@
 #include <gmock/gmock.h>
 #include "backend.h"
 #include <httplib.h>
+#include <thread>
+#include <chrono>
 
 using namespace fuelflux;
 using ::testing::_;
@@ -218,14 +220,17 @@ TEST_F(BackendTest, DeauthorizeSuccess) {
     EXPECT_TRUE(backend.Authorize("card-uid-12345"));
     EXPECT_TRUE(backend.IsAuthorized());
     
-    bool result = backend.Deauthorize();
+    backend.Deauthorize();
     
-    EXPECT_TRUE(result);
+    // State should be cleared immediately (async request is fire-and-forget)
     EXPECT_FALSE(backend.IsAuthorized());
     EXPECT_EQ(backend.GetToken(), "");
     EXPECT_EQ(backend.GetRoleId(), 0);
     EXPECT_EQ(backend.GetAllowance(), 0.0);
     EXPECT_EQ(backend.GetFuelTanks().size(), 0);
+    
+    // Give async request time to complete
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
 }
 
 // Test deauthorization without authorization
@@ -233,8 +238,8 @@ TEST_F(BackendTest, DeauthorizeWithoutAuthorize) {
     Backend backend(baseAPI, controllerUid);
     EXPECT_FALSE(backend.IsAuthorized());
     
-    bool result = backend.Deauthorize();
-    EXPECT_FALSE(result);
+    // Should just log an error but not crash
+    backend.Deauthorize();
 }
 
 // Test successful refuel for customer
@@ -508,10 +513,12 @@ TEST_F(BackendTest, DeauthorizeConnectionError) {
         res.set_content("Simulated timeout error", "text/plain");
     };
     
-    bool result = backend.Deauthorize();
+    // Deauthorize is now async - state should be cleared immediately
+    backend.Deauthorize();
+    EXPECT_FALSE(backend.IsAuthorized());
     
-    EXPECT_FALSE(result);
-    EXPECT_FALSE(backend.GetLastError().empty());
+    // Give async request time to complete (and fail)
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
 }
 
 // Test wrapper error response propagation in Refuel
