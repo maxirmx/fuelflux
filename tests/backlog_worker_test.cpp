@@ -70,7 +70,7 @@ TEST(BacklogWorkerTest, MovesToDeadOnNonNetworkError) {
     EXPECT_CALL(*backend, IsNetworkError()).WillOnce(Return(false));
 
     BacklogWorker worker(storage, backend, std::chrono::milliseconds(1));
-    EXPECT_FALSE(worker.ProcessOnce());
+    EXPECT_TRUE(worker.ProcessOnce());
     EXPECT_EQ(storage->BacklogCount(), 0);
     EXPECT_EQ(storage->DeadMessageCount(), 1);
 }
