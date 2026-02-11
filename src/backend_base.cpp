@@ -127,22 +127,17 @@ bool BackendBase::Deauthorize() {
         lastError_.clear();
 
         // Try to make async HTTP request in detached thread if backend is managed by shared_ptr
-        // The detached thread may outlive the backend object, but this is acceptable because:
-        // 1. Backend server drops sessions on timeout anyway
-        // 2. CURL handles cleanup and the thread will exit naturally
-        // 3. This is fire-and-forget by design - we don't need to wait for completion
+        // Uses a dedicated async method that doesn't hold requestMutex_ or modify networkError_
         try {
             std::weak_ptr<BackendBase> weakSelf = shared_from_this();
             std::thread([weakSelf, token]() {
                 // Check if backend still exists
                 if (auto self = weakSelf.lock()) {
                     try {
-                        nlohmann::json requestBody = nlohmann::json::object();
-                        // Use explicit token overload to avoid reading cleared session
-                        self->HttpRequestWrapper("/api/pump/deauthorize", "POST", requestBody, token);
-                        LOG_BCK_INFO("Deauthorization request completed");
+                        // Call virtual method that sends request without mutex
+                        self->SendAsyncDeauthorizeRequest(token);
                     } catch (const std::exception& e) {
-                        LOG_BCK_WARN("Deauthorization request failed (ignored): {}", e.what());
+                        LOG_BCK_WARN("Async deauthorization failed (ignored): {}", e.what());
                     }
                 }
             }).detach();
@@ -150,9 +145,7 @@ bool BackendBase::Deauthorize() {
             // Backend is not managed by shared_ptr (likely in test environment)
             // Send synchronous request but still return immediately after clearing state
             try {
-                nlohmann::json requestBody = nlohmann::json::object();
-                HttpRequestWrapper("/api/pump/deauthorize", "POST", requestBody, token);
-                LOG_BCK_INFO("Deauthorization request completed (sync fallback)");
+                SendAsyncDeauthorizeRequest(token);
             } catch (const std::exception& e) {
                 LOG_BCK_WARN("Deauthorization request failed (ignored): {}", e.what());
             }

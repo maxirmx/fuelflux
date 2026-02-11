@@ -9,6 +9,7 @@
 #include <memory>
 #include <mutex>
 #include <thread>
+#include <atomic>
 #include <nlohmann/json.hpp>
 #include "types.h"
 #include "session.h"
@@ -88,6 +89,9 @@ protected:
                                               const std::string& method,
                                               const nlohmann::json& requestBody,
                                               const std::string& bearerToken) = 0;
+    
+    // Send async deauthorize request without mutex - overridden by concrete backend
+    virtual void SendAsyncDeauthorizeRequest(const std::string& token) = 0;
 
     std::string controllerUid_;
     std::string authorizedUid_;
@@ -97,7 +101,7 @@ protected:
     double price_ = 0.0;
     std::vector<BackendTankInfo> fuelTanks_;
     std::string lastError_;
-    bool networkError_ = false;
+    std::atomic<bool> networkError_{false};
     std::shared_ptr<MessageStorage> storage_;
 };
 
@@ -125,6 +129,12 @@ private:
                                        const std::string& method,
                                        const nlohmann::json& requestBody,
                                        const std::string& bearerToken) override;
+    
+    // Send async deauthorize request without mutex
+    void SendAsyncDeauthorizeRequest(const std::string& token) override;
+    
+    // Static helper for async deauthorize - doesn't use mutex or modify state
+    static void SendAsyncDeauthorize(const std::string& baseAPI, const std::string& token);
 
     // Base URL of backend REST API
     std::string baseAPI_;
