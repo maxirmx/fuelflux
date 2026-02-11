@@ -130,12 +130,10 @@ endif()
 # Find libcurl
 find_package(CURL REQUIRED)
 
-# Find c-ares for custom DNS resolution on TARGET_SIM800C
-if(TARGET_SIM800C)
-    find_package(PkgConfig REQUIRED)
-    pkg_check_modules(CARES REQUIRED libcares)
-    message(STATUS "Found c-ares: ${CARES_LIBRARIES}")
-endif()
+# Find c-ares for custom DNS resolution
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(CARES REQUIRED libcares)
+message(STATUS "Found c-ares: ${CARES_LIBRARIES}")
 
 # Conditional dependencies for real hardware
 if(TARGET_REAL_DISPLAY OR TARGET_REAL_PUMP OR TARGET_REAL_CARD_READER)
@@ -267,11 +265,9 @@ target_link_libraries(fuelflux
     SQLite::SQLite3
 )
 
-# Link c-ares for TARGET_SIM800C builds
-if(TARGET_SIM800C)
-    target_include_directories(fuelflux PRIVATE ${CARES_INCLUDE_DIRS})
-    target_link_libraries(fuelflux PRIVATE ${CARES_LIBRARIES})
-endif()
+# Link c-ares library
+target_include_directories(fuelflux PRIVATE ${CARES_INCLUDE_DIRS})
+target_link_libraries(fuelflux PRIVATE ${CARES_LIBRARIES})
 
 # Link real hardware libraries if needed
 if(TARGET_REAL_DISPLAY OR TARGET_REAL_PUMP)
@@ -414,9 +410,7 @@ if(ENABLE_TESTING)
         target_link_libraries(fuelflux_lib PUBLIC ${LIBNFC_LIBRARIES})
     endif()
 
-    if(TARGET_SIM800C)
-        target_link_libraries(fuelflux_lib PRIVATE ${CARES_LIBRARIES})
-    endif()
+    target_link_libraries(fuelflux_lib PRIVATE ${CARES_LIBRARIES})
 
     # Update main executable to use library
     target_link_libraries(fuelflux PRIVATE fuelflux_lib)

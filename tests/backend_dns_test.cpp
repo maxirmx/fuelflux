@@ -3,9 +3,6 @@
 // This file is a part of fuelflux application
 
 #include <gtest/gtest.h>
-
-#ifdef TARGET_SIM800C
-
 #include "backend_dns.h"
 #include <thread>
 #include <chrono>
@@ -13,12 +10,12 @@
 using namespace fuelflux;
 
 // Test fixture for DNS resolution tests
-// Note: These tests require TARGET_SIM800C to be enabled and c-ares library
+// Note: These tests use c-ares for DNS resolution
+// When TARGET_SIM800C is enabled, DNS queries are bound to ppp0 interface
 class DnsResolutionTest : public ::testing::Test {
 protected:
     void SetUp() override {
-        // Tests will be skipped if ppp0 interface is not available
-        // This is expected in CI environments
+        // Tests work on any system with c-ares library
     }
 
     void TearDown() override {
@@ -179,12 +176,3 @@ TEST_F(DnsResolutionTest, InternationalDomainName) {
 
 // Note: The following tests would ideally mock c-ares API but that requires
 // more complex setup. Instead, we test the error paths through actual failures.
-
-#else
-
-// Dummy test when TARGET_SIM800C is not enabled
-TEST(DnsResolutionTest, DisabledWhenNoTargetSim800c) {
-    GTEST_SKIP() << "DNS resolution tests require TARGET_SIM800C to be enabled";
-}
-
-#endif // TARGET_SIM800C

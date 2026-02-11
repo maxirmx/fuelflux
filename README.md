@@ -89,20 +89,9 @@ cd build && ctest --output-on-failure
 
 ### DNS Resolution Tests
 
-The DNS resolution tests are conditionally compiled based on the `TARGET_SIM800C` flag. To run these tests:
+The DNS resolution tests use c-ares library and run on all platforms. The tests verify DNS resolution functionality without requiring special hardware.
 
-```bash
-# Configure with SIM800C target enabled
-cmake -S . -B build -DENABLE_TESTING=ON -DTARGET_SIM800C=ON
-
-# Build
-cmake --build build
-
-# Run tests
-cd build && ctest --output-on-failure
-```
-
-**Note**: When `TARGET_SIM800C` is disabled (default for x86 builds), the DNS resolution tests will be skipped. This is expected behavior since the DNS functionality requires the ppp0 interface binding which is specific to SIM800C hardware deployments.
+**Note**: When `TARGET_SIM800C` is enabled, DNS queries are bound to the ppp0 interface. When disabled, standard DNS resolution is used. Both modes are tested by the same test suite.
 
 The DNS tests verify:
 - Error handling for empty and invalid hostnames
@@ -124,14 +113,19 @@ The DNS tests verify:
 - **spdlog** - High performance logging library
 - **nlohmann/json** - JSON parsing and configuration
 - **libcurl** - HTTP client library
-- **c-ares** (ARM/Linux with TARGET_SIM800C only) - DNS resolution library
+- **c-ares** - DNS resolution library (required for all builds)
 - **libgpiod** (ARM/Linux only) - GPIO control for real hardware display
 - **freetype2** (ARM/Linux only) - Font rendering for real hardware display
 - **libnfc** (ARM/Linux only) - NFC card reader support
 
-Core dependencies are automatically fetched via CMake FetchContent. Hardware dependencies (c-ares, libgpiod, freetype2, libnfc) are only required when building with corresponding target flags enabled.
+Core dependencies are automatically fetched via CMake FetchContent. Hardware dependencies (c-ares, libgpiod, freetype2, libnfc) must be installed from system packages.
 
 ### Installing System Dependencies on Debian/Ubuntu
+
+For all builds (c-ares is now required):
+```bash
+sudo apt-get install libc-ares-dev
+```
 
 For TARGET_SIM800C builds (ppp0 interface binding):
 ```bash

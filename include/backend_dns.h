@@ -4,14 +4,13 @@
 
 #pragma once
 
-#ifdef TARGET_SIM800C
-
 #include <string>
 
 namespace fuelflux {
 namespace dns {
 
-// Resolve DNS using c-ares bound to ppp0 interface
+// Resolve DNS using c-ares
+// When TARGET_SIM800C is enabled, binds to ppp0 interface
 // This function is exposed for testing purposes
 // Parameters:
 //   hostname - hostname to resolve (e.g., "example.com")
@@ -22,5 +21,3 @@ std::string ResolveDnsViaPpp0(const std::string& hostname);
 
 } // namespace dns
 } // namespace fuelflux
-
-#endif // TARGET_SIM800C

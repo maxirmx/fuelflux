@@ -9,6 +9,14 @@
 #include <mutex>
 #include <sstream>
 #include <stdexcept>
+#include <ares.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <netdb.h>
+#include <unistd.h>
+#include <sys/select.h>
+#include "backend_dns.h"
 #ifdef TARGET_SIM800C
 #include <ifaddrs.h>
 #include <cstring>
@@ -16,15 +24,7 @@
 #include <cctype>
 #include <vector>
 #include <cerrno>
-#include <ares.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
 #include <net/if.h>
-#include <netdb.h>
-#include <unistd.h>
-#include <sys/select.h>
-#include "backend_dns.h"
 #endif
 
 namespace fuelflux {
@@ -259,7 +259,6 @@ std::string ExtractHostFromUrl(const std::string& url) {
 
 } // namespace
 
-#ifdef TARGET_SIM800C
 namespace dns {
 
 namespace {
@@ -278,7 +277,8 @@ void AresHostCallback(void* arg, int status, int timeouts, struct hostent* host)
     }
 }
 
-// Socket callback to bind all DNS sockets to ppp0
+#ifdef TARGET_SIM800C
+// Socket callback to bind all DNS sockets to ppp0 (TARGET_SIM800C only)
 int AresSocketCallback(ares_socket_t sock, int type, void* data) {
     (void)type;
     (void)data;
@@ -291,9 +291,11 @@ int AresSocketCallback(ares_socket_t sock, int type, void* data) {
     LOG_BCK_DEBUG("Bound DNS socket to {}", kPppInterface);
     return 0;
 }
+#endif
 } // anonymous namespace
 
-// Resolve DNS using c-ares bound to ppp0
+// Resolve DNS using c-ares
+// When TARGET_SIM800C is enabled, binds to ppp0 interface
 std::string ResolveDnsViaPpp0(const std::string& hostname) {
     ares_channel channel;
     struct ares_options options;
@@ -326,8 +328,10 @@ std::string ResolveDnsViaPpp0(const std::string& hostname) {
         return "";
     }
     
-    // Set socket callback to bind to ppp0
+#ifdef TARGET_SIM800C
+    // Set socket callback to bind to ppp0 (only when TARGET_SIM800C is enabled)
     ares_set_socket_callback(channel, AresSocketCallback, nullptr);
+#endif
     
     // Start async query
     std::string result;
@@ -369,7 +373,6 @@ std::string ResolveDnsViaPpp0(const std::string& hostname) {
 }
 
 } // namespace dns
-#endif
 
 Backend::Backend(const std::string& baseAPI, const std::string& controllerUid, std::shared_ptr<MessageStorage> storage)
     : BackendBase(controllerUid, std::move(storage))
