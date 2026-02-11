@@ -696,7 +696,10 @@ void StateMachine::onError() {
 bool StateMachine::isTimeoutEnabled() const {
     std::scoped_lock lock(mutex_);
     return currentState_ != SystemState::Waiting && 
-           currentState_ != SystemState::Refueling;
+           currentState_ != SystemState::Refueling &&
+           currentState_ != SystemState::Authorization &&
+           currentState_ != SystemState::RefuelDataTransmission &&
+           currentState_ != SystemState::IntakeDataTransmission;
 }
 
 void StateMachine::updateActivityTime() {
@@ -720,10 +723,13 @@ void StateMachine::timeoutThreadFunction() {
         }
 
         // If timeouts are disabled for this state, skip checking (no lock held here)
-        // Waiting and Refueling states have timeout checking disabled here.
-        // Authorization state has timeout checking enabled but ignores timeout events (noOp transition).
+        // Waiting, Refueling, Authorization, and data transmission states have timeout checking disabled here.
+        // These states involve blocking backend operations or don't require timeout.
         if (stateCopy == SystemState::Waiting ||
-            stateCopy == SystemState::Refueling) {
+            stateCopy == SystemState::Refueling ||
+            stateCopy == SystemState::Authorization ||
+            stateCopy == SystemState::RefuelDataTransmission ||
+            stateCopy == SystemState::IntakeDataTransmission) {
             continue;
         }
 
