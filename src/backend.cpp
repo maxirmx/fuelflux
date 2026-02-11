@@ -255,6 +255,11 @@ std::string ExtractHostFromUrl(const std::string& url) {
     return urlToParse;
 }
 
+#endif
+
+} // namespace
+
+#ifdef TARGET_SIM800C
 namespace dns {
 
 namespace {
@@ -364,10 +369,7 @@ std::string ResolveDnsViaPpp0(const std::string& hostname) {
 }
 
 } // namespace dns
-
 #endif
-
-} // namespace
 
 Backend::Backend(const std::string& baseAPI, const std::string& controllerUid, std::shared_ptr<MessageStorage> storage)
     : BackendBase(controllerUid, std::move(storage))
