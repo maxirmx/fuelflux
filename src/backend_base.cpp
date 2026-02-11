@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <chrono>
 #include <stdexcept>
+#include <thread>
 
 #include "backend_utils.h"
 #include "logger.h"
@@ -43,6 +44,13 @@ bool BackendBase::Authorize(const std::string& uid) {
         requestBody["PumpControllerUid"] = controllerUid_;
 
         nlohmann::json response = HttpRequestWrapper("/api/pump/authorize", "POST", requestBody, false);
+
+#ifdef _WIN32
+        // Add 3-second delay on Windows for testing/simulation purposes
+        LOG_BCK_INFO("Windows platform detected, adding 3-second authorization delay");
+        std::this_thread::sleep_for(std::chrono::seconds(3));
+#endif
+
         std::string responseError;
         if (IsErrorResponse(response, &responseError)) {
             LOG_BCK_ERROR("Authorization failed: {}", responseError);

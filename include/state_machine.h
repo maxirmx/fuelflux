@@ -58,27 +58,18 @@ private:
     void onEnterState(SystemState state);
     void onExitState(SystemState state);
     
+    
+    
     // Transition actions
-    void onCardPresented();
-    void onPinEntryStarted();
-    void onPinEntered();
-    void onAuthorizationSuccess();
-    void onAuthorizationFailed();
     void onTankSelected();
     void onVolumeEntered();
-    void onRefuelingStarted();
-    void onRefuelingStopped();
     void onCancelRefueling();
-    void onRefuelDataTransmissionComplete();
-    void onIntakeDataTransmissionComplete();
     void onIntakeSelected();
     void onIntakeDirectionSelected();
     void onIntakeVolumeEntered();
-    void onIntakeComplete();
     void onCancelPressed();
     void onErrorCancelPressed();
     void onTimeout();
-    void onError();
 
 private:
     Controller* controller_;
