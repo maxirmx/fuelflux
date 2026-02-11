@@ -3,7 +3,14 @@
 # This file is a part of fuelflux application
 
 cmake_minimum_required(VERSION 3.16)
-project(FuelFlux VERSION 0.0.2 LANGUAGES CXX)
+project(FuelFlux VERSION 0.0.4 LANGUAGES CXX)
+
+# Generate version header from template
+configure_file(
+    "${CMAKE_SOURCE_DIR}/include/version.h.in"
+    "${CMAKE_BINARY_DIR}/include/version.h"
+    @ONLY
+)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -160,6 +167,7 @@ endif()
 
 # Include directories
 include_directories(include)
+include_directories(${CMAKE_BINARY_DIR}/include)
 
 # Library source files (excluding main.cpp)
 set(LIB_SOURCES

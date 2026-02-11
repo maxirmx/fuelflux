@@ -5,6 +5,7 @@
 #include "console_emulator.h"
 #include "peripherals/keyboard_utils.h"
 #include "logger.h"
+#include "version.h"
 #include <iostream>
 #include <sstream>
 #include <iomanip>
@@ -769,13 +770,13 @@ bool ConsoleEmulator::processKeyboardInput(char c, SystemState state) {
 }
 
 void ConsoleEmulator::printWelcome() const {
-    logBlock(
+    std::string welcomeMsg = 
         "╔══════════════════════════════════════════════════════════════╗\n"
         "║                    FUEL FLUX CONTROLLER                      ║\n"
         "║                    Console Emulator                          ║\n"
-        "╚══════════════════════════════════════════════════════════════╝\n"
-        ""
-    );
+        "║                        Version " FUELFLUX_VERSION "                             ║\n"
+        "╚══════════════════════════════════════════════════════════════╝\n";
+    logBlock(welcomeMsg);
     printHelp();
 }
 
