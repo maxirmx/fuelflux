@@ -510,8 +510,11 @@ TEST_F(BackendTest, DeauthorizeConnectionError) {
     
     bool result = backend.Deauthorize();
     
-    EXPECT_FALSE(result);
-    EXPECT_FALSE(backend.GetLastError().empty());
+    // Deauthorize should succeed (return true) even with connection error
+    // because it's fire-and-forget and clears state immediately
+    EXPECT_TRUE(result);
+    EXPECT_FALSE(backend.IsAuthorized());
+    EXPECT_EQ(backend.GetToken(), "");
 }
 
 // Test wrapper error response propagation in Refuel

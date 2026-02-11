@@ -266,7 +266,7 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
             backlogWorker.Start();
 
             // Create controller
-            Controller controller(controllerId, std::move(backend));
+            Controller controller(controllerId, backend);
             
             // Create and setup peripherals
 #ifdef TARGET_REAL_DISPLAY
