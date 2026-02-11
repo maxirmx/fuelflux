@@ -211,7 +211,7 @@ void Controller::handleKeyPress(KeyCode key) {
             if (currentState == SystemState::VolumeEntry && currentUser_.role == UserRole::Customer) {
                 setMaxValue();
             }
-            // In all other states, treat '*' as a regular character (or ignore it)
+            // In all other states, '*' is ignored and not added to the input
             break;
             
         case KeyCode::KeyClear:
