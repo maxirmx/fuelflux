@@ -13,6 +13,7 @@
 #include <nlohmann/json.hpp>
 #include "types.h"
 #include "session.h"
+#include "bounded_executor.h"
 
 namespace fuelflux {
 
@@ -50,7 +51,8 @@ public:
 // Deauthorize is fully asynchronous (fire-and-forget) and safe to call concurrently.
 // 
 // Lifecycle: BackendBase inherits from std::enable_shared_from_this to support async operations.
-// When managed by shared_ptr (production), Deauthorize uses async HTTP requests in background threads.
+// When managed by shared_ptr (production), Deauthorize submits work to a bounded executor
+// with a fixed thread pool (1 thread) and queue limit (100 tasks) to prevent resource exhaustion.
 // When not managed by shared_ptr (tests), Deauthorize falls back to synchronous HTTP requests.
 // Both approaches clear local state immediately and always return success (true).
 //
@@ -92,6 +94,10 @@ protected:
     
     // Send async deauthorize request without mutex - overridden by concrete backend
     virtual void SendAsyncDeauthorizeRequest(const std::string& token) = 0;
+
+    // Get the bounded executor for async deauthorization requests
+    // Uses Meyer's singleton pattern for thread-safe lazy initialization
+    static BoundedExecutor& GetDeauthorizeExecutor();
 
     std::string controllerUid_;
     std::string authorizedUid_;
