@@ -111,8 +111,9 @@ FetchContent_Declare(
 # Make dependencies available
 FetchContent_MakeAvailable(fmt nlohmann_json spdlog)
 
-# Find libcurl
+# Find required packages
 find_package(CURL REQUIRED)
+find_package(SQLite3 REQUIRED)
 
 # Conditional dependencies for real hardware
 if(TARGET_REAL_DISPLAY OR TARGET_REAL_PUMP OR TARGET_REAL_CARD_READER)
@@ -226,9 +227,6 @@ endif()
 if(TARGET_REAL_CARD_READER)
     target_include_directories(fuelflux_lib PUBLIC ${LIBNFC_INCLUDE_DIRS})
 endif()
-
-# SQLite for persistent message storage
-find_package(SQLite3 REQUIRED)
 
 # Link libraries to library target
 target_link_libraries(fuelflux_lib 
