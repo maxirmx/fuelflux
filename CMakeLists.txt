@@ -161,6 +161,7 @@ set(LIB_SOURCES
     src/logger.cpp
     src/message_storage.cpp
     src/backlog_worker.cpp
+    src/bounded_executor.cpp
     src/peripherals/display.cpp
     src/peripherals/keyboard.cpp
     src/peripherals/card_reader.cpp
@@ -323,6 +324,7 @@ if(ENABLE_TESTING)
         tests/controller_test.cpp
         tests/message_storage_test.cpp
         tests/backlog_worker_test.cpp
+        tests/bounded_executor_test.cpp
     )
 
     # Create test executable

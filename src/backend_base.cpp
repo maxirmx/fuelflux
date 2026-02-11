@@ -14,6 +14,10 @@
 
 namespace fuelflux {
 
+// Static executor shared by all BackendBase instances
+// Uses 4 worker threads and queues up to 100 deauthorize requests
+BoundedExecutor BackendBase::deauthorizeExecutor_(4, 100);
+
 BackendBase::BackendBase(std::string controllerUid, std::shared_ptr<MessageStorage> storage)
     : controllerUid_(std::move(controllerUid))
     , storage_(std::move(storage))
@@ -126,11 +130,11 @@ bool BackendBase::Deauthorize() {
         authorizedUid_.clear();
         lastError_.clear();
 
-        // Try to make async HTTP request in detached thread if backend is managed by shared_ptr
+        // Try to submit async HTTP request to bounded executor if backend is managed by shared_ptr
         // Uses a dedicated async method that doesn't hold requestMutex_ or modify networkError_
         try {
             std::weak_ptr<BackendBase> weakSelf = shared_from_this();
-            std::thread([weakSelf, token]() {
+            bool submitted = deauthorizeExecutor_.Submit([weakSelf, token]() {
                 // Check if backend still exists
                 if (auto self = weakSelf.lock()) {
                     try {
@@ -140,7 +144,11 @@ bool BackendBase::Deauthorize() {
                         LOG_BCK_WARN("Async deauthorization failed (ignored): {}", e.what());
                     }
                 }
-            }).detach();
+            });
+            
+            if (!submitted) {
+                LOG_BCK_WARN("Deauthorize executor queue full, dropping async request (state cleared)");
+            }
         } catch (const std::bad_weak_ptr&) {
             // Backend is not managed by shared_ptr (likely in test environment)
             // Send synchronous request but still return immediately after clearing state
