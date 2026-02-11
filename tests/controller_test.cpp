@@ -1255,6 +1255,131 @@ TEST_F(ControllerTest, CardReadingDisabledDuringRefueling) {
     }
 }
 
+// Test that "Передача данных" is shown during Refuel backend call
+TEST_F(ControllerTest, RefuelShowsDataTransmissionMessage) {
+    mockBackend->roleId_ = static_cast<int>(UserRole::Customer);
+    mockBackend->allowance_ = 100.0;
+    mockBackend->price_ = 1.0;
+    mockBackend->tanksStorage_ = {BackendTankInfo{1, "Tank A"}};
+
+    EXPECT_CALL(*mockBackend, Authorize("customer-card")).WillOnce([this]() {
+        mockBackend->authorized_ = true;
+        return true;
+    });
+    EXPECT_CALL(*mockBackend, Deauthorize()).WillOnce([this]() {
+        mockBackend->authorized_ = false;
+        return true;
+    });
+
+    // Capture display messages
+    std::vector<DisplayMessage> messages;
+    std::mutex msgMutex;
+    EXPECT_CALL(*mockDisplay, showMessage(_)).WillRepeatedly([&](const DisplayMessage& m) {
+        std::lock_guard<std::mutex> lk(msgMutex);
+        messages.push_back(m);
+    });
+
+    // Expect Refuel to be called and verify "Передача данных" is shown just before
+    bool dataTransmissionShown = false;
+    EXPECT_CALL(*mockBackend, Refuel(1, 10.0)).WillOnce([&]() {
+        std::lock_guard<std::mutex> lk(msgMutex);
+        // Check if the last message before Refuel call shows "Передача данных"
+        if (!messages.empty() && messages.back().line1 == "Передача данных") {
+            dataTransmissionShown = true;
+        }
+        return true;
+    });
+
+    controller->initialize();
+
+    std::thread controllerThread([this]() { controller->run(); });
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+
+    // Go through refueling workflow
+    controller->handleCardPresented("customer-card");
+    ASSERT_TRUE(waitForState(SystemState::TankSelection));
+
+    controller->selectTank(1);
+    ASSERT_TRUE(waitForState(SystemState::VolumeEntry));
+
+    controller->addDigitToInput('1');
+    controller->addDigitToInput('0');
+    controller->handleKeyPress(KeyCode::KeyStart);
+    ASSERT_TRUE(waitForState(SystemState::Refueling));
+
+    // Simulate flow reaching target
+    mockFlowMeter->simulateFlow(10.0);
+    ASSERT_TRUE(waitForState(SystemState::RefuelingComplete));
+
+    // Verify "Передача данных" was shown
+    EXPECT_TRUE(dataTransmissionShown);
+
+    controller->shutdown();
+    if (controllerThread.joinable()) {
+        controllerThread.join();
+    }
+}
+
+// Test that "Передача данных" is shown during Intake backend call
+TEST_F(ControllerTest, IntakeShowsDataTransmissionMessage) {
+    mockBackend->roleId_ = static_cast<int>(UserRole::Operator);
+    mockBackend->tanksStorage_ = {BackendTankInfo{1, "Tank A"}};
+
+    EXPECT_CALL(*mockBackend, Authorize("operator-card")).WillOnce([this]() {
+        mockBackend->authorized_ = true;
+        return true;
+    });
+
+    // Capture display messages
+    std::vector<DisplayMessage> messages;
+    std::mutex msgMutex;
+    EXPECT_CALL(*mockDisplay, showMessage(_)).WillRepeatedly([&](const DisplayMessage& m) {
+        std::lock_guard<std::mutex> lk(msgMutex);
+        messages.push_back(m);
+    });
+
+    // Expect Intake to be called and verify "Передача данных" is shown just before
+    bool dataTransmissionShown = false;
+    EXPECT_CALL(*mockBackend, Intake(1, 100.0, IntakeDirection::In)).WillOnce([&]() {
+        std::lock_guard<std::mutex> lk(msgMutex);
+        // Check if the last message before Intake call shows "Передача данных"
+        if (!messages.empty() && messages.back().line1 == "Передача данных") {
+            dataTransmissionShown = true;
+        }
+        return true;
+    });
+
+    controller->initialize();
+
+    std::thread controllerThread([this]() { controller->run(); });
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+
+    // Go through intake workflow
+    controller->handleCardPresented("operator-card");
+    ASSERT_TRUE(waitForState(SystemState::TankSelection));
+
+    controller->selectTank(1);
+    ASSERT_TRUE(waitForState(SystemState::IntakeDirectionSelection));
+
+    controller->handleKeyPress(KeyCode::Key1);  // Select "In" direction
+    controller->handleKeyPress(KeyCode::KeyStart);
+    ASSERT_TRUE(waitForState(SystemState::IntakeVolumeEntry));
+
+    controller->addDigitToInput('1');
+    controller->addDigitToInput('0');
+    controller->addDigitToInput('0');
+    controller->handleKeyPress(KeyCode::KeyStart);
+    ASSERT_TRUE(waitForState(SystemState::IntakeComplete));
+
+    // Verify "Передача данных" was shown
+    EXPECT_TRUE(dataTransmissionShown);
+
+    controller->shutdown();
+    if (controllerThread.joinable()) {
+        controllerThread.join();
+    }
+}
+
 // Test enableCardReading method directly
 TEST_F(ControllerTest, EnableCardReadingMethod) {
     controller->initialize();

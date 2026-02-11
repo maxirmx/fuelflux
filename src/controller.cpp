@@ -502,12 +502,16 @@ void Controller::completeIntakeOperation() {
 // Transaction logging
 void Controller::logRefuelTransaction(const RefuelTransaction& transaction) {
     if (backend_) {
+        // Show data transmission message before making backend call
+        showMessage("Передача данных", "Пожалуйста, подождите");
         (void)backend_->Refuel(transaction.tankNumber, transaction.volume);
     }
 }
 
 void Controller::logIntakeTransaction(const IntakeTransaction& transaction) {
     if (backend_) {
+        // Show data transmission message before making backend call
+        showMessage("Передача данных", "Пожалуйста, подождите");
         (void)backend_->Intake(transaction.tankNumber, transaction.volume, transaction.direction);
     }
 }
