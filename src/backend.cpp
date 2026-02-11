@@ -333,9 +333,13 @@ nlohmann::json Backend::HttpRequestWrapper(const std::string& endpoint,
         headers.append("Accept: */*");
         headers.append("Content-Type: application/json");
         
-        if (useBearerToken && !token_.empty()) {
-            std::string authHeader = "Authorization: Bearer " + token_;
-            headers.append(authHeader.c_str());
+        // Protected token access for async deauthorization safety
+        if (useBearerToken) {
+            std::lock_guard<std::mutex> tokenLock(tokenMutex_);
+            if (!token_.empty()) {
+                std::string authHeader = "Authorization: Bearer " + token_;
+                headers.append(authHeader.c_str());
+            }
         }
         
         curl_easy_setopt(curl.get(), CURLOPT_HTTPHEADER, headers.get());

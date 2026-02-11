@@ -86,6 +86,7 @@ protected:
     std::string lastError_;
     bool networkError_ = false;
     std::shared_ptr<MessageStorage> storage_;
+    mutable std::mutex tokenMutex_;  // Protects token_ for async deauthorization
 };
 
 // Backend class for real REST API communication

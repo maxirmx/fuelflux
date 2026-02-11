@@ -114,18 +114,41 @@ void BackendBase::Deauthorize() {
 
     LOG_BCK_INFO("Deauthorizing (async)");
 
+    // Copy token before spawning thread to avoid data race
+    // The async thread needs the token to build the Authorization header,
+    // but we want to clear state immediately for the caller
+    std::string tokenCopy;
+    {
+        std::lock_guard<std::mutex> lock(tokenMutex_);
+        tokenCopy = token_;
+    }
+
     // Fire off the deauthorization request asynchronously without waiting for result
     // Backend will drop the session on timeout anyway, so we don't need to wait
     // Use weak_ptr to avoid keeping the object alive just for this async operation
     // Note: This requires the object to be managed by shared_ptr (which is the case in production)
     try {
         std::weak_ptr<BackendBase> weakThis = shared_from_this();
-        std::thread([weakThis]() {
+        std::thread([weakThis, tokenCopy]() {
             // Try to lock the weak_ptr - if the object is still alive, proceed
             if (auto sharedThis = weakThis.lock()) {
                 try {
+                    // Temporarily restore token for this async request
+                    // Protected by tokenMutex_ to avoid data race with main thread
+                    {
+                        std::lock_guard<std::mutex> lock(sharedThis->tokenMutex_);
+                        sharedThis->token_ = tokenCopy;
+                    }
+                    
                     nlohmann::json requestBody = nlohmann::json::object();
                     nlohmann::json response = sharedThis->HttpRequestWrapper("/api/pump/deauthorize", "POST", requestBody, true);
+                    
+                    // Clear token again after request (it should already be empty from main thread)
+                    {
+                        std::lock_guard<std::mutex> lock(sharedThis->tokenMutex_);
+                        sharedThis->token_.clear();
+                    }
+                    
                     std::string responseError;
                     if (IsErrorResponse(response, &responseError)) {
                         LOG_BCK_WARN("Async deauthorization failed: {} (state cleared locally)", responseError);
@@ -145,7 +168,11 @@ void BackendBase::Deauthorize() {
     }
 
     // Clear local state after starting the async request (but without waiting for it)
-    token_.clear();
+    // Token clearing is protected by tokenMutex_ to avoid data race with async thread
+    {
+        std::lock_guard<std::mutex> lock(tokenMutex_);
+        token_.clear();
+    }
     roleId_ = 0;
     allowance_ = 0.0;
     price_ = 0.0;
