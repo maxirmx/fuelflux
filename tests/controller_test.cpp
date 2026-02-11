@@ -1267,3 +1267,134 @@ TEST_F(ControllerTest, EnableCardReadingMethod) {
     EXPECT_CALL(*mockCardReader, enableReading(false)).Times(1);
     controller->enableCardReading(false);
 }
+
+// Test DataTransmission state during refuel reporting
+TEST_F(ControllerTest, DataTransmissionStateShownDuringRefuel) {
+    // Prepare backend
+    mockBackend->roleId_ = static_cast<int>(UserRole::Customer);
+    mockBackend->allowance_ = 100.0;
+    mockBackend->price_ = 1.0;
+    mockBackend->tanksStorage_ = { BackendTankInfo{1, "Tank A"} };
+
+    EXPECT_CALL(*mockBackend, Authorize("customer-card")).WillOnce([this]() {
+        mockBackend->authorized_ = true;
+        return true;
+    });
+    EXPECT_CALL(*mockBackend, Refuel(1, 10.0)).WillOnce(Return(true));
+
+    controller->initialize();
+
+    // Track displayed messages
+    std::vector<DisplayMessage> displayedMessages;
+    std::mutex msgMutex;
+    EXPECT_CALL(*mockDisplay, showMessage(_)).WillRepeatedly([&](const DisplayMessage& m) {
+        std::lock_guard<std::mutex> lk(msgMutex);
+        displayedMessages.push_back(m);
+    });
+
+    // Start controller loop
+    std::thread controllerThread([this]() { controller->run(); });
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+
+    // Present card -> Authorization -> TankSelection
+    controller->handleCardPresented("customer-card");
+    ASSERT_TRUE(waitForState(SystemState::TankSelection));
+
+    // Select tank -> VolumeEntry
+    controller->selectTank(1);
+    ASSERT_TRUE(waitForState(SystemState::VolumeEntry));
+
+    // Enter volume "10" and press Start -> Refueling
+    controller->addDigitToInput('1');
+    controller->addDigitToInput('0');
+    controller->handleKeyPress(KeyCode::KeyStart);
+    ASSERT_TRUE(waitForState(SystemState::Refueling));
+
+    // Simulate flow reaching the target
+    mockFlowMeter->simulateFlow(10.0);
+
+    // Wait for final RefuelingComplete state (backend call in DataTransmission completes quickly)
+    ASSERT_TRUE(waitForState(SystemState::RefuelingComplete));
+
+    // Verify that "Передача данных" was displayed
+    bool foundDataTransmissionMessage = false;
+    {
+        std::lock_guard<std::mutex> lk(msgMutex);
+        for (const auto& msg : displayedMessages) {
+            if (msg.line1 == "Передача данных") {
+                foundDataTransmissionMessage = true;
+                break;
+            }
+        }
+    }
+    EXPECT_TRUE(foundDataTransmissionMessage) << "Expected 'Передача данных' message during data transmission";
+
+    controller->shutdown();
+    if (controllerThread.joinable()) controllerThread.join();
+}
+
+// Test DataTransmission state during intake reporting
+TEST_F(ControllerTest, DataTransmissionStateShownDuringIntake) {
+    // Prepare backend for operator
+    mockBackend->roleId_ = static_cast<int>(UserRole::Operator);
+    mockBackend->allowance_ = 0.0;
+    mockBackend->price_ = 0.0;
+    mockBackend->tanksStorage_ = { BackendTankInfo{1, "Tank A"} };
+
+    EXPECT_CALL(*mockBackend, Authorize("operator-card")).WillOnce([this]() {
+        mockBackend->authorized_ = true;
+        return true;
+    });
+    EXPECT_CALL(*mockBackend, Intake(1, 50.0, IntakeDirection::In)).WillOnce(Return(true));
+
+    controller->initialize();
+
+    // Track displayed messages
+    std::vector<DisplayMessage> displayedMessages;
+    std::mutex msgMutex;
+    EXPECT_CALL(*mockDisplay, showMessage(_)).WillRepeatedly([&](const DisplayMessage& m) {
+        std::lock_guard<std::mutex> lk(msgMutex);
+        displayedMessages.push_back(m);
+    });
+
+    // Start controller loop
+    std::thread controllerThread([this]() { controller->run(); });
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+
+    // Present card -> Authorization -> TankSelection
+    controller->handleCardPresented("operator-card");
+    ASSERT_TRUE(waitForState(SystemState::TankSelection));
+
+    // Select tank -> IntakeDirectionSelection (for operators)
+    controller->selectTank(1);
+    ASSERT_TRUE(waitForState(SystemState::IntakeDirectionSelection));
+
+    // Select direction 1 (In) -> IntakeVolumeEntry
+    controller->addDigitToInput('1');
+    controller->handleKeyPress(KeyCode::KeyStart);
+    ASSERT_TRUE(waitForState(SystemState::IntakeVolumeEntry));
+
+    // Enter volume "50" and press Start -> DataTransmission -> IntakeComplete
+    controller->addDigitToInput('5');
+    controller->addDigitToInput('0');
+    controller->handleKeyPress(KeyCode::KeyStart);
+    
+    // Wait for final IntakeComplete state (backend call in DataTransmission completes quickly)
+    ASSERT_TRUE(waitForState(SystemState::IntakeComplete));
+
+    // Verify that "Передача данных" was displayed
+    bool foundDataTransmissionMessage = false;
+    {
+        std::lock_guard<std::mutex> lk(msgMutex);
+        for (const auto& msg : displayedMessages) {
+            if (msg.line1 == "Передача данных") {
+                foundDataTransmissionMessage = true;
+                break;
+            }
+        }
+    }
+    EXPECT_TRUE(foundDataTransmissionMessage) << "Expected 'Передача данных' message during data transmission";
+
+    controller->shutdown();
+    if (controllerThread.joinable()) controllerThread.join();
+}

@@ -496,7 +496,7 @@ void Controller::completeIntakeOperation() {
     transaction.timestamp = std::chrono::system_clock::now();
     
     logIntakeTransaction(transaction);
-    postEvent(Event::IntakeComplete);
+    // Event posting is now handled by state machine after data transmission
 }
 
 // Transaction logging

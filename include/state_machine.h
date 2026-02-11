@@ -69,6 +69,8 @@ private:
     void onRefuelingStarted();
     void onRefuelingStopped();
     void onCancelRefueling();
+    void onRefuelDataTransmissionComplete();
+    void onIntakeDataTransmissionComplete();
     void onIntakeSelected();
     void onIntakeDirectionSelected();
     void onIntakeVolumeEntered();

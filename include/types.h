@@ -42,9 +42,11 @@ enum class SystemState {
     TankSelection,
     VolumeEntry,
     Refueling,
+    RefuelDataTransmission,
     RefuelingComplete,
     IntakeDirectionSelection,
     IntakeVolumeEntry,
+    IntakeDataTransmission,
     IntakeComplete,
     Error
 };
@@ -61,6 +63,7 @@ enum class Event {
     AmountEntered,
     RefuelingStarted,
     RefuelingStopped,
+    DataTransmissionComplete,
     IntakeSelected,
     IntakeDirectionSelected,
     IntakeVolumeEntered,
