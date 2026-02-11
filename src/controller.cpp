@@ -339,6 +339,11 @@ void Controller::clearInput() {
     updateDisplay();
 }
 
+void Controller::clearInputSilent() {
+    currentInput_.clear();
+    // No updateDisplay() call - avoid overwriting error messages
+}
+
 void Controller::addDigitToInput(char digit) {
     if (currentInput_.length() < 10) { // Limit input length
         currentInput_ += digit;

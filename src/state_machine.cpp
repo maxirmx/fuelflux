@@ -429,7 +429,9 @@ void StateMachine::onEnterState(SystemState state) {
         if (state == SystemState::Authorization) {
             std::string inputCopy = controller_->getCurrentInput();
             controller_->requestAuthorization(inputCopy);
-            controller_->clearInput();
+            // Clear sensitive input (PIN/card UID) silently to avoid overwriting
+            // error messages displayed by requestAuthorization() (e.g., from showError())
+            controller_->clearInputSilent();
             // requestAuthorization will post AuthorizationSuccess or AuthorizationFailed event
         }
         // Handle data transmission to backend
