@@ -263,8 +263,6 @@ Or create a systemd service for automatic startup (see section 11).
 
 ## 11) Auto-start on boot with systemd (recommended)
 
-## 11) Auto-start on boot with systemd (recommended)
-
 Create a systemd service for automatic startup and restart on failure:
 
 Create `/etc/systemd/system/ppp-sim800.service`:
