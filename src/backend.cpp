@@ -24,6 +24,7 @@
 #include <netdb.h>
 #include <unistd.h>
 #include <sys/select.h>
+#include "backend_dns.h"
 #endif
 
 namespace fuelflux {
@@ -254,8 +255,11 @@ std::string ExtractHostFromUrl(const std::string& url) {
     return urlToParse;
 }
 
+namespace dns {
+
+namespace {
 // Callback for c-ares DNS resolution
-static void AresHostCallback(void* arg, int status, int timeouts, struct hostent* host) {
+void AresHostCallback(void* arg, int status, int timeouts, struct hostent* host) {
     (void)timeouts;
     std::string* result = static_cast<std::string*>(arg);
     
@@ -270,7 +274,7 @@ static void AresHostCallback(void* arg, int status, int timeouts, struct hostent
 }
 
 // Socket callback to bind all DNS sockets to ppp0
-static int AresSocketCallback(ares_socket_t sock, int type, void* data) {
+int AresSocketCallback(ares_socket_t sock, int type, void* data) {
     (void)type;
     (void)data;
     if (setsockopt(sock, SOL_SOCKET, SO_BINDTODEVICE, 
@@ -282,6 +286,7 @@ static int AresSocketCallback(ares_socket_t sock, int type, void* data) {
     LOG_BCK_DEBUG("Bound DNS socket to {}", kPppInterface);
     return 0;
 }
+} // anonymous namespace
 
 // Resolve DNS using c-ares bound to ppp0
 std::string ResolveDnsViaPpp0(const std::string& hostname) {
@@ -357,6 +362,9 @@ std::string ResolveDnsViaPpp0(const std::string& hostname) {
     
     return result;
 }
+
+} // namespace dns
+
 #endif
 
 } // namespace
@@ -431,7 +439,7 @@ nlohmann::json Backend::HttpRequestWrapper(const std::string& endpoint,
             curl_easy_setopt(curl.get(), CURLOPT_INTERFACE, kPppInterface);
             
             // Resolve DNS through ppp0 using c-ares
-            std::string resolved_ip = ResolveDnsViaPpp0(host);
+            std::string resolved_ip = dns::ResolveDnsViaPpp0(host);
             if (!resolved_ip.empty()) {
                 // Extract port from URL
                 std::string port = "443"; // default HTTPS
