@@ -70,6 +70,46 @@ In VS Code:
 
 If you use MSVC toolchain instead of Ninja/gcc, change the `-G "Ninja"` to your generator and adjust `miDebuggerPath` in `.vscode/launch.json` to the Visual Studio debugger (or use `cppvsdbg` type).
 
+## Testing
+
+The project includes a comprehensive test suite using Google Test and Google Mock.
+
+### Running Tests
+
+```bash
+# Configure with testing enabled
+cmake -S . -B build -DENABLE_TESTING=ON
+
+# Build
+cmake --build build
+
+# Run all tests
+cd build && ctest --output-on-failure
+```
+
+### DNS Resolution Tests
+
+The DNS resolution tests are conditionally compiled based on the `TARGET_SIM800C` flag. To run these tests:
+
+```bash
+# Configure with SIM800C target enabled
+cmake -S . -B build -DENABLE_TESTING=ON -DTARGET_SIM800C=ON
+
+# Build
+cmake --build build
+
+# Run tests
+cd build && ctest --output-on-failure
+```
+
+**Note**: When `TARGET_SIM800C` is disabled (default for x86 builds), the DNS resolution tests will be skipped. This is expected behavior since the DNS functionality requires the ppp0 interface binding which is specific to SIM800C hardware deployments.
+
+The DNS tests verify:
+- Error handling for empty and invalid hostnames
+- Timeout behavior
+- Edge cases (special characters, very long hostnames, etc.)
+- Concurrent DNS resolution requests
+
 ## Documentation
 
 - [State Machine](docs/state_machine.md) - Complete state machine workflow and transitions
