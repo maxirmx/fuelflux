@@ -99,15 +99,9 @@ bool BacklogWorker::ProcessMessage(const StoredMessage& message) {
         sendOk = backend_->IntakePayload(message.data);
     }
 
-    if (!backend_->Deauthorize()) {
-        if (backend_->IsNetworkError()) {
-            LOG_BCK_WARN("Network error during deauthorization");
-            if (sendOk) {
-                storage_->RemoveBacklog(message.id);
-            }
-            return false;
-        }
-    }
+    // Deauthorize is now fire-and-forget (always succeeds)
+    // No need to check return value or network errors
+    backend_->Deauthorize();
 
     if (!sendOk) {
         return HandleFailure(message);
