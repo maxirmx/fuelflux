@@ -165,10 +165,11 @@ TEST_F(DnsResolutionTest, CaseSensitivity) {
 
 // Test with international domain name (IDN)
 TEST_F(DnsResolutionTest, InternationalDomainName) {
-    // IDN with non-ASCII characters
-    std::string result = dns::ResolveDnsViaPpp0("münchen.de");
+    // Test with Punycode-encoded IDN (ASCII-compatible encoding of "münchen.de")
+    // This ensures consistent behavior across systems and c-ares versions
+    std::string result = dns::ResolveDnsViaPpp0("xn--mnchen-3ya.de");
     
-    // Should either resolve successfully (if c-ares supports IDN) or return empty
+    // Should either resolve successfully or return empty
     // We verify it doesn't crash and returns a valid result (empty or valid IP)
     if (!result.empty()) {
         // If it resolved, result should look like a valid IP address
