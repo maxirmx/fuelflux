@@ -12,6 +12,7 @@ StateMachine::StateMachine(Controller* controller)
     : controller_(controller)
     , currentState_(SystemState::Waiting)
     , previousState_(SystemState::Waiting)
+    , stateBeforeDataTransmission_(SystemState::Waiting)
     , lastActivityTime_(std::chrono::steady_clock::now())
 {
     setupTransitions();
@@ -392,6 +393,12 @@ void StateMachine::onEnterState(SystemState state) {
         
         // Handle data transmission to backend
         if (state == SystemState::DataTransmission) {
+            // Save the state before DataTransmission for later use
+            {
+                std::scoped_lock lock(mutex_);
+                stateBeforeDataTransmission_ = previousState_;
+            }
+            
             // Determine what operation to complete based on previous state
             if (previousState_ == SystemState::Refueling) {
                 // Complete refueling (log transaction) but do not clear session data here.
@@ -627,12 +634,17 @@ void StateMachine::onIntakeComplete() {
 
 void StateMachine::onDataTransmissionComplete() {
     LOG_SM_INFO("Data transmission complete");
-    // Determine target state based on previous state before DataTransmission
+    // Determine target state based on state before DataTransmission
     std::scoped_lock lock(mutex_);
-    if (previousState_ == SystemState::Refueling) {
+    LOG_SM_INFO("State before DataTransmission: {}", static_cast<int>(stateBeforeDataTransmission_));
+    if (stateBeforeDataTransmission_ == SystemState::Refueling) {
+        LOG_SM_INFO("Setting override to RefuelingComplete");
         overrideTargetState_ = SystemState::RefuelingComplete;
-    } else if (previousState_ == SystemState::IntakeVolumeEntry) {
+    } else if (stateBeforeDataTransmission_ == SystemState::IntakeVolumeEntry) {
+        LOG_SM_INFO("Setting override to IntakeComplete");
         overrideTargetState_ = SystemState::IntakeComplete;
+    } else {
+        LOG_SM_WARN("Unexpected state before DataTransmission: {}", static_cast<int>(stateBeforeDataTransmission_));
     }
 }
 
