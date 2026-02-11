@@ -413,7 +413,9 @@ if(ENABLE_TESTING)
         target_link_libraries(fuelflux_lib PUBLIC ${LIBNFC_LIBRARIES})
     endif()
 
-    # libcurl handles SSL internally, no additional setup needed
+    if(TARGET_SIM800C)
+        target_link_libraries(fuelflux_lib PRIVATE ${CARES_LIBRARIES})
+    endif()
 
     # Update main executable to use library
     target_link_libraries(fuelflux PRIVATE fuelflux_lib)
