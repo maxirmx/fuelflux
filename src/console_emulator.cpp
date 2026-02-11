@@ -770,11 +770,18 @@ bool ConsoleEmulator::processKeyboardInput(char c, SystemState state) {
 }
 
 void ConsoleEmulator::printWelcome() const {
+    // Box width is 64 characters (62 inside the borders)
+    // Calculate centered version text
+    std::string versionText = "Version " + std::string(FUELFLUX_VERSION);
+    int totalWidth = 62;
+    int padding = (totalWidth - static_cast<int>(versionText.length())) / 2;
+    std::string paddedVersion = std::string(padding, ' ') + versionText + std::string(totalWidth - padding - versionText.length(), ' ');
+    
     std::string welcomeMsg = 
         "╔══════════════════════════════════════════════════════════════╗\n"
         "║                    FUEL FLUX CONTROLLER                      ║\n"
         "║                    Console Emulator                          ║\n"
-        "║                        Version " FUELFLUX_VERSION "                             ║\n"
+        "║" + paddedVersion + "║\n"
         "╚══════════════════════════════════════════════════════════════╝\n";
     logBlock(welcomeMsg);
     printHelp();
