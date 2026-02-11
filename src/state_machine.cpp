@@ -160,6 +160,7 @@ void StateMachine::setupTransitions() {
     transitions_[{SystemState::Waiting, Event::AmountEntered}]        = {SystemState::Waiting,           noOp};
     transitions_[{SystemState::Waiting, Event::RefuelingStarted}]     = {SystemState::Waiting,           noOp};
     transitions_[{SystemState::Waiting, Event::RefuelingStopped}]     = {SystemState::Waiting,           noOp};
+    transitions_[{SystemState::Waiting, Event::DataTransmissionComplete}] = {SystemState::Waiting,       noOp};
     transitions_[{SystemState::Waiting, Event::IntakeSelected}]       = {SystemState::Waiting,           noOp};
     transitions_[{SystemState::Waiting, Event::IntakeDirectionSelected}] = {SystemState::Waiting,           noOp};
     transitions_[{SystemState::Waiting, Event::IntakeVolumeEntered}]  = {SystemState::Waiting,           noOp};
@@ -179,6 +180,7 @@ void StateMachine::setupTransitions() {
     transitions_[{SystemState::PinEntry, Event::AmountEntered}]       = {SystemState::PinEntry,          noOp};
     transitions_[{SystemState::PinEntry, Event::RefuelingStarted}]    = {SystemState::PinEntry,          noOp};
     transitions_[{SystemState::PinEntry, Event::RefuelingStopped}]    = {SystemState::PinEntry,          noOp};
+    transitions_[{SystemState::PinEntry, Event::DataTransmissionComplete}] = {SystemState::PinEntry,     noOp};
     transitions_[{SystemState::PinEntry, Event::IntakeSelected}]      = {SystemState::PinEntry,          noOp};
     transitions_[{SystemState::PinEntry, Event::IntakeDirectionSelected}] = {SystemState::PinEntry,      noOp};
     transitions_[{SystemState::PinEntry, Event::IntakeVolumeEntered}] = {SystemState::PinEntry,          noOp};
@@ -197,6 +199,7 @@ void StateMachine::setupTransitions() {
     transitions_[{SystemState::Authorization, Event::AmountEntered}]       = {SystemState::Authorization,     noOp};
     transitions_[{SystemState::Authorization, Event::RefuelingStarted}]    = {SystemState::Authorization,     noOp};
     transitions_[{SystemState::Authorization, Event::RefuelingStopped}]    = {SystemState::Authorization,     noOp};
+    transitions_[{SystemState::Authorization, Event::DataTransmissionComplete}] = {SystemState::Authorization,     noOp};
     transitions_[{SystemState::Authorization, Event::IntakeSelected}]      = {SystemState::Authorization,     noOp};
     transitions_[{SystemState::Authorization, Event::IntakeDirectionSelected}] = {SystemState::Authorization, noOp};
     transitions_[{SystemState::Authorization, Event::IntakeVolumeEntered}] = {SystemState::Authorization,     noOp};
@@ -215,6 +218,7 @@ void StateMachine::setupTransitions() {
     transitions_[{SystemState::TankSelection, Event::AmountEntered}]       = {SystemState::TankSelection,     noOp};
     transitions_[{SystemState::TankSelection, Event::RefuelingStarted}]    = {SystemState::TankSelection,     noOp};
     transitions_[{SystemState::TankSelection, Event::RefuelingStopped}]    = {SystemState::TankSelection,     noOp};
+    transitions_[{SystemState::TankSelection, Event::DataTransmissionComplete}] = {SystemState::TankSelection,     noOp};
     transitions_[{SystemState::TankSelection, Event::IntakeSelected}]      = {SystemState::IntakeDirectionSelection, [this]() { onIntakeSelected();       }};
     transitions_[{SystemState::TankSelection, Event::IntakeDirectionSelected}] = {SystemState::TankSelection,     noOp};
     transitions_[{SystemState::TankSelection, Event::IntakeVolumeEntered}] = {SystemState::TankSelection,     noOp};
@@ -233,6 +237,7 @@ void StateMachine::setupTransitions() {
     transitions_[{SystemState::VolumeEntry, Event::AmountEntered}]       = {SystemState::VolumeEntry,       noOp};
     transitions_[{SystemState::VolumeEntry, Event::RefuelingStarted}]    = {SystemState::VolumeEntry,       noOp};
     transitions_[{SystemState::VolumeEntry, Event::RefuelingStopped}]    = {SystemState::VolumeEntry,       noOp};
+    transitions_[{SystemState::VolumeEntry, Event::DataTransmissionComplete}] = {SystemState::VolumeEntry,       noOp};
     transitions_[{SystemState::VolumeEntry, Event::IntakeSelected}]      = {SystemState::VolumeEntry,       noOp};
     transitions_[{SystemState::VolumeEntry, Event::IntakeVolumeEntered}] = {SystemState::VolumeEntry,       noOp};
     transitions_[{SystemState::VolumeEntry, Event::IntakeComplete}]      = {SystemState::VolumeEntry,       noOp};
@@ -249,13 +254,34 @@ void StateMachine::setupTransitions() {
     transitions_[{SystemState::Refueling, Event::VolumeEntered}]       = {SystemState::Refueling,         noOp};
     transitions_[{SystemState::Refueling, Event::AmountEntered}]       = {SystemState::Refueling,         noOp};
     transitions_[{SystemState::Refueling, Event::RefuelingStarted}]    = {SystemState::Refueling,         noOp};
-    transitions_[{SystemState::Refueling, Event::RefuelingStopped}]    = {SystemState::RefuelingComplete, [this]() { onRefuelingStopped();     }};
+    transitions_[{SystemState::Refueling, Event::RefuelingStopped}]    = {SystemState::DataTransmission,  [this]() { onRefuelingStopped();     }};
+    transitions_[{SystemState::Refueling, Event::DataTransmissionComplete}] = {SystemState::Refueling,    noOp};
     transitions_[{SystemState::Refueling, Event::IntakeSelected}]      = {SystemState::Refueling,         noOp};
     transitions_[{SystemState::Refueling, Event::IntakeVolumeEntered}] = {SystemState::Refueling,         noOp};
     transitions_[{SystemState::Refueling, Event::IntakeComplete}]      = {SystemState::Refueling,         noOp};
-    transitions_[{SystemState::Refueling, Event::CancelPressed}]       = {SystemState::RefuelingComplete, [this]() { onCancelRefueling();      }};
+    transitions_[{SystemState::Refueling, Event::CancelPressed}]       = {SystemState::DataTransmission,  [this]() { onCancelRefueling();      }};
     transitions_[{SystemState::Refueling, Event::Timeout}]             = {SystemState::Refueling,         noOp};
     transitions_[{SystemState::Refueling, Event::Error}]               = {SystemState::Error,             [this]() { onError();                }};
+
+    // From DataTransmission state
+    transitions_[{SystemState::DataTransmission, Event::CardPresented}]       = {SystemState::DataTransmission,  noOp};
+    transitions_[{SystemState::DataTransmission, Event::PinEntryStarted}]     = {SystemState::DataTransmission,  noOp};
+    transitions_[{SystemState::DataTransmission, Event::PinEntered}]          = {SystemState::DataTransmission,  noOp};
+    transitions_[{SystemState::DataTransmission, Event::AuthorizationSuccess}]= {SystemState::DataTransmission,  noOp};
+    transitions_[{SystemState::DataTransmission, Event::AuthorizationFailed}] = {SystemState::DataTransmission,  noOp};
+    transitions_[{SystemState::DataTransmission, Event::TankSelected}]        = {SystemState::DataTransmission,  noOp};
+    transitions_[{SystemState::DataTransmission, Event::VolumeEntered}]       = {SystemState::DataTransmission,  noOp};
+    transitions_[{SystemState::DataTransmission, Event::AmountEntered}]       = {SystemState::DataTransmission,  noOp};
+    transitions_[{SystemState::DataTransmission, Event::RefuelingStarted}]    = {SystemState::DataTransmission,  noOp};
+    transitions_[{SystemState::DataTransmission, Event::RefuelingStopped}]    = {SystemState::DataTransmission,  noOp};
+    transitions_[{SystemState::DataTransmission, Event::DataTransmissionComplete}] = {SystemState::RefuelingComplete, [this]() { onDataTransmissionComplete(); }};
+    transitions_[{SystemState::DataTransmission, Event::IntakeSelected}]      = {SystemState::DataTransmission,  noOp};
+    transitions_[{SystemState::DataTransmission, Event::IntakeDirectionSelected}] = {SystemState::DataTransmission,  noOp};
+    transitions_[{SystemState::DataTransmission, Event::IntakeVolumeEntered}] = {SystemState::DataTransmission,  noOp};
+    transitions_[{SystemState::DataTransmission, Event::IntakeComplete}]      = {SystemState::DataTransmission,  noOp};
+    transitions_[{SystemState::DataTransmission, Event::CancelPressed}]       = {SystemState::DataTransmission,  noOp};
+    transitions_[{SystemState::DataTransmission, Event::Timeout}]             = {SystemState::DataTransmission,  noOp};
+    transitions_[{SystemState::DataTransmission, Event::Error}]               = {SystemState::Error,             [this]() { onError();                }};
 
     // From RefuelingComplete state
     transitions_[{SystemState::RefuelingComplete, Event::CardPresented}]       = {SystemState::Authorization,     [this]() { onCardPresented();        }};
@@ -268,6 +294,7 @@ void StateMachine::setupTransitions() {
     transitions_[{SystemState::RefuelingComplete, Event::AmountEntered}]       = {SystemState::RefuelingComplete, noOp};
     transitions_[{SystemState::RefuelingComplete, Event::RefuelingStarted}]    = {SystemState::RefuelingComplete, noOp};
     transitions_[{SystemState::RefuelingComplete, Event::RefuelingStopped}]    = {SystemState::RefuelingComplete, noOp};
+    transitions_[{SystemState::RefuelingComplete, Event::DataTransmissionComplete}] = {SystemState::RefuelingComplete, noOp};
     transitions_[{SystemState::RefuelingComplete, Event::IntakeSelected}]      = {SystemState::RefuelingComplete, noOp};
     transitions_[{SystemState::RefuelingComplete, Event::IntakeVolumeEntered}] = {SystemState::RefuelingComplete, noOp};
     transitions_[{SystemState::RefuelingComplete, Event::IntakeComplete}]      = {SystemState::RefuelingComplete, noOp};
@@ -285,6 +312,7 @@ void StateMachine::setupTransitions() {
     transitions_[{SystemState::IntakeDirectionSelection, Event::AmountEntered}]       = {SystemState::IntakeDirectionSelection, noOp};
     transitions_[{SystemState::IntakeDirectionSelection, Event::RefuelingStarted}]    = {SystemState::IntakeDirectionSelection, noOp};
     transitions_[{SystemState::IntakeDirectionSelection, Event::RefuelingStopped}]    = {SystemState::IntakeDirectionSelection, noOp};
+    transitions_[{SystemState::IntakeDirectionSelection, Event::DataTransmissionComplete}] = {SystemState::IntakeDirectionSelection, noOp};
     transitions_[{SystemState::IntakeDirectionSelection, Event::IntakeSelected}]      = {SystemState::IntakeDirectionSelection, noOp};
     transitions_[{SystemState::IntakeDirectionSelection, Event::IntakeDirectionSelected}] = {SystemState::IntakeVolumeEntry,    [this]() { onIntakeDirectionSelected(); }};
     transitions_[{SystemState::IntakeDirectionSelection, Event::IntakeVolumeEntered}] = {SystemState::IntakeDirectionSelection, noOp};
@@ -303,8 +331,9 @@ void StateMachine::setupTransitions() {
     transitions_[{SystemState::IntakeVolumeEntry, Event::AmountEntered}]       = {SystemState::IntakeVolumeEntry, noOp};
     transitions_[{SystemState::IntakeVolumeEntry, Event::RefuelingStarted}]    = {SystemState::IntakeVolumeEntry, noOp};
     transitions_[{SystemState::IntakeVolumeEntry, Event::RefuelingStopped}]    = {SystemState::IntakeVolumeEntry, noOp};
+    transitions_[{SystemState::IntakeVolumeEntry, Event::DataTransmissionComplete}] = {SystemState::IntakeVolumeEntry, noOp};
     transitions_[{SystemState::IntakeVolumeEntry, Event::IntakeSelected}]      = {SystemState::IntakeVolumeEntry, noOp};
-    transitions_[{SystemState::IntakeVolumeEntry, Event::IntakeVolumeEntered}] = {SystemState::IntakeComplete,    [this]() { onIntakeVolumeEntered();  }};
+    transitions_[{SystemState::IntakeVolumeEntry, Event::IntakeVolumeEntered}] = {SystemState::DataTransmission,  [this]() { onIntakeVolumeEntered();  }};
     transitions_[{SystemState::IntakeVolumeEntry, Event::IntakeComplete}]      = {SystemState::IntakeVolumeEntry, noOp};
     transitions_[{SystemState::IntakeVolumeEntry, Event::CancelPressed}]       = {SystemState::Waiting,           [this]() { onCancelPressed();        }};
     transitions_[{SystemState::IntakeVolumeEntry, Event::Timeout}]             = {SystemState::Waiting,           [this]() { onTimeout();              }};
@@ -320,6 +349,7 @@ void StateMachine::setupTransitions() {
     transitions_[{SystemState::IntakeComplete, Event::AmountEntered}]       = {SystemState::IntakeComplete,    noOp};
     transitions_[{SystemState::IntakeComplete, Event::RefuelingStarted}]    = {SystemState::IntakeComplete,    noOp};
     transitions_[{SystemState::IntakeComplete, Event::RefuelingStopped}]    = {SystemState::IntakeComplete,    noOp};
+    transitions_[{SystemState::IntakeComplete, Event::DataTransmissionComplete}] = {SystemState::IntakeComplete,    noOp};
     transitions_[{SystemState::IntakeComplete, Event::IntakeSelected}]      = {SystemState::IntakeComplete,    noOp};
     transitions_[{SystemState::IntakeComplete, Event::IntakeVolumeEntered}] = {SystemState::IntakeComplete,    noOp};
     transitions_[{SystemState::IntakeComplete, Event::IntakeComplete}]      = {SystemState::IntakeComplete,    noOp};
@@ -337,6 +367,7 @@ void StateMachine::setupTransitions() {
     transitions_[{SystemState::Error, Event::AmountEntered}]       = {SystemState::Error,             noOp};
     transitions_[{SystemState::Error, Event::RefuelingStarted}]    = {SystemState::Error,             noOp};
     transitions_[{SystemState::Error, Event::RefuelingStopped}]    = {SystemState::Error,             noOp};
+    transitions_[{SystemState::Error, Event::DataTransmissionComplete}] = {SystemState::Error,             noOp};
     transitions_[{SystemState::Error, Event::IntakeSelected}]      = {SystemState::Error,             noOp};
     transitions_[{SystemState::Error, Event::IntakeVolumeEntered}] = {SystemState::Error,             noOp};
     transitions_[{SystemState::Error, Event::IntakeComplete}]      = {SystemState::Error,             noOp};
@@ -358,6 +389,23 @@ void StateMachine::onEnterState(SystemState state) {
         controller_->enableCardReading(cardReadingEnabled);
         
         controller_->updateDisplay();
+        
+        // Handle data transmission to backend
+        if (state == SystemState::DataTransmission) {
+            // Determine what operation to complete based on previous state
+            if (previousState_ == SystemState::Refueling) {
+                // Complete refueling (log transaction) but do not clear session data here.
+                // Clearing the session immediately would reset the displayed pumped
+                // volume to zero when entering RefuelingComplete. Keep the session
+                // active so the actual pumped/intake value remains visible. The
+                // session is cleaned up on timeout or other user interactions.
+                controller_->completeRefueling();
+            } else if (previousState_ == SystemState::IntakeVolumeEntry) {
+                controller_->completeIntakeOperation();
+            }
+            // Post completion event after backend call
+            controller_->postEvent(Event::DataTransmissionComplete);
+        }
     }
 }
 
@@ -426,6 +474,13 @@ DisplayMessage StateMachine::getDisplayMessage() const {
             message.line2 = controller_->formatVolume(controller_->getCurrentRefuelVolume());
             message.line3 = "";
             message.line4 = "";
+            break;
+
+        case SystemState::DataTransmission:
+            message.line1 = "Передача данных";
+            message.line2 = "Пожалуйста, подождите";
+            message.line3 = "";
+            message.line4 = controller_->getDeviceSerialNumber();
             break;
 
         case SystemState::RefuelingComplete:
@@ -532,22 +587,15 @@ void StateMachine::onRefuelingStarted() {
 
 void StateMachine::onRefuelingStopped() {
     LOG_SM_INFO("Refueling stopped");
-    if (controller_) {
-        // Complete refueling (log transaction) but do not clear session data here.
-        // Clearing the session immediately would reset the displayed pumped
-        // volume to zero when entering RefuelingComplete. Keep the session
-        // active so the actual pumped/intake value remains visible. The
-        // session is cleaned up on timeout or other user interactions.
-        controller_->completeRefueling();
-    }
+    // Data transmission will be handled in onEnterState(DataTransmission)
 }
 
 void StateMachine::onCancelRefueling() {
     LOG_SM_INFO("Refueling cancelled by user");
     if (controller_) {
-        // Stop pump and flowmeter first, then log the transaction
+        // Stop pump and flowmeter first
         controller_->stopRefueling();
-        controller_->completeRefueling();
+        // Data transmission will be handled in onEnterState(DataTransmission)
     }
 }
 
@@ -568,13 +616,24 @@ void StateMachine::onIntakeDirectionSelected() {
 void StateMachine::onIntakeVolumeEntered() {
     LOG_SM_INFO("Intake volume entered");
     if (controller_) {
-        controller_->completeIntakeOperation();
         controller_->clearInput();  // Clear after intake volume entry
+        // Data transmission will be handled in onEnterState(DataTransmission)
     }
 }
 
 void StateMachine::onIntakeComplete() {
     LOG_SM_INFO("Intake operation complete");
+}
+
+void StateMachine::onDataTransmissionComplete() {
+    LOG_SM_INFO("Data transmission complete");
+    // Determine target state based on previous state before DataTransmission
+    std::scoped_lock lock(mutex_);
+    if (previousState_ == SystemState::Refueling) {
+        overrideTargetState_ = SystemState::RefuelingComplete;
+    } else if (previousState_ == SystemState::IntakeVolumeEntry) {
+        overrideTargetState_ = SystemState::IntakeComplete;
+    }
 }
 
 void StateMachine::onCancelPressed() {
