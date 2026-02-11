@@ -93,6 +93,7 @@ class Controller {
     void startNewSession();
     void endCurrentSession();
     void clearInput();
+    void clearInputSilent(); // Clear input without triggering display update
     void addDigitToInput(char digit);
     void removeLastDigit();
     void setMaxValue();

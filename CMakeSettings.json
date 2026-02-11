@@ -48,6 +48,16 @@
           "name": "ENABLE_TESTING",
           "value": "True",
           "type": "BOOL"
+        },
+        {
+          "name": "TARGET_SIM800C",
+          "value": "False",
+          "type": "BOOL"
+        },
+        {
+          "name": "TARGET_REAL_PUMP",
+          "value": "False",
+          "type": "BOOL"
         }
       ]
     }

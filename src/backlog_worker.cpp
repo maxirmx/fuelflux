@@ -99,8 +99,8 @@ bool BacklogWorker::ProcessMessage(const StoredMessage& message) {
         sendOk = backend_->IntakePayload(message.data);
     }
 
-    // Deauthorize is now fire-and-forget (always succeeds)
-    // No need to check return value or network errors
+    // Deauthorize is treated as fire-and-forget at this call site.
+    // Return value and potential errors are intentionally ignored.
     backend_->Deauthorize();
 
     if (!sendOk) {
