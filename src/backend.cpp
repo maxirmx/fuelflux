@@ -16,14 +16,14 @@
 #include <netdb.h>
 #include <unistd.h>
 #include <sys/select.h>
+#include <cstring>
+#include <cerrno>
 #include "backend_dns.h"
 #ifdef TARGET_SIM800C
 #include <ifaddrs.h>
-#include <cstring>
 #include <algorithm>
 #include <cctype>
 #include <vector>
-#include <cerrno>
 #include <net/if.h>
 #endif
 
@@ -356,6 +356,10 @@ std::string ResolveDnsViaPpp0(const std::string& hostname) {
         tv.tv_usec = 100000; // 100ms
         
         int ret = select(nfds, &read_fds, &write_fds, nullptr, &tv);
+        if (ret < 0) {
+            LOG_BCK_ERROR("select() failed during DNS resolution: {}", std::strerror(errno));
+            break;
+        }
         if (ret > 0) {
             ares_process(channel, &read_fds, &write_fds);
         }
