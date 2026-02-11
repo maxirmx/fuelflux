@@ -81,8 +81,6 @@ endif()
 if(ENABLE_AUTH_DELAY)
     message(STATUS "ENABLE_AUTH_DELAY enabled - 3-second authorization delay for testing/simulation")
     add_compile_definitions(ENABLE_AUTH_DELAY)
-else()
-    message(STATUS "ENABLE_AUTH_DELAY disabled - no artificial authorization delay")
 endif()
 
 # Set default install prefix to a more reasonable location
