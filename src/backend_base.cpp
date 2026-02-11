@@ -117,6 +117,7 @@ bool BackendBase::Deauthorize() {
         std::string token = session_.GetToken();
         
         // Clear state immediately (fire-and-forget pattern)
+        // Backend drops sessions on timeout, so we don't wait for HTTP response
         session_.Clear();
         roleId_ = 0;
         allowance_ = 0.0;
@@ -126,7 +127,10 @@ bool BackendBase::Deauthorize() {
         lastError_.clear();
 
         // Try to make async HTTP request in detached thread if backend is managed by shared_ptr
-        // Backend drops session on timeout, so we don't wait for result
+        // The detached thread may outlive the backend object, but this is acceptable because:
+        // 1. Backend server drops sessions on timeout anyway
+        // 2. CURL handles cleanup and the thread will exit naturally
+        // 3. This is fire-and-forget by design - we don't need to wait for completion
         try {
             std::weak_ptr<BackendBase> weakSelf = shared_from_this();
             std::thread([weakSelf, token]() {
@@ -144,7 +148,7 @@ bool BackendBase::Deauthorize() {
             }).detach();
         } catch (const std::bad_weak_ptr&) {
             // Backend is not managed by shared_ptr (likely in test environment)
-            // Send synchronous request but still return immediately
+            // Send synchronous request but still return immediately after clearing state
             try {
                 nlohmann::json requestBody = nlohmann::json::object();
                 HttpRequestWrapper("/api/pump/deauthorize", "POST", requestBody, true);

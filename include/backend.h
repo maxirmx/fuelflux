@@ -47,6 +47,12 @@ public:
 // Thread safety: Session object provides thread-safe access to token and authorization state.
 // Other state variables are modified only by Authorize/Refuel/Intake methods.
 // Deauthorize is fully asynchronous (fire-and-forget) and safe to call concurrently.
+// 
+// Lifecycle: BackendBase inherits from std::enable_shared_from_this to support async operations.
+// When managed by shared_ptr (production), Deauthorize uses async HTTP requests in background threads.
+// When not managed by shared_ptr (tests), Deauthorize falls back to synchronous HTTP requests.
+// Both approaches clear local state immediately and always return success (true).
+//
 // Applications should avoid concurrent calls to modifying methods and getters,
 // or use external synchronization if concurrent access is needed.
 class BackendBase : public IBackend, public std::enable_shared_from_this<BackendBase> {
