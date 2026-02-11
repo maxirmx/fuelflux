@@ -116,7 +116,8 @@ Create:
 sudo nano /etc/ppp/peers/sim800
 ```
 
-/dev/ttyS1
+```
+/dev/ttyS5
 115200
 modem
 noauth
@@ -129,7 +130,7 @@ local
 lock
 nodefaultroute
 connect "/usr/sbin/chat -v -f /etc/chatscripts/sim800"
-
+```
 ------------------------------------------------------------------------
 
 ## 6) Permissions
