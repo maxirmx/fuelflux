@@ -58,8 +58,6 @@ private:
     void onEnterState(SystemState state);
     void onExitState(SystemState state);
     
-    
-    
     // Transition actions
     void onTankSelected();
     void onVolumeEntered();
