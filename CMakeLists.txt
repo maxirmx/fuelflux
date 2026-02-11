@@ -27,6 +27,7 @@ if(MSVC)
     option(TARGET_REAL_PUMP "Use real pump hardware" OFF)
     option(TARGET_REAL_FLOW_METER "Use real flow meter hardware" OFF)
     option(ENABLE_TESTING "Enable testing" ON)
+    option(ENABLE_AUTH_DELAY "Enable 3-second authorization delay for testing/simulation" ON)
 else()
     option(TARGET_SIM800C "Use PPP interface binding for HTTP backend" ON) 
     option(TARGET_REAL_DISPLAY "Use real NHD display hardware" OFF)   # OFF for now
@@ -35,6 +36,7 @@ else()
     option(TARGET_REAL_PUMP "Use real pump hardware" ON)
     option(TARGET_REAL_FLOW_METER "Use real flow meter hardware" OFF)
     option(ENABLE_TESTING "Enable testing" OFF)
+    option(ENABLE_AUTH_DELAY "Enable 3-second authorization delay for testing/simulation" OFF)
 endif()
 
 if(TARGET_SIM800C)
@@ -74,6 +76,11 @@ endif()
 
 if(TARGET_REAL_FLOW_METER)
     message(STATUS "TARGET_REAL_FLOW_METER enabled (placeholder - not yet implemented)")
+endif()
+
+if(ENABLE_AUTH_DELAY)
+    message(STATUS "ENABLE_AUTH_DELAY enabled - 3-second authorization delay for testing/simulation")
+    add_compile_definitions(ENABLE_AUTH_DELAY)
 endif()
 
 # Set default install prefix to a more reasonable location

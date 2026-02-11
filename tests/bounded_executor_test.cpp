@@ -23,8 +23,8 @@ TEST(BoundedExecutorTest, ExecutesTasksInBoundedThreads) {
         EXPECT_TRUE(submitted);
     }
     
-    // Wait for tasks to complete
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    // Wait for tasks to complete deterministically
+    executor.Shutdown();
     EXPECT_EQ(counter.load(), 5);
 }
 
@@ -117,6 +117,7 @@ TEST(BoundedExecutorTest, HandlesExceptionsInTasks) {
         counter++;
     });
     
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    // Deterministically wait for all tasks (including the normal one) to complete
+    executor.Shutdown();
     EXPECT_EQ(counter.load(), 1);
 }

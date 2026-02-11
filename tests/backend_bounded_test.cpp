@@ -29,8 +29,8 @@ TEST(BackendIntegrationTest, RapidDeauthorizationBounded) {
             {"RoleId", 1},
             {"Allowance", 100.0},
             {"Price", 50.0},
-            {"FuelTanks", nlohmann::json::array({
-                {{"IdTank", 1}, {"NameTank", "Tank 1"}}
+            {"fuelTanks", nlohmann::json::array({
+                {{"idTank", 1}, {"nameTank", "Tank 1"}}
             })}
         };
         res.set_content(response.dump(), "application/json");
@@ -73,7 +73,7 @@ TEST(BackendIntegrationTest, RapidDeauthorizationBounded) {
     std::string baseAPI = "http://127.0.0.1:" + std::to_string(port);
     auto backend = std::make_shared<Backend>(baseAPI, "test-controller");
     
-    const int numCycles = 50;  // More than thread pool size (4) + queue size (100)
+    const int numCycles = 50;  // Enough cycles to stress a single-worker bounded executor (1 worker thread with a finite queue)
     
     for (int i = 0; i < numCycles; ++i) {
         ASSERT_TRUE(backend->Authorize("test-uid-" + std::to_string(i)));
