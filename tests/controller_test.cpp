@@ -1313,7 +1313,7 @@ TEST_F(ControllerTest, DataTransmissionStateShownDuringRefuel) {
     // Simulate flow reaching the target
     mockFlowMeter->simulateFlow(10.0);
 
-    // Wait for RefuelingComplete state (DataTransmission happens very fast)
+    // Wait for final RefuelingComplete state (backend call in DataTransmission completes quickly)
     ASSERT_TRUE(waitForState(SystemState::RefuelingComplete));
 
     // Verify that "Передача данных" was displayed
@@ -1379,7 +1379,7 @@ TEST_F(ControllerTest, DataTransmissionStateShownDuringIntake) {
     controller->addDigitToInput('0');
     controller->handleKeyPress(KeyCode::KeyStart);
     
-    // Wait for IntakeComplete state (DataTransmission happens very fast)
+    // Wait for final IntakeComplete state (backend call in DataTransmission completes quickly)
     ASSERT_TRUE(waitForState(SystemState::IntakeComplete));
 
     // Verify that "Передача данных" was displayed

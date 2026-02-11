@@ -265,6 +265,8 @@ void StateMachine::setupTransitions() {
     transitions_[{SystemState::Refueling, Event::Error}]               = {SystemState::Error,             [this]() { onError();                }};
 
     // From DataTransmission state
+    // Note: DataTransmissionComplete target state is overridden by onDataTransmissionComplete()
+    // based on stateBeforeDataTransmission_ to route to either RefuelingComplete or IntakeComplete
     transitions_[{SystemState::DataTransmission, Event::CardPresented}]       = {SystemState::DataTransmission,  noOp};
     transitions_[{SystemState::DataTransmission, Event::PinEntryStarted}]     = {SystemState::DataTransmission,  noOp};
     transitions_[{SystemState::DataTransmission, Event::PinEntered}]          = {SystemState::DataTransmission,  noOp};
@@ -393,13 +395,16 @@ void StateMachine::onEnterState(SystemState state) {
         
         // Handle data transmission to backend
         if (state == SystemState::DataTransmission) {
-            // Save the state before DataTransmission for later use
+            // Save the state before DataTransmission for routing after completion.
+            // This allows onDataTransmissionComplete to determine whether to go to
+            // RefuelingComplete or IntakeComplete based on which operation initiated
+            // the data transmission.
             {
                 std::scoped_lock lock(mutex_);
                 stateBeforeDataTransmission_ = previousState_;
             }
             
-            // Determine what operation to complete based on previous state
+            // Execute the appropriate backend operation based on previous state
             if (previousState_ == SystemState::Refueling) {
                 // Complete refueling (log transaction) but do not clear session data here.
                 // Clearing the session immediately would reset the displayed pumped
@@ -410,7 +415,7 @@ void StateMachine::onEnterState(SystemState state) {
             } else if (previousState_ == SystemState::IntakeVolumeEntry) {
                 controller_->completeIntakeOperation();
             }
-            // Post completion event after backend call
+            // Post completion event after backend call finishes
             controller_->postEvent(Event::DataTransmissionComplete);
         }
     }
