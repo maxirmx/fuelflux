@@ -127,8 +127,9 @@ else()
     message(STATUS "Using system spdlog: ${spdlog_VERSION}")
 endif()
 
-# Find libcurl
+# Find required packages
 find_package(CURL REQUIRED)
+find_package(SQLite3 REQUIRED)
 
 # Conditional dependencies for real hardware
 if(TARGET_REAL_DISPLAY OR TARGET_REAL_PUMP OR TARGET_REAL_CARD_READER)
@@ -153,9 +154,8 @@ endif()
 # Include directories
 include_directories(include)
 
-# Source files
-set(SOURCES
-    src/main.cpp
+# Library source files (excluding main.cpp)
+set(LIB_SOURCES
     src/state_machine.cpp
     src/controller.cpp
     src/logger.cpp
@@ -173,15 +173,15 @@ set(SOURCES
 
 # Add shared GPIO implementation for real hardware targets
 if(TARGET_REAL_DISPLAY OR TARGET_REAL_PUMP)
-    list(APPEND SOURCES src/hardware/gpio_line.cpp )
+    list(APPEND LIB_SOURCES src/hardware/gpio_line.cpp )
 endif()
 if(TARGET_REAL_KEYBOARD)
-    list(APPEND SOURCES src/hardware/mcp23017.cpp)
+    list(APPEND LIB_SOURCES src/hardware/mcp23017.cpp)
 endif()
 
 # Add NHD library sources if TARGET_REAL_DISPLAY is enabled
 if(TARGET_REAL_DISPLAY)
-    list(APPEND SOURCES
+    list(APPEND LIB_SOURCES
         src/nhd/st7565.cpp
         src/nhd/four_line_display.cpp
         src/nhd/graphics.cpp
@@ -229,30 +229,24 @@ if(TARGET_REAL_DISPLAY)
     )
 endif()
 
-# Create executable
-add_executable(fuelflux ${SOURCES} ${HEADERS})
+# Create static library from library sources
+add_library(fuelflux_lib STATIC ${LIB_SOURCES} ${HEADERS})
 
-# Add include directories for real hardware libraries
+# Add include directories for real hardware libraries to the library target
 if(TARGET_REAL_DISPLAY OR TARGET_REAL_PUMP)
-    target_include_directories(fuelflux PRIVATE ${GPIOD_INCLUDE_DIRS})
+    target_include_directories(fuelflux_lib PUBLIC ${GPIOD_INCLUDE_DIRS})
 endif()
 if(TARGET_REAL_DISPLAY)
-    target_include_directories(fuelflux PRIVATE ${FREETYPE_INCLUDE_DIRS})
+    target_include_directories(fuelflux_lib PUBLIC ${FREETYPE_INCLUDE_DIRS})
 endif()
 
 if(TARGET_REAL_CARD_READER)
-    target_include_directories(fuelflux PRIVATE ${LIBNFC_INCLUDE_DIRS})
+    target_include_directories(fuelflux_lib PUBLIC ${LIBNFC_INCLUDE_DIRS})
 endif()
 
-# libcurl provides its own SSL support, no need to check for OpenSSL separately
-message(STATUS "Using libcurl: ${CURL_VERSION_STRING}")
-
-# SQLite for persistent message storage
-find_package(SQLite3 REQUIRED)
-
-# Link libraries
-target_link_libraries(fuelflux 
-    PRIVATE 
+# Link libraries to library target
+target_link_libraries(fuelflux_lib 
+    PUBLIC 
     fmt::fmt
     nlohmann_json::nlohmann_json 
     spdlog::spdlog
@@ -262,15 +256,21 @@ target_link_libraries(fuelflux
 
 # Link real hardware libraries if needed
 if(TARGET_REAL_DISPLAY OR TARGET_REAL_PUMP)
-    target_link_libraries(fuelflux PRIVATE ${GPIOD_LIBRARIES})
+    target_link_libraries(fuelflux_lib PUBLIC ${GPIOD_LIBRARIES})
 endif()
 if(TARGET_REAL_DISPLAY)
-    target_link_libraries(fuelflux PRIVATE ${FREETYPE_LIBRARIES})
+    target_link_libraries(fuelflux_lib PUBLIC ${FREETYPE_LIBRARIES})
 endif()
 
 if(TARGET_REAL_CARD_READER)
-    target_link_libraries(fuelflux PRIVATE ${LIBNFC_LIBRARIES})
+    target_link_libraries(fuelflux_lib PUBLIC ${LIBNFC_LIBRARIES})
 endif()
+
+# Create executable with only main.cpp
+add_executable(fuelflux src/main.cpp)
+
+# Link the executable to the library
+target_link_libraries(fuelflux PRIVATE fuelflux_lib)
 
 # Set output directory
 set_target_properties(fuelflux PROPERTIES
@@ -324,86 +324,6 @@ if(ENABLE_TESTING)
         tests/message_storage_test.cpp
         tests/backlog_worker_test.cpp
     )
-
-    # Library sources (excluding main.cpp)
-    set(LIB_SOURCES
-        src/state_machine.cpp
-        src/controller.cpp
-        src/logger.cpp
-        src/message_storage.cpp
-        src/backlog_worker.cpp
-        src/peripherals/display.cpp
-        src/peripherals/keyboard.cpp
-        src/peripherals/card_reader.cpp
-        src/peripherals/pump.cpp
-        src/peripherals/flow_meter.cpp
-        src/console_emulator.cpp
-        src/backend.cpp
-        src/backend_base.cpp
-    )
-
-    # Add shared GPIO implementation for real hardware targets
-    if(TARGET_REAL_DISPLAY OR TARGET_REAL_PUMP)
-        list(APPEND LIB_SOURCES
-            src/hardware/gpio_line.cpp
-        )
-    endif()
-    if(TARGET_REAL_KEYBOARD)
-        list(APPEND LIB_SOURCES
-            src/hardware/mcp23017.cpp
-        )
-    endif()
-
-    # Add NHD library sources if TARGET_REAL_DISPLAY is enabled
-    if(TARGET_REAL_DISPLAY)
-        list(APPEND LIB_SOURCES
-            src/nhd/st7565.cpp
-            src/nhd/four_line_display.cpp
-            src/nhd/graphics.cpp
-            src/nhd/ft_text.cpp
-            src/nhd/spi_linux.cpp
-        )
-    endif()
-
-    # Create library from application sources
-    add_library(fuelflux_lib STATIC ${LIB_SOURCES} ${HEADERS})
-    
-    # Add include directories for real hardware libraries
-    if(TARGET_REAL_DISPLAY OR TARGET_REAL_PUMP)
-        target_include_directories(fuelflux_lib PUBLIC ${GPIOD_INCLUDE_DIRS})
-    endif()
-    if(TARGET_REAL_DISPLAY)
-        target_include_directories(fuelflux_lib PUBLIC ${FREETYPE_INCLUDE_DIRS})
-    endif()
-    if(TARGET_REAL_CARD_READER)
-        target_include_directories(fuelflux_lib PUBLIC ${LIBNFC_INCLUDE_DIRS})
-    endif()
-
-    # Link libraries to library target
-    target_link_libraries(fuelflux_lib
-        PUBLIC
-        fmt::fmt
-        nlohmann_json::nlohmann_json
-        spdlog::spdlog
-        CURL::libcurl
-        SQLite::SQLite3
-    )
-    
-    # Link real hardware libraries if needed
-    if(TARGET_REAL_DISPLAY OR TARGET_REAL_PUMP)
-        target_link_libraries(fuelflux_lib PUBLIC ${GPIOD_LIBRARIES})
-    endif()
-    if(TARGET_REAL_DISPLAY)
-        target_link_libraries(fuelflux_lib PUBLIC ${FREETYPE_LIBRARIES})
-    endif()
-    if(TARGET_REAL_CARD_READER)
-        target_link_libraries(fuelflux_lib PUBLIC ${LIBNFC_LIBRARIES})
-    endif()
-
-    # libcurl handles SSL internally, no additional setup needed
-
-    # Update main executable to use library
-    target_link_libraries(fuelflux PRIVATE fuelflux_lib)
 
     # Create test executable
     add_executable(fuelflux_tests ${TEST_SOURCES})
