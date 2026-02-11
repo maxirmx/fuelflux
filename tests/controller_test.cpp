@@ -31,7 +31,7 @@ public:
     MOCK_METHOD(bool, RefuelPayload, (const std::string& payload), (override));
     MOCK_METHOD(bool, IntakePayload, (const std::string& payload), (override));
     MOCK_METHOD(bool, IsAuthorized, (), (const, override));
-    MOCK_METHOD(const std::string&, GetToken, (), (const, override));
+    MOCK_METHOD(std::string, GetToken, (), (const, override));
     MOCK_METHOD(int, GetRoleId, (), (const, override));
     MOCK_METHOD(double, GetAllowance, (), (const, override));
     MOCK_METHOD(double, GetPrice, (), (const, override));
@@ -224,7 +224,7 @@ protected:
             mockBackend->authorized_ = false;
             return true;
         });
-        ON_CALL(*mockBackend, GetToken()).WillByDefault(ReturnRef(mockBackend->tokenStorage_));
+        ON_CALL(*mockBackend, GetToken()).WillByDefault(ReturnPointee(&mockBackend->tokenStorage_));
         ON_CALL(*mockBackend, GetRoleId()).WillByDefault(ReturnPointee(&mockBackend->roleId_));
         ON_CALL(*mockBackend, GetAllowance()).WillByDefault(ReturnPointee(&mockBackend->allowance_));
         ON_CALL(*mockBackend, GetPrice()).WillByDefault(ReturnPointee(&mockBackend->price_));

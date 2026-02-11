@@ -8,8 +8,10 @@
 #include <vector>
 #include <memory>
 #include <mutex>
+#include <thread>
 #include <nlohmann/json.hpp>
 #include "types.h"
+#include "session.h"
 
 namespace fuelflux {
 
@@ -32,7 +34,7 @@ public:
     virtual bool RefuelPayload(const std::string& payload) = 0;
     virtual bool IntakePayload(const std::string& payload) = 0;
     virtual bool IsAuthorized() const = 0;
-    virtual const std::string& GetToken() const = 0;
+    virtual std::string GetToken() const = 0;
     virtual int GetRoleId() const = 0;
     virtual double GetAllowance() const = 0;
     virtual double GetPrice() const = 0;
@@ -42,12 +44,12 @@ public:
 };
 
 // Base backend class with shared logic for request/response handling
-// Thread safety: Derived classes must protect HttpRequestWrapper with a mutex.
-// State variables (isAuthorized_, token_, etc.) are modified only by Authorize/Deauthorize/
-// Refuel/Intake methods, which call HttpRequestWrapper. Getter methods read these variables
-// without synchronization. Applications should avoid concurrent calls to modifying methods
-// and getters, or use external synchronization if concurrent access is needed.
-class BackendBase : public IBackend {
+// Thread safety: Session object provides thread-safe access to token and authorization state.
+// Other state variables are modified only by Authorize/Refuel/Intake methods.
+// Deauthorize is fully asynchronous (fire-and-forget) and safe to call concurrently.
+// Applications should avoid concurrent calls to modifying methods and getters,
+// or use external synchronization if concurrent access is needed.
+class BackendBase : public IBackend, public std::enable_shared_from_this<BackendBase> {
 public:
     ~BackendBase() override = default;
 
@@ -58,8 +60,8 @@ public:
     bool RefuelPayload(const std::string& payload) override;
     bool IntakePayload(const std::string& payload) override;
 
-    bool IsAuthorized() const override { return isAuthorized_; }
-    const std::string& GetToken() const override { return token_; }
+    bool IsAuthorized() const override { return session_.IsAuthorized(); }
+    std::string GetToken() const override { return session_.GetToken(); }
     int GetRoleId() const override { return roleId_; }
     double GetAllowance() const override { return allowance_; }
     double GetPrice() const override { return price_; }
@@ -77,8 +79,7 @@ protected:
 
     std::string controllerUid_;
     std::string authorizedUid_;
-    bool isAuthorized_ = false;
-    std::string token_;
+    Session session_;
     int roleId_ = 0;
     double allowance_ = 0.0;
     double price_ = 0.0;
