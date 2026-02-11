@@ -207,7 +207,11 @@ void Controller::handleKeyPress(KeyCode key) {
             break;
             
         case KeyCode::KeyMax:
-            setMaxValue();
+            // '*' key is only interpreted as "max volume" in refuel mode when volume is expected
+            if (currentState == SystemState::VolumeEntry && currentUser_.role == UserRole::Customer) {
+                setMaxValue();
+            }
+            // In all other states, treat '*' as a regular character (or ignore it)
             break;
             
         case KeyCode::KeyClear:
@@ -224,7 +228,6 @@ void Controller::handleKeyPress(KeyCode key) {
             
     }
     
-    updateDisplay();
 }
 
 void Controller::handleCardPresented(const UserId& userId) {
@@ -334,6 +337,11 @@ void Controller::endCurrentSession() {
 void Controller::clearInput() {
     currentInput_.clear();
     updateDisplay();
+}
+
+void Controller::clearInputSilent() {
+    currentInput_.clear();
+    // No updateDisplay() call - avoid overwriting error messages
 }
 
 void Controller::addDigitToInput(char digit) {
