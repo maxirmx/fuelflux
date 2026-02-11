@@ -22,7 +22,7 @@ BackendBase::BackendBase(std::string controllerUid, std::shared_ptr<MessageStora
 
 bool BackendBase::Authorize(const std::string& uid) {
     try {
-        if (isAuthorized_) {
+        if (session_.IsAuthorized()) {
             LOG_BCK_ERROR("{}", "Already authorized. Call Deauthorize first.");
             lastError_ = StdControllerError;
             return false;
@@ -82,12 +82,11 @@ bool BackendBase::Authorize(const std::string& uid) {
             }
         }
 
-        token_ = token;
+        session_.SetToken(token);
         roleId_ = roleId;
         allowance_ = allowance;
         price_ = price;
         fuelTanks_ = fuelTanks;
-        isAuthorized_ = true;
         authorizedUid_ = uid;
         lastError_.clear();
 
@@ -106,49 +105,61 @@ bool BackendBase::Authorize(const std::string& uid) {
 
 bool BackendBase::Deauthorize() {
     try {
-        if (!isAuthorized_) {
+        if (!session_.IsAuthorized()) {
             LOG_BCK_ERROR("{}", "Not authorized. Call Authorize first.");
             lastError_ = StdControllerError;
             return false;
         }
 
-        LOG_BCK_INFO("Deauthorizing");
+        LOG_BCK_INFO("Deauthorizing (async)");
 
-        nlohmann::json requestBody = nlohmann::json::object();
-        nlohmann::json response = HttpRequestWrapper("/api/pump/deauthorize", "POST", requestBody, true);
-        std::string responseError;
-        if (IsErrorResponse(response, &responseError)) {
-            token_.clear();
-            roleId_ = 0;
-            allowance_ = 0.0;
-            price_ = 0.0;
-            fuelTanks_.clear();
-            isAuthorized_ = false;
-            authorizedUid_.clear();
-
-            LOG_BCK_ERROR("Deauthorization failed: {} (state cleared for safety)", responseError);
-            lastError_ = responseError;
-            return false;
-        }
-
-        token_.clear();
+        // Capture token for async HTTP request
+        std::string token = session_.GetToken();
+        
+        // Clear state immediately (fire-and-forget pattern)
+        // Backend drops sessions on timeout, so we don't wait for HTTP response
+        session_.Clear();
         roleId_ = 0;
         allowance_ = 0.0;
         price_ = 0.0;
         fuelTanks_.clear();
-        isAuthorized_ = false;
         authorizedUid_.clear();
         lastError_.clear();
 
-        LOG_BCK_INFO("Deauthorization successful");
+        // Try to make async HTTP request in detached thread if backend is managed by shared_ptr
+        // Uses a dedicated async method that doesn't hold requestMutex_ or modify networkError_
+        try {
+            std::weak_ptr<BackendBase> weakSelf = shared_from_this();
+            std::thread([weakSelf, token]() {
+                // Check if backend still exists
+                if (auto self = weakSelf.lock()) {
+                    try {
+                        // Call virtual method that sends request without mutex
+                        self->SendAsyncDeauthorizeRequest(token);
+                    } catch (const std::exception& e) {
+                        LOG_BCK_WARN("Async deauthorization failed (ignored): {}", e.what());
+                    }
+                }
+            }).detach();
+        } catch (const std::bad_weak_ptr&) {
+            // Backend is not managed by shared_ptr (likely in test environment)
+            // Send synchronous request but still return immediately after clearing state
+            try {
+                SendAsyncDeauthorizeRequest(token);
+            } catch (const std::exception& e) {
+                LOG_BCK_WARN("Deauthorization request failed (ignored): {}", e.what());
+            }
+        }
+
+        LOG_BCK_INFO("Deauthorization initiated (state cleared immediately)");
         return true;
     } catch (const std::exception& e) {
-        token_.clear();
+        // Clear state even on error
+        session_.Clear();
         roleId_ = 0;
         allowance_ = 0.0;
         price_ = 0.0;
         fuelTanks_.clear();
-        isAuthorized_ = false;
         authorizedUid_.clear();
 
         LOG_BCK_ERROR("Deauthorization failed: {} (state cleared for safety)", e.what());
@@ -159,7 +170,7 @@ bool BackendBase::Deauthorize() {
 
 bool BackendBase::Refuel(TankNumber tankNumber, Volume volume) {
     try {
-        if (!isAuthorized_) {
+        if (!session_.IsAuthorized()) {
             LOG_BCK_ERROR("Invalid refueling report: backend is not authorized");
             lastError_ = StdControllerError;
             return false;
@@ -239,7 +250,7 @@ bool BackendBase::Refuel(TankNumber tankNumber, Volume volume) {
 
 bool BackendBase::Intake(TankNumber tankNumber, Volume volume, IntakeDirection direction) {
     try {
-        if (!isAuthorized_) {
+        if (!session_.IsAuthorized()) {
             LOG_BCK_ERROR("Invalid intake report: backend is not authorized");
             lastError_ = StdControllerError;
             return false;
@@ -320,7 +331,7 @@ bool BackendBase::Intake(TankNumber tankNumber, Volume volume, IntakeDirection d
 
 bool BackendBase::RefuelPayload(const std::string& payload) {
     try {
-        if (!isAuthorized_) {
+        if (!session_.IsAuthorized()) {
             LOG_BCK_ERROR("Invalid refueling report: backend is not authorized");
             lastError_ = StdControllerError;
             return false;
@@ -354,7 +365,7 @@ bool BackendBase::RefuelPayload(const std::string& payload) {
 
 bool BackendBase::IntakePayload(const std::string& payload) {
     try {
-        if (!isAuthorized_) {
+        if (!session_.IsAuthorized()) {
             LOG_BCK_ERROR("Invalid intake report: backend is not authorized");
             lastError_ = StdControllerError;
             return false;

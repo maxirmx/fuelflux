@@ -22,7 +22,7 @@ namespace fuelflux {
 // Main controller class that orchestrates the entire system
 class Controller {
   public:
-    Controller(ControllerId controllerId, std::unique_ptr<IBackend> backend = nullptr);
+    Controller(ControllerId controllerId, std::shared_ptr<IBackend> backend = nullptr);
     ~Controller();
 
     // System lifecycle
@@ -130,7 +130,7 @@ class Controller {
     std::string getDeviceSerialNumber() const;
     
     // Backend creation helper
-    static std::unique_ptr<IBackend> CreateDefaultBackend(std::shared_ptr<MessageStorage> storage = nullptr);
+    static std::shared_ptr<IBackend> CreateDefaultBackend(std::shared_ptr<MessageStorage> storage = nullptr);
     static std::shared_ptr<IBackend> CreateDefaultBackendShared(const std::string& controllerUid, 
                                                                   std::shared_ptr<MessageStorage> storage = nullptr);
 
@@ -145,7 +145,7 @@ class Controller {
     std::unique_ptr<peripherals::ICardReader> cardReader_;
     std::unique_ptr<peripherals::IPump> pump_;
     std::unique_ptr<peripherals::IFlowMeter> flowMeter_;
-    std::unique_ptr<IBackend> backend_;
+    std::shared_ptr<IBackend> backend_;
     // Current session state
     UserInfo currentUser_;
     std::vector<TankInfo> availableTanks_;

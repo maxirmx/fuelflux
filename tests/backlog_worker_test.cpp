@@ -21,7 +21,7 @@ public:
     MOCK_METHOD(bool, RefuelPayload, (const std::string& payload), (override));
     MOCK_METHOD(bool, IntakePayload, (const std::string& payload), (override));
     MOCK_METHOD(bool, IsAuthorized, (), (const, override));
-    MOCK_METHOD(const std::string&, GetToken, (), (const, override));
+    MOCK_METHOD(std::string, GetToken, (), (const, override));
     MOCK_METHOD(int, GetRoleId, (), (const, override));
     MOCK_METHOD(double, GetAllowance, (), (const, override));
     MOCK_METHOD(double, GetPrice, (), (const, override));
