@@ -114,16 +114,6 @@ void BackendBase::Deauthorize() {
 
     LOG_BCK_INFO("Deauthorizing (async)");
 
-    // Clear local state immediately
-    token_.clear();
-    roleId_ = 0;
-    allowance_ = 0.0;
-    price_ = 0.0;
-    fuelTanks_.clear();
-    isAuthorized_ = false;
-    authorizedUid_.clear();
-    lastError_.clear();
-
     // Fire off the deauthorization request asynchronously without waiting for result
     // Backend will drop the session on timeout anyway, so we don't need to wait
     // Use weak_ptr to avoid keeping the object alive just for this async operation
@@ -138,21 +128,31 @@ void BackendBase::Deauthorize() {
                     nlohmann::json response = sharedThis->HttpRequestWrapper("/api/pump/deauthorize", "POST", requestBody, true);
                     std::string responseError;
                     if (IsErrorResponse(response, &responseError)) {
-                        LOG_BCK_WARN("Async deauthorization failed: {} (local state already cleared)", responseError);
+                        LOG_BCK_WARN("Async deauthorization failed: {} (state cleared locally)", responseError);
                     } else {
                         LOG_BCK_INFO("Async deauthorization successful");
                     }
                 } catch (const std::exception& e) {
-                    LOG_BCK_WARN("Async deauthorization exception: {} (local state already cleared)", e.what());
+                    LOG_BCK_WARN("Async deauthorization exception: {} (state cleared locally)", e.what());
                 }
             }
             // If object was destroyed, that's fine - we don't need to do anything
         }).detach();
     } catch (const std::bad_weak_ptr&) {
         // Object not managed by shared_ptr (e.g., in tests)
-        // State is already cleared, so this is acceptable
-        LOG_BCK_WARN("Deauthorization: object not managed by shared_ptr, skipping async HTTP request (state already cleared)");
+        // State will be cleared below, so this is acceptable
+        LOG_BCK_WARN("Deauthorization: object not managed by shared_ptr, skipping async HTTP request");
     }
+
+    // Clear local state after starting the async request (but without waiting for it)
+    token_.clear();
+    roleId_ = 0;
+    allowance_ = 0.0;
+    price_ = 0.0;
+    fuelTanks_.clear();
+    isAuthorized_ = false;
+    authorizedUid_.clear();
+    lastError_.clear();
 }
 
 bool BackendBase::Refuel(TankNumber tankNumber, Volume volume) {
