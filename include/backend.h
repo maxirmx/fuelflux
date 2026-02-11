@@ -47,7 +47,7 @@ public:
 // Refuel/Intake methods, which call HttpRequestWrapper. Getter methods read these variables
 // without synchronization. Applications should avoid concurrent calls to modifying methods
 // and getters, or use external synchronization if concurrent access is needed.
-class BackendBase : public IBackend {
+class BackendBase : public IBackend, public std::enable_shared_from_this<BackendBase> {
 public:
     ~BackendBase() override = default;
 

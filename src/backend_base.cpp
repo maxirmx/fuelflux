@@ -126,20 +126,33 @@ void BackendBase::Deauthorize() {
 
     // Fire off the deauthorization request asynchronously without waiting for result
     // Backend will drop the session on timeout anyway, so we don't need to wait
-    std::thread([this]() {
-        try {
-            nlohmann::json requestBody = nlohmann::json::object();
-            nlohmann::json response = HttpRequestWrapper("/api/pump/deauthorize", "POST", requestBody, true);
-            std::string responseError;
-            if (IsErrorResponse(response, &responseError)) {
-                LOG_BCK_WARN("Async deauthorization failed: {} (local state already cleared)", responseError);
-            } else {
-                LOG_BCK_INFO("Async deauthorization successful");
+    // Use weak_ptr to avoid keeping the object alive just for this async operation
+    // Note: This requires the object to be managed by shared_ptr (which is the case in production)
+    try {
+        std::weak_ptr<BackendBase> weakThis = shared_from_this();
+        std::thread([weakThis]() {
+            // Try to lock the weak_ptr - if the object is still alive, proceed
+            if (auto sharedThis = weakThis.lock()) {
+                try {
+                    nlohmann::json requestBody = nlohmann::json::object();
+                    nlohmann::json response = sharedThis->HttpRequestWrapper("/api/pump/deauthorize", "POST", requestBody, true);
+                    std::string responseError;
+                    if (IsErrorResponse(response, &responseError)) {
+                        LOG_BCK_WARN("Async deauthorization failed: {} (local state already cleared)", responseError);
+                    } else {
+                        LOG_BCK_INFO("Async deauthorization successful");
+                    }
+                } catch (const std::exception& e) {
+                    LOG_BCK_WARN("Async deauthorization exception: {} (local state already cleared)", e.what());
+                }
             }
-        } catch (const std::exception& e) {
-            LOG_BCK_WARN("Async deauthorization exception: {} (local state already cleared)", e.what());
-        }
-    }).detach();
+            // If object was destroyed, that's fine - we don't need to do anything
+        }).detach();
+    } catch (const std::bad_weak_ptr&) {
+        // Object not managed by shared_ptr (e.g., in tests)
+        // State is already cleared, so this is acceptable
+        LOG_BCK_WARN("Deauthorization: object not managed by shared_ptr, skipping async HTTP request (state already cleared)");
+    }
 }
 
 bool BackendBase::Refuel(TankNumber tankNumber, Volume volume) {
