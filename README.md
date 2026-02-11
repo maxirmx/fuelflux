@@ -70,6 +70,35 @@ In VS Code:
 
 If you use MSVC toolchain instead of Ninja/gcc, change the `-G "Ninja"` to your generator and adjust `miDebuggerPath` in `.vscode/launch.json` to the Visual Studio debugger (or use `cppvsdbg` type).
 
+## Testing
+
+The project includes a comprehensive test suite using Google Test and Google Mock.
+
+### Running Tests
+
+```bash
+# Configure with testing enabled
+cmake -S . -B build -DENABLE_TESTING=ON
+
+# Build
+cmake --build build
+
+# Run all tests
+cd build && ctest --output-on-failure
+```
+
+### DNS Resolution Tests
+
+The DNS resolution tests use c-ares library and run on all platforms. The tests verify DNS resolution functionality without requiring special hardware.
+
+**Note**: When `TARGET_SIM800C` is enabled, DNS queries are bound to the ppp0 interface. When disabled, standard DNS resolution is used. Both modes are tested by the same test suite.
+
+The DNS tests verify:
+- Error handling for empty and invalid hostnames
+- Timeout behavior
+- Edge cases (special characters, very long hostnames, etc.)
+- Concurrent DNS resolution requests
+
 ## Documentation
 
 - [State Machine](docs/state_machine.md) - Complete state machine workflow and transitions
@@ -84,14 +113,19 @@ If you use MSVC toolchain instead of Ninja/gcc, change the `-G "Ninja"` to your 
 - **spdlog** - High performance logging library
 - **nlohmann/json** - JSON parsing and configuration
 - **libcurl** - HTTP client library
-- **c-ares** (ARM/Linux with TARGET_SIM800C only) - DNS resolution library
+- **c-ares** - DNS resolution library (required for all builds)
 - **libgpiod** (ARM/Linux only) - GPIO control for real hardware display
 - **freetype2** (ARM/Linux only) - Font rendering for real hardware display
 - **libnfc** (ARM/Linux only) - NFC card reader support
 
-Core dependencies are automatically fetched via CMake FetchContent. Hardware dependencies (c-ares, libgpiod, freetype2, libnfc) are only required when building with corresponding target flags enabled.
+Core dependencies are automatically fetched via CMake FetchContent. Hardware dependencies (c-ares, libgpiod, freetype2, libnfc) must be installed from system packages.
 
 ### Installing System Dependencies on Debian/Ubuntu
+
+For all builds (c-ares is now required):
+```bash
+sudo apt-get install libc-ares-dev
+```
 
 For TARGET_SIM800C builds (ppp0 interface binding):
 ```bash
