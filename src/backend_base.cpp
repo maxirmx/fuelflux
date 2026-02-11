@@ -14,9 +14,13 @@
 
 namespace fuelflux {
 
-// Static executor shared by all BackendBase instances
-// Uses 1 worker thread and queues up to 100 deauthorize requests
-BoundedExecutor BackendBase::deauthorizeExecutor_(1, 100);
+// Meyer's singleton for bounded executor - thread-safe lazy initialization
+// Initialized on first use, avoiding static initialization order issues
+// and allowing exception handling at runtime instead of during startup
+BoundedExecutor& BackendBase::GetDeauthorizeExecutor() {
+    static BoundedExecutor executor(1, 100);
+    return executor;
+}
 
 BackendBase::BackendBase(std::string controllerUid, std::shared_ptr<MessageStorage> storage)
     : controllerUid_(std::move(controllerUid))
@@ -134,7 +138,7 @@ bool BackendBase::Deauthorize() {
         // Uses a dedicated async method that doesn't hold requestMutex_ or modify networkError_
         try {
             std::weak_ptr<BackendBase> weakSelf = shared_from_this();
-            bool submitted = deauthorizeExecutor_.Submit([weakSelf, token]() {
+            bool submitted = GetDeauthorizeExecutor().Submit([weakSelf, token]() {
                 // Check if backend still exists
                 if (auto self = weakSelf.lock()) {
                     try {

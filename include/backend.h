@@ -95,6 +95,10 @@ protected:
     // Send async deauthorize request without mutex - overridden by concrete backend
     virtual void SendAsyncDeauthorizeRequest(const std::string& token) = 0;
 
+    // Get the bounded executor for async deauthorization requests
+    // Uses Meyer's singleton pattern for thread-safe lazy initialization
+    static BoundedExecutor& GetDeauthorizeExecutor();
+
     std::string controllerUid_;
     std::string authorizedUid_;
     Session session_;
@@ -105,10 +109,6 @@ protected:
     std::string lastError_;
     std::atomic<bool> networkError_{false};
     std::shared_ptr<MessageStorage> storage_;
-    
-    // Bounded executor for async deauthorization requests
-    // Limits number of concurrent deauthorize operations to prevent resource exhaustion
-    static BoundedExecutor deauthorizeExecutor_;
 };
 
 // Backend class for real REST API communication
