@@ -69,7 +69,8 @@ private:
     void onRefuelingStarted();
     void onRefuelingStopped();
     void onCancelRefueling();
-    void onDataTransmissionComplete();
+    void onRefuelDataTransmissionComplete();
+    void onIntakeDataTransmissionComplete();
     void onIntakeSelected();
     void onIntakeDirectionSelected();
     void onIntakeVolumeEntered();
@@ -83,7 +84,6 @@ private:
     Controller* controller_;
     SystemState currentState_;
     SystemState previousState_;
-    SystemState stateBeforeDataTransmission_;  // Track state before entering DataTransmission
     
     // Transition table: (current_state, event) -> (next_state, action)
     std::unordered_map<std::pair<SystemState, Event>, 
