@@ -333,8 +333,157 @@ nlohmann::json Backend::HttpRequestWrapper(const std::string& endpoint,
         headers.append("Accept: */*");
         headers.append("Content-Type: application/json");
         
-        if (useBearerToken && !token_.empty()) {
-            std::string authHeader = "Authorization: Bearer " + token_;
+        if (useBearerToken) {
+            std::string token = GetToken();
+            if (!token.empty()) {
+                std::string authHeader = "Authorization: Bearer " + token;
+                headers.append(authHeader.c_str());
+            }
+        }
+        
+        curl_easy_setopt(curl.get(), CURLOPT_HTTPHEADER, headers.get());
+
+        // Set method and body
+        if (method == "POST") {
+            curl_easy_setopt(curl.get(), CURLOPT_POST, 1L);
+            curl_easy_setopt(curl.get(), CURLOPT_POSTFIELDS, bodyStr.c_str());
+            curl_easy_setopt(curl.get(), CURLOPT_POSTFIELDSIZE, static_cast<long>(bodyStr.size()));
+        } else if (method == "GET") {
+            curl_easy_setopt(curl.get(), CURLOPT_HTTPGET, 1L);
+        } else {
+            LOG_BCK_ERROR("Unsupported HTTP method: {}", method);
+            networkError_ = true;
+            return BuildWrapperErrorResponse();
+        }
+
+        // Perform request
+        CURLcode res = curl_easy_perform(curl.get());
+
+        if (res != CURLE_OK) {
+            std::string errorMsg = "HTTP request failed: ";
+            errorMsg += curl_easy_strerror(res);
+            LOG_BCK_ERROR("{}", errorMsg);
+            networkError_ = true;
+            return BuildWrapperErrorResponse();
+        }
+
+        // Get HTTP status code
+        long httpCode = 0;
+        curl_easy_getinfo(curl.get(), CURLINFO_RESPONSE_CODE, &httpCode);
+        
+        LOG_BCK_DEBUG("Response status: {} body: {}", httpCode, responseBody);
+
+        // Check HTTP status code
+        if (httpCode >= 200 && httpCode < 300) {
+            // Success response
+            nlohmann::json responseJson;
+
+            // Handle empty or "null" response
+            if (responseBody.empty() || responseBody == "null") {
+                responseJson = nlohmann::json(nullptr);
+            }
+            else {
+                try {
+                    responseJson = nlohmann::json::parse(responseBody);
+                }
+                catch (const std::exception& e) {
+                    LOG_BCK_ERROR("Failed to parse response JSON: {}", e.what());
+                    networkError_ = true;
+                    return BuildWrapperErrorResponse();
+                }
+            }
+
+            return responseJson;
+        }
+        else {
+            // HTTP error response
+            std::ostringstream oss;
+            oss << "System error, code " << httpCode;
+            LOG_BCK_ERROR("{}", oss.str());
+            networkError_ = true;
+            return BuildWrapperErrorResponse();
+        }
+    }
+    catch (const std::exception& e) {
+        LOG_BCK_ERROR("HTTP request exception: {}", e.what());
+        networkError_ = true;
+        return BuildWrapperErrorResponse();
+    }
+}
+
+// Overload that accepts explicit token for async deauthorization
+nlohmann::json Backend::HttpRequestWrapper(const std::string& endpoint,
+                                           const std::string& method,
+                                           const nlohmann::json& requestBody,
+                                           const std::string& bearerToken) {
+    std::lock_guard<std::recursive_mutex> lock(requestMutex_);
+
+    networkError_ = false;
+
+    // Use RAII wrapper for CURL handle
+    CurlHandle curl;
+    if (!curl) {
+        LOG_BCK_ERROR("Failed to initialize curl");
+        networkError_ = true;
+        return BuildWrapperErrorResponse();
+    }
+
+    try {
+        std::string url = baseAPI_ + endpoint;
+        std::string responseBody;
+        
+        // Compute body string once and reuse for both logging and POST
+        std::string bodyStr = requestBody.dump();
+        LOG_BCK_DEBUG("Request: {} {} with body: {}", method, endpoint, bodyStr);
+
+        // Set URL
+        curl_easy_setopt(curl.get(), CURLOPT_URL, url.c_str());
+        
+        // Set user agent
+        curl_easy_setopt(curl.get(), CURLOPT_USERAGENT, "fuelflux/0.1.0");
+        
+        // Set callback for response
+        curl_easy_setopt(curl.get(), CURLOPT_WRITEFUNCTION, WriteCallback);
+        curl_easy_setopt(curl.get(), CURLOPT_WRITEDATA, &responseBody);
+        
+        // Set timeouts
+#ifdef TARGET_SIM800C
+        // GPRS/2G connections via SIM800C have very high latency (1-3 seconds per round trip)
+        // Increase timeouts significantly to accommodate slow mobile networks
+        curl_easy_setopt(curl.get(), CURLOPT_CONNECTTIMEOUT, 30L);  // 30 seconds for TCP handshake
+        curl_easy_setopt(curl.get(), CURLOPT_TIMEOUT, 90L);          // 90 seconds total timeout
+#else
+        curl_easy_setopt(curl.get(), CURLOPT_CONNECTTIMEOUT, 5L);   // 5 seconds
+        curl_easy_setopt(curl.get(), CURLOPT_TIMEOUT, 15L);          // 15 seconds total timeout
+#endif
+
+        // Enable TCP keepalive
+        curl_easy_setopt(curl.get(), CURLOPT_TCP_KEEPALIVE, 1L);
+
+#ifdef TARGET_SIM800C
+        // Bind to PPP interface if available and not localhost
+        std::string host = ExtractHostFromUrl(baseAPI_);
+        if (ShouldBindToPppInterface(host)) {
+            LOG_BCK_DEBUG("Binding to {} for host {}", kPppInterface, host);
+            curl_easy_setopt(curl.get(), CURLOPT_INTERFACE, kPppInterface);
+            // Also use ppp0 for DNS resolution
+            curl_easy_setopt(curl.get(), CURLOPT_DNS_INTERFACE, kPppInterface);
+        } else {
+            if (host == "localhost" || host == "127.0.0.1" || host == "::1") {
+                LOG_BCK_DEBUG("Skipping {} binding for localhost/local IP: {}", kPppInterface, host);
+            } else {
+                LOG_BCK_DEBUG("Skipping {} binding for host {} (interface unavailable)", kPppInterface, host);
+            }
+        }
+#endif
+
+        // Prepare headers using RAII wrapper with explicit token
+        CurlSlist headers;
+        headers.append("Accept: */*");
+        headers.append("Content-Type: application/json");
+        
+        if (!bearerToken.empty()) {
+            std::string authHeader = "Authorization: Bearer " + bearerToken;
             headers.append(authHeader.c_str());
         }
         
@@ -406,6 +555,97 @@ nlohmann::json Backend::HttpRequestWrapper(const std::string& endpoint,
         networkError_ = true;
         return BuildWrapperErrorResponse();
     }
+}
+
+// Static helper for async deauthorize - doesn't use mutex or modify state
+void Backend::SendAsyncDeauthorize(const std::string& baseAPI, const std::string& token) {
+    // Use RAII wrapper for CURL handle
+    CurlHandle curl;
+    if (!curl) {
+        LOG_BCK_WARN("Async deauthorize: Failed to initialize curl");
+        return;
+    }
+
+    try {
+        std::string url = baseAPI + "/api/pump/deauthorize";
+        std::string responseBody;
+        std::string bodyStr = "{}";
+        
+        LOG_BCK_DEBUG("Async deauthorize: POST /api/pump/deauthorize");
+
+        // Set URL
+        curl_easy_setopt(curl.get(), CURLOPT_URL, url.c_str());
+        
+        // Set user agent
+        curl_easy_setopt(curl.get(), CURLOPT_USERAGENT, "fuelflux/0.1.0");
+        
+        // Set callback for response
+        curl_easy_setopt(curl.get(), CURLOPT_WRITEFUNCTION, WriteCallback);
+        curl_easy_setopt(curl.get(), CURLOPT_WRITEDATA, &responseBody);
+        
+        // Set timeouts
+#ifdef TARGET_SIM800C
+        curl_easy_setopt(curl.get(), CURLOPT_CONNECTTIMEOUT, 30L);
+        curl_easy_setopt(curl.get(), CURLOPT_TIMEOUT, 90L);
+#else
+        curl_easy_setopt(curl.get(), CURLOPT_CONNECTTIMEOUT, 5L);
+        curl_easy_setopt(curl.get(), CURLOPT_TIMEOUT, 15L);
+#endif
+
+        // Enable TCP keepalive
+        curl_easy_setopt(curl.get(), CURLOPT_TCP_KEEPALIVE, 1L);
+
+#ifdef TARGET_SIM800C
+        // Bind to PPP interface if available and not localhost
+        std::string host = ExtractHostFromUrl(baseAPI);
+        if (ShouldBindToPppInterface(host)) {
+            LOG_BCK_DEBUG("Async deauthorize: Binding to {} for host {}", kPppInterface, host);
+            curl_easy_setopt(curl.get(), CURLOPT_INTERFACE, kPppInterface);
+            curl_easy_setopt(curl.get(), CURLOPT_DNS_INTERFACE, kPppInterface);
+        }
+#endif
+
+        // Prepare headers with token
+        CurlSlist headers;
+        headers.append("Accept: */*");
+        headers.append("Content-Type: application/json");
+        
+        if (!token.empty()) {
+            std::string authHeader = "Authorization: Bearer " + token;
+            headers.append(authHeader.c_str());
+        }
+        
+        curl_easy_setopt(curl.get(), CURLOPT_HTTPHEADER, headers.get());
+
+        // Set POST method and body
+        curl_easy_setopt(curl.get(), CURLOPT_POST, 1L);
+        curl_easy_setopt(curl.get(), CURLOPT_POSTFIELDS, bodyStr.c_str());
+        curl_easy_setopt(curl.get(), CURLOPT_POSTFIELDSIZE, static_cast<long>(bodyStr.size()));
+
+        // Perform request
+        CURLcode res = curl_easy_perform(curl.get());
+
+        if (res != CURLE_OK) {
+            LOG_BCK_WARN("Async deauthorize request failed (ignored): {}", curl_easy_strerror(res));
+        } else {
+            long httpCode = 0;
+            curl_easy_getinfo(curl.get(), CURLINFO_RESPONSE_CODE, &httpCode);
+            LOG_BCK_DEBUG("Async deauthorize response status: {}", httpCode);
+            if (httpCode >= 200 && httpCode < 300) {
+                LOG_BCK_INFO("Async deauthorization completed successfully");
+            } else {
+                LOG_BCK_WARN("Async deauthorize returned HTTP {}", httpCode);
+            }
+        }
+    }
+    catch (const std::exception& e) {
+        LOG_BCK_WARN("Async deauthorize exception (ignored): {}", e.what());
+    }
+}
+
+// Send async deauthorize request without mutex
+void Backend::SendAsyncDeauthorizeRequest(const std::string& token) {
+    SendAsyncDeauthorize(baseAPI_, token);
 }
 
 } // namespace fuelflux
