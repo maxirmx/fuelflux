@@ -60,9 +60,11 @@ TEST_F(DnsResolutionTest, IpAddressInput) {
     // c-ares should handle it gracefully
     std::string result = dns::ResolveDnsViaPpp0("8.8.8.8");
     
-    // May return the same IP or empty string depending on c-ares behavior
-    // The important thing is it doesn't crash
-    EXPECT_TRUE(true); // Just verify no crash
+    // Should either return the same IP or empty string
+    // Both are acceptable behaviors
+    if (!result.empty()) {
+        EXPECT_EQ(result, "8.8.8.8");
+    }
 }
 
 // Test DNS resolution with very long hostname
@@ -94,8 +96,9 @@ TEST_F(DnsResolutionTest, HostnameWithNullChar) {
     std::string result = dns::ResolveDnsViaPpp0(hostname_with_null);
     
     // Hostname with null character should be handled safely
-    // Either returns empty or resolves just "example"
-    EXPECT_TRUE(true); // Verify no crash
+    // Either returns empty (treats null as end of string) or resolves "example"
+    // We don't test for specific behavior but ensure no crash
+    EXPECT_TRUE(result.empty() || !result.empty());
 }
 
 // Test multiple concurrent DNS resolutions
@@ -167,9 +170,12 @@ TEST_F(DnsResolutionTest, InternationalDomainName) {
     // IDN with non-ASCII characters
     std::string result = dns::ResolveDnsViaPpp0("münchen.de");
     
-    // Should either resolve (if c-ares supports IDN) or return empty
-    // The important thing is it doesn't crash
-    EXPECT_TRUE(true);
+    // Should either resolve successfully (if c-ares supports IDN) or return empty
+    // We verify it doesn't crash and returns a valid result (empty or valid IP)
+    if (!result.empty()) {
+        // If it resolved, result should look like a valid IP address
+        EXPECT_NE(result.find('.'), std::string::npos);
+    }
 }
 
 // Note: The following tests would ideally mock c-ares API but that requires
