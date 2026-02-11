@@ -45,9 +45,9 @@ bool BackendBase::Authorize(const std::string& uid) {
 
         nlohmann::json response = HttpRequestWrapper("/api/pump/authorize", "POST", requestBody, false);
 
-#ifdef _WIN32
-        // Add 3-second delay on Windows for testing/simulation purposes
-        LOG_BCK_INFO("Windows platform detected, adding 3-second authorization delay");
+#ifdef ENABLE_AUTH_DELAY
+        // Add 3-second delay for testing/simulation purposes
+        LOG_BCK_INFO("ENABLE_AUTH_DELAY is set, adding 3-second authorization delay");
         std::this_thread::sleep_for(std::chrono::seconds(3));
 #endif
 
