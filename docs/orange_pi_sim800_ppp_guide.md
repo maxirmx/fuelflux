@@ -123,6 +123,10 @@ modem
 noauth
 persist
 maxfail 0
+holdoff 10
+connect-delay 5000
+lcp-echo-interval 30
+lcp-echo-failure 4
 novj
 novjccomp
 nocrtscts
@@ -131,6 +135,14 @@ lock
 nodefaultroute
 connect "/usr/sbin/chat -v -f /etc/chatscripts/sim800"
 ```
+
+**Reconnection options explained:**
+- `persist` - Automatically reconnect if connection drops
+- `maxfail 0` - Never give up trying to reconnect (unlimited retries)
+- `holdoff 10` - Wait 10 seconds between reconnection attempts
+- `connect-delay 5000` - Wait 5 seconds before starting reconnection
+- `lcp-echo-interval 30` - Send keepalive packets every 30 seconds
+- `lcp-echo-failure 4` - Declare connection dead after 4 failed keepalives (120 seconds total)
 ------------------------------------------------------------------------
 
 ## 6) Permissions
@@ -189,7 +201,143 @@ sudo killall pppd
 
 ------------------------------------------------------------------------
 
-## 10) Auto-start on boot (optional)
+## 10) Connection monitoring script (optional)
+
+For additional reliability, create a monitoring script that checks connectivity and restarts PPP if needed:
+
+Create `/usr/local/bin/check-ppp.sh`:
+
+```bash
+#!/bin/bash
+
+# Configuration
+PING_HOST="8.8.8.8"
+MAX_FAILURES=3
+FAILURE_COUNT=0
+
+while true; do
+    # Check if ppp0 exists
+    if ! ip link show ppp0 &>/dev/null; then
+        echo "$(date): ppp0 interface not found, starting pppd"
+        sudo pppd call sim800
+        sleep 30
+        continue
+    fi
+    
+    # Try to ping
+    if ping -I ppp0 -c 1 -W 5 $PING_HOST &>/dev/null; then
+        FAILURE_COUNT=0
+    else
+        ((FAILURE_COUNT++))
+        echo "$(date): Ping failed ($FAILURE_COUNT/$MAX_FAILURES)"
+        
+        if [ $FAILURE_COUNT -ge $MAX_FAILURES ]; then
+            echo "$(date): Max failures reached, restarting pppd"
+            sudo killall pppd
+            sleep 5
+            sudo pppd call sim800
+            FAILURE_COUNT=0
+            sleep 30
+        fi
+    fi
+    
+    sleep 60
+done
+```
+
+Make it executable:
+
+```bash
+sudo chmod +x /usr/local/bin/check-ppp.sh
+```
+
+Run in background:
+
+```bash
+nohup /usr/local/bin/check-ppp.sh > /var/log/ppp-monitor.log 2>&1 &
+```
+
+Or create a systemd service for automatic startup (see section 11).
+
+------------------------------------------------------------------------
+
+## 11) Auto-start on boot with systemd (recommended)
+
+## 11) Auto-start on boot with systemd (recommended)
+
+Create a systemd service for automatic startup and restart on failure:
+
+Create `/etc/systemd/system/ppp-sim800.service`:
+
+```ini
+[Unit]
+Description=PPP connection via SIM800
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/sbin/pppd call sim800 nodetach
+Restart=always
+RestartSec=10
+User=root
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Enable and start the service:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable ppp-sim800.service
+sudo systemctl start ppp-sim800.service
+```
+
+Check status:
+
+```bash
+sudo systemctl status ppp-sim800.service
+```
+
+View logs:
+
+```bash
+sudo journalctl -u ppp-sim800.service -f
+```
+
+**Optional:** Add monitoring service
+
+Create `/etc/systemd/system/ppp-monitor.service`:
+
+```ini
+[Unit]
+Description=PPP Connection Monitor
+After=ppp-sim800.service
+Requires=ppp-sim800.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/check-ppp.sh
+Restart=always
+RestartSec=10
+User=root
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Enable it:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable ppp-monitor.service
+sudo systemctl start ppp-monitor.service
+```
+
+------------------------------------------------------------------------
+
+## 12) Alternative: rc.local method
 
 Edit `/etc/rc.local` and add before `exit 0`:
 
@@ -200,6 +348,33 @@ pppd call sim800 &
 ------------------------------------------------------------------------
 
 ## Troubleshooting
+
+### Connection keeps dropping
+
+If your connection frequently drops and reconnects, adjust these parameters in `/etc/ppp/peers/sim800`:
+
+**For unstable networks:**
+```
+holdoff 30              # Wait longer between attempts (30 seconds)
+lcp-echo-interval 60    # Less frequent keepalives (every 60 seconds)
+lcp-echo-failure 6      # More tolerant of packet loss (360 seconds timeout)
+```
+
+**For stable networks (faster reconnection):**
+```
+holdoff 5               # Quick retry (5 seconds)
+lcp-echo-interval 15    # Frequent keepalives (every 15 seconds)
+lcp-echo-failure 3      # Quick failure detection (45 seconds)
+```
+
+**Monitor reconnection attempts:**
+```bash
+# Watch PPP logs in real-time
+sudo tail -f /var/log/syslog | grep pppd
+
+# Check connection status
+sudo pppd call sim800 debug dump logfd 2 nodetach
+```
 
 ### No carrier
 

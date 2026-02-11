@@ -35,11 +35,12 @@ jobs:
             ${{ runner.os }}-fuelflux-cmake-deps-
 
       - name: Install dependencies
+        # Do not install spdlog library. It depends on specific version of fmt, and it may be different from what you have or get installed.
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends pkg-config libsqlite3-dev libgpiod-dev \
                build-essential cmake ninja-build g++ ca-certificates git libssl-dev libnfc-dev   \
-               libcurl4-openssl-dev libfmt-dev libspdlog-dev nlohmann-json3-dev
+               libcurl4-openssl-dev libfmt-dev nlohmann-json3-dev
 
       - name: Configure CMake
         run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DENABLE_TESTING=ON
@@ -82,6 +83,7 @@ jobs:
       - name: Run build in arm64 container (Ubuntu 22.04)
         run: |
           # Run a container built for arm64 using QEMU; mount the repo and build inside
+          # Do not install spdlog library. It depends on specific version of fmt, and it may be different from what you have or get installed.
           docker run --rm --platform linux/arm64 \
             -v "${{ github.workspace }}:/work" -w /work \
             ubuntu:22.04 bash -lc "
@@ -89,7 +91,7 @@ jobs:
               apt-get update
               apt-get install -y --no-install-recommends pkg-config libsqlite3-dev libgpiod-dev \
                 build-essential cmake ninja-build g++ ca-certificates git libssl-dev libnfc-dev \
-                libcurl4-openssl-dev libfmt-dev libspdlog-dev nlohmann-json3-dev
+                libcurl4-openssl-dev libfmt-dev nlohmann-json3-dev
               git config --global --add safe.directory /work/build-arm64/_deps/fmt-src
               git config --global --add safe.directory /work/build-arm64/_deps/nlohmann_json-src
               git config --global --add safe.directory /work/build-arm64/_deps/spdlog-src
