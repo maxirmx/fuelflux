@@ -19,9 +19,9 @@ namespace fuelflux {
 class BoundedExecutor {
 public:
     // Create executor with specified number of threads and max queued tasks
-    // maxThreads: number of worker threads (default: 4)
+    // maxThreads: number of worker threads (default: 1)
     // maxQueueSize: max tasks in queue (default: 100)
-    explicit BoundedExecutor(size_t maxThreads = 4, size_t maxQueueSize = 100);
+    explicit BoundedExecutor(size_t maxThreads = 1, size_t maxQueueSize = 100);
     
     ~BoundedExecutor();
 

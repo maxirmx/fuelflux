@@ -84,8 +84,8 @@ TEST(BackendIntegrationTest, RapidDeauthorizationBounded) {
     std::this_thread::sleep_for(std::chrono::milliseconds(2000));
     
     // Verify that concurrent requests were bounded
-    // With 4 worker threads, we should never see more than 4 concurrent requests
-    EXPECT_LE(maxConcurrentRequests.load(), 4) 
+    // With 1 worker thread, we should never see more than 1 concurrent request
+    EXPECT_LE(maxConcurrentRequests.load(), 1) 
         << "Bounded executor should limit concurrent deauthorization to thread pool size";
     
     // Some requests may have been dropped if queue was full, but we should have processed many

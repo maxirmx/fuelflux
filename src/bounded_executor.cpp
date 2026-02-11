@@ -9,8 +9,22 @@ namespace fuelflux {
 
 BoundedExecutor::BoundedExecutor(size_t maxThreads, size_t maxQueueSize)
     : maxQueueSize_(maxQueueSize) {
-    for (size_t i = 0; i < maxThreads; ++i) {
-        workers_.emplace_back(&BoundedExecutor::WorkerThread, this);
+    workers_.reserve(maxThreads);
+    try {
+        for (size_t i = 0; i < maxThreads; ++i) {
+            workers_.emplace_back(&BoundedExecutor::WorkerThread, this);
+        }
+    } catch (...) {
+        // If thread creation fails, clean up already-created threads
+        // to avoid std::terminate when joinable threads are destroyed
+        shutdown_.store(true);
+        cv_.notify_all();
+        for (auto& worker : workers_) {
+            if (worker.joinable()) {
+                worker.join();
+            }
+        }
+        throw;
     }
 }
 

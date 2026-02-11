@@ -15,8 +15,8 @@
 namespace fuelflux {
 
 // Static executor shared by all BackendBase instances
-// Uses 4 worker threads and queues up to 100 deauthorize requests
-BoundedExecutor BackendBase::deauthorizeExecutor_(4, 100);
+// Uses 1 worker thread and queues up to 100 deauthorize requests
+BoundedExecutor BackendBase::deauthorizeExecutor_(1, 100);
 
 BackendBase::BackendBase(std::string controllerUid, std::shared_ptr<MessageStorage> storage)
     : controllerUid_(std::move(controllerUid))

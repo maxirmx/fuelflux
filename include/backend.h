@@ -52,7 +52,7 @@ public:
 // 
 // Lifecycle: BackendBase inherits from std::enable_shared_from_this to support async operations.
 // When managed by shared_ptr (production), Deauthorize submits work to a bounded executor
-// with a fixed thread pool (4 threads) and queue limit (100 tasks) to prevent resource exhaustion.
+// with a fixed thread pool (1 thread) and queue limit (100 tasks) to prevent resource exhaustion.
 // When not managed by shared_ptr (tests), Deauthorize falls back to synchronous HTTP requests.
 // Both approaches clear local state immediately and always return success (true).
 //
