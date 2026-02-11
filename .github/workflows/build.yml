@@ -50,13 +50,6 @@ jobs:
       - name: Run tests
         run: cd build && ctest --output-on-failure -C Release
 
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: fuelflux-ubuntu-x64
-          path: build/bin/fuelflux
-          if-no-files-found: error
-
   build-arm64:
     if: ${{ github.event_name == 'push' }}
     name: Build Ubuntu ARM64 (Docker + QEMU, Ubuntu 22.04)
@@ -101,10 +94,3 @@ jobs:
               cmake --build . --config Release -j\$(nproc)
               ctest --output-on-failure -C Release
             "
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: fuelflux-ubuntu-arm64
-          path: build-arm64/bin/fuelflux
-          if-no-files-found: error
