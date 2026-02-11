@@ -29,8 +29,8 @@ TEST(BackendIntegrationTest, RapidDeauthorizationBounded) {
             {"RoleId", 1},
             {"Allowance", 100.0},
             {"Price", 50.0},
-            {"FuelTanks", nlohmann::json::array({
-                {{"IdTank", 1}, {"NameTank", "Tank 1"}}
+            {"fuelTanks", nlohmann::json::array({
+                {{"idTank", 1}, {"nameTank", "Tank 1"}}
             })}
         };
         res.set_content(response.dump(), "application/json");
