@@ -254,33 +254,81 @@ std::string ExtractHostFromUrl(const std::string& url) {
 }
 
 #ifdef USE_CARES
-// Helper function to replace hostname in URL with resolved IP
-std::string ReplaceHostInUrl(const std::string& url, const std::string& resolvedIp) {
-    std::string resolvedUrl = url;
-    size_t hostStart = resolvedUrl.find("://");
-    if (hostStart != std::string::npos) {
-        hostStart += 3; // Skip "://"
-        size_t hostEnd = resolvedUrl.find('/', hostStart);
-        if (hostEnd == std::string::npos) {
-            hostEnd = resolvedUrl.length();
-        }
-        // Check for port
-        size_t portPos = resolvedUrl.find(':', hostStart);
-        if (portPos != std::string::npos && portPos < hostEnd) {
-            // Replace only the hostname part, keep the port
-            resolvedUrl.replace(hostStart, portPos - hostStart, resolvedIp);
-        } else {
-            // Replace the whole host
-            resolvedUrl.replace(hostStart, hostEnd - hostStart, resolvedIp);
+// Helper function to extract port from URL (returns 443 for https, 80 for http by default)
+int ExtractPortFromUrl(const std::string& url) {
+    // Check for explicit port
+    size_t schemeEnd = url.find("://");
+    if (schemeEnd == std::string::npos) {
+        return 80;
+    }
+    
+    std::string afterScheme = url.substr(schemeEnd + 3);
+    
+    // Handle IPv6 addresses in brackets
+    size_t hostEnd = 0;
+    if (!afterScheme.empty() && afterScheme[0] == '[') {
+        size_t bracketEnd = afterScheme.find(']');
+        if (bracketEnd != std::string::npos) {
+            hostEnd = bracketEnd + 1;
         }
     }
-    return resolvedUrl;
+    
+    // Find port separator after host
+    size_t portPos = afterScheme.find(':', hostEnd);
+    size_t pathPos = afterScheme.find('/', hostEnd);
+    
+    if (portPos != std::string::npos && (pathPos == std::string::npos || portPos < pathPos)) {
+        // Extract port number
+        std::string portStr;
+        size_t portEnd = (pathPos != std::string::npos) ? pathPos : afterScheme.length();
+        portStr = afterScheme.substr(portPos + 1, portEnd - portPos - 1);
+        try {
+            return std::stoi(portStr);
+        } catch (...) {
+            // Fall through to default
+        }
+    }
+    
+    // Default port based on scheme
+    if (url.substr(0, 5) == "https") {
+        return 443;
+    }
+    return 80;
 }
 
 // Reusable CaresResolver instance to avoid repeated initialization
 CaresResolver& GetCaresResolver() {
     static CaresResolver resolver;
     return resolver;
+}
+
+// Helper function to perform DNS resolution and configure CURLOPT_RESOLVE
+// Parameters:
+//   curl - CURL handle to configure
+//   resolveList - CurlSlist to append the resolve entry to
+//   host - hostname to resolve
+//   url - full URL (needed to extract port)
+//   logPrefix - prefix for log messages (e.g., "" or "Async deauthorize: ")
+void SetupDnsResolution(CURL* curl, CurlSlist& resolveList, 
+                        const std::string& host, const std::string& url,
+                        const std::string& logPrefix = "") {
+    std::string resolvedIp = GetCaresResolver().Resolve(host, kPppInterface);
+    if (resolvedIp.empty()) {
+        // c-ares failed; fall back to letting libcurl do DNS, but force it to use
+        // the PPP interface so that queries do not go via the default route.
+        LOG_BCK_WARN("{}c-ares DNS resolution failed for {}, falling back to libcurl DNS via interface {}", 
+                     logPrefix, host, kPppInterface);
+        curl_easy_setopt(curl, CURLOPT_DNS_INTERFACE, kPppInterface);
+    } else if (resolvedIp != host) {
+        // Hostname was successfully resolved to a different IP
+        int port = ExtractPortFromUrl(url);
+        // Format: "hostname:port:address"
+        std::string resolveEntry = host + ":" + std::to_string(port) + ":" + resolvedIp;
+        resolveList.append(resolveEntry.c_str());
+        curl_easy_setopt(curl, CURLOPT_RESOLVE, resolveList.get());
+        LOG_BCK_DEBUG("{}Using CURLOPT_RESOLVE: {}", logPrefix, resolveEntry);
+    }
+    // else: resolvedIp == host means it's already an IP literal, no warning needed
 }
 #endif
 
@@ -353,30 +401,24 @@ nlohmann::json Backend::HttpRequestWrapper(const std::string& endpoint,
 #ifdef TARGET_SIM800C
         // Bind to PPP interface if available and not localhost
         std::string host = ExtractHostFromUrl(baseAPI_);
+#ifdef USE_CARES
+        // DNS resolution list for CURLOPT_RESOLVE (must stay in scope until curl_easy_perform)
+        CurlSlist resolveList;
+#endif
         if (ShouldBindToPppInterface(host)) {
             LOG_BCK_DEBUG("Binding to {} for host {}", kPppInterface, host);
             curl_easy_setopt(curl.get(), CURLOPT_INTERFACE, kPppInterface);
             
 #ifdef USE_CARES
-            // Use c-ares for DNS resolution on ppp0 interface
-            std::string resolvedIp = GetCaresResolver().Resolve(host, kPppInterface);
-            if (!resolvedIp.empty() && resolvedIp != host) {
-                // Replace hostname with resolved IP in URL
-                std::string resolvedUrl = ReplaceHostInUrl(url, resolvedIp);
-                curl_easy_setopt(curl.get(), CURLOPT_URL, resolvedUrl.c_str());
-                LOG_BCK_DEBUG("Using c-ares resolved URL: {}", resolvedUrl);
-            } else {
-                // Fall back to CURLOPT_DNS_INTERFACE if c-ares resolution fails
-                LOG_BCK_DEBUG("c-ares resolution failed or unnecessary, using CURLOPT_DNS_INTERFACE");
-                curl_easy_setopt(curl.get(), CURLOPT_DNS_INTERFACE, kPppInterface);
-            }
-#else
-            // Use ppp0 for DNS resolution via CURL
-            curl_easy_setopt(curl.get(), CURLOPT_DNS_INTERFACE, kPppInterface);
+            // Use c-ares with Yandex DNS for hostname resolution
+            // Bind DNS queries to ppp0 interface via ares_set_local_dev()
+            // Then use CURLOPT_RESOLVE to provide the resolved IP to curl
+            // This preserves the hostname in the URL for Host header and SNI
+            SetupDnsResolution(curl.get(), resolveList, host, url);
 #endif
         } else {
-            if (host == "localhost" || host == "127.0.0.1" || host == "::1") {
-                LOG_BCK_DEBUG("Skipping {} binding for localhost/local IP: {}", kPppInterface, host);
+            if (IsLocalhost(host)) {
+                LOG_BCK_DEBUG("Skipping {} binding for localhost: {}", kPppInterface, host);
             } else {
                 LOG_BCK_DEBUG("Skipping {} binding for host {} (interface unavailable)", kPppInterface, host);
             }
@@ -518,30 +560,24 @@ nlohmann::json Backend::HttpRequestWrapper(const std::string& endpoint,
 #ifdef TARGET_SIM800C
         // Bind to PPP interface if available and not localhost
         std::string host = ExtractHostFromUrl(baseAPI_);
+#ifdef USE_CARES
+        // DNS resolution list for CURLOPT_RESOLVE (must stay in scope until curl_easy_perform)
+        CurlSlist resolveList;
+#endif
         if (ShouldBindToPppInterface(host)) {
             LOG_BCK_DEBUG("Binding to {} for host {}", kPppInterface, host);
             curl_easy_setopt(curl.get(), CURLOPT_INTERFACE, kPppInterface);
             
 #ifdef USE_CARES
-            // Use c-ares for DNS resolution on ppp0 interface
-            std::string resolvedIp = GetCaresResolver().Resolve(host, kPppInterface);
-            if (!resolvedIp.empty() && resolvedIp != host) {
-                // Replace hostname with resolved IP in URL
-                std::string resolvedUrl = ReplaceHostInUrl(url, resolvedIp);
-                curl_easy_setopt(curl.get(), CURLOPT_URL, resolvedUrl.c_str());
-                LOG_BCK_DEBUG("Using c-ares resolved URL: {}", resolvedUrl);
-            } else {
-                // Fall back to CURLOPT_DNS_INTERFACE if c-ares resolution fails
-                LOG_BCK_DEBUG("c-ares resolution failed or unnecessary, using CURLOPT_DNS_INTERFACE");
-                curl_easy_setopt(curl.get(), CURLOPT_DNS_INTERFACE, kPppInterface);
-            }
-#else
-            // Use ppp0 for DNS resolution via CURL
-            curl_easy_setopt(curl.get(), CURLOPT_DNS_INTERFACE, kPppInterface);
+            // Use c-ares with Yandex DNS for hostname resolution
+            // Bind DNS queries to ppp0 interface via ares_set_local_dev()
+            // Then use CURLOPT_RESOLVE to provide the resolved IP to curl
+            // This preserves the hostname in the URL for Host header and SNI
+            SetupDnsResolution(curl.get(), resolveList, host, url);
 #endif
         } else {
-            if (host == "localhost" || host == "127.0.0.1" || host == "::1") {
-                LOG_BCK_DEBUG("Skipping {} binding for localhost/local IP: {}", kPppInterface, host);
+            if (IsLocalhost(host)) {
+                LOG_BCK_DEBUG("Skipping {} binding for localhost: {}", kPppInterface, host);
             } else {
                 LOG_BCK_DEBUG("Skipping {} binding for host {} (interface unavailable)", kPppInterface, host);
             }
@@ -669,25 +705,17 @@ void Backend::SendAsyncDeauthorize(const std::string& baseAPI, const std::string
 #ifdef TARGET_SIM800C
         // Bind to PPP interface if available and not localhost
         std::string host = ExtractHostFromUrl(baseAPI);
+#ifdef USE_CARES
+        // DNS resolution list for CURLOPT_RESOLVE (must stay in scope until curl_easy_perform)
+        CurlSlist resolveList;
+#endif
         if (ShouldBindToPppInterface(host)) {
             LOG_BCK_DEBUG("Async deauthorize: Binding to {} for host {}", kPppInterface, host);
             curl_easy_setopt(curl.get(), CURLOPT_INTERFACE, kPppInterface);
             
 #ifdef USE_CARES
-            // Use c-ares for DNS resolution on ppp0 interface
-            std::string resolvedIp = GetCaresResolver().Resolve(host, kPppInterface);
-            if (!resolvedIp.empty() && resolvedIp != host) {
-                // Replace hostname with resolved IP in URL
-                std::string resolvedUrl = ReplaceHostInUrl(url, resolvedIp);
-                curl_easy_setopt(curl.get(), CURLOPT_URL, resolvedUrl.c_str());
-                LOG_BCK_DEBUG("Async deauthorize: Using c-ares resolved URL: {}", resolvedUrl);
-            } else {
-                // Fall back to CURLOPT_DNS_INTERFACE if c-ares resolution fails
-                LOG_BCK_DEBUG("Async deauthorize: c-ares resolution failed or unnecessary, using CURLOPT_DNS_INTERFACE");
-                curl_easy_setopt(curl.get(), CURLOPT_DNS_INTERFACE, kPppInterface);
-            }
-#else
-            curl_easy_setopt(curl.get(), CURLOPT_DNS_INTERFACE, kPppInterface);
+            // Use c-ares with Yandex DNS for hostname resolution via ppp0
+            SetupDnsResolution(curl.get(), resolveList, host, url, "Async deauthorize: ");
 #endif
         }
 #endif

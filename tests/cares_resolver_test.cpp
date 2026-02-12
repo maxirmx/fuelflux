@@ -10,6 +10,27 @@
 namespace fuelflux {
 namespace {
 
+// Global test environment that initializes c-ares library before all tests
+class CaresEnvironment : public ::testing::Environment {
+public:
+    void SetUp() override {
+        if (!InitializeCaresLibrary()) {
+            FAIL() << "Failed to initialize c-ares library";
+        }
+    }
+    
+    void TearDown() override {
+        CleanupCaresLibrary();
+    }
+};
+
+// Register the environment (will be called once before all tests)
+// Google Test takes ownership, so we just need the side effect of registration
+[[maybe_unused]] const auto g_cares_env_init = []() {
+    ::testing::AddGlobalTestEnvironment(new CaresEnvironment);
+    return true;
+}();
+
 class CaresResolverTest : public ::testing::Test {
 protected:
     CaresResolver resolver;
