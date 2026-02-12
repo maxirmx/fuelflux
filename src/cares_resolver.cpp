@@ -2,8 +2,6 @@
 // All rights reserved.
 // This file is a part of fuelflux application
 
-#ifdef USE_CARES
-
 #include "cares_resolver.h"
 #include "logger.h"
 #include <ares.h>
@@ -323,5 +321,3 @@ std::string CaresResolver::Resolve(const std::string& hostname, const std::strin
 }
 
 } // namespace fuelflux
-
-#endif // USE_CARES
