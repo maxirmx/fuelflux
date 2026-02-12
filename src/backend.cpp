@@ -17,6 +17,9 @@
 #include <vector>
 #include <cerrno>
 #endif
+#ifdef USE_CARES
+#include "cares_resolver.h"
+#endif
 
 namespace fuelflux {
 
@@ -245,6 +248,38 @@ std::string ExtractHostFromUrl(const std::string& url) {
     }
     return urlToParse;
 }
+
+#ifdef USE_CARES
+// Helper function to replace hostname in URL with resolved IP
+std::string ReplaceHostInUrl(const std::string& url, const std::string& resolvedIp) {
+    std::string resolvedUrl = url;
+    size_t hostStart = resolvedUrl.find("://");
+    if (hostStart != std::string::npos) {
+        hostStart += 3; // Skip "://"
+        size_t hostEnd = resolvedUrl.find('/', hostStart);
+        if (hostEnd == std::string::npos) {
+            hostEnd = resolvedUrl.length();
+        }
+        // Check for port
+        size_t portPos = resolvedUrl.find(':', hostStart);
+        if (portPos != std::string::npos && portPos < hostEnd) {
+            // Replace only the hostname part, keep the port
+            resolvedUrl.replace(hostStart, portPos - hostStart, resolvedIp);
+        } else {
+            // Replace the whole host
+            resolvedUrl.replace(hostStart, hostEnd - hostStart, resolvedIp);
+        }
+    }
+    return resolvedUrl;
+}
+
+// Reusable CaresResolver instance to avoid repeated initialization
+CaresResolver& GetCaresResolver() {
+    static CaresResolver resolver;
+    return resolver;
+}
+#endif
+
 #endif
 
 } // namespace
@@ -317,8 +352,24 @@ nlohmann::json Backend::HttpRequestWrapper(const std::string& endpoint,
         if (ShouldBindToPppInterface(host)) {
             LOG_BCK_DEBUG("Binding to {} for host {}", kPppInterface, host);
             curl_easy_setopt(curl.get(), CURLOPT_INTERFACE, kPppInterface);
-            // Also use ppp0 for DNS resolution
+            
+#ifdef USE_CARES
+            // Use c-ares for DNS resolution on ppp0 interface
+            std::string resolvedIp = GetCaresResolver().Resolve(host, kPppInterface);
+            if (!resolvedIp.empty() && resolvedIp != host) {
+                // Replace hostname with resolved IP in URL
+                std::string resolvedUrl = ReplaceHostInUrl(url, resolvedIp);
+                curl_easy_setopt(curl.get(), CURLOPT_URL, resolvedUrl.c_str());
+                LOG_BCK_DEBUG("Using c-ares resolved URL: {}", resolvedUrl);
+            } else {
+                // Fall back to CURLOPT_DNS_INTERFACE if c-ares resolution fails
+                LOG_BCK_DEBUG("c-ares resolution failed or unnecessary, using CURLOPT_DNS_INTERFACE");
+                curl_easy_setopt(curl.get(), CURLOPT_DNS_INTERFACE, kPppInterface);
+            }
+#else
+            // Use ppp0 for DNS resolution via CURL
             curl_easy_setopt(curl.get(), CURLOPT_DNS_INTERFACE, kPppInterface);
+#endif
         } else {
             if (host == "localhost" || host == "127.0.0.1" || host == "::1") {
                 LOG_BCK_DEBUG("Skipping {} binding for localhost/local IP: {}", kPppInterface, host);
@@ -466,8 +517,24 @@ nlohmann::json Backend::HttpRequestWrapper(const std::string& endpoint,
         if (ShouldBindToPppInterface(host)) {
             LOG_BCK_DEBUG("Binding to {} for host {}", kPppInterface, host);
             curl_easy_setopt(curl.get(), CURLOPT_INTERFACE, kPppInterface);
-            // Also use ppp0 for DNS resolution
+            
+#ifdef USE_CARES
+            // Use c-ares for DNS resolution on ppp0 interface
+            std::string resolvedIp = GetCaresResolver().Resolve(host, kPppInterface);
+            if (!resolvedIp.empty() && resolvedIp != host) {
+                // Replace hostname with resolved IP in URL
+                std::string resolvedUrl = ReplaceHostInUrl(url, resolvedIp);
+                curl_easy_setopt(curl.get(), CURLOPT_URL, resolvedUrl.c_str());
+                LOG_BCK_DEBUG("Using c-ares resolved URL: {}", resolvedUrl);
+            } else {
+                // Fall back to CURLOPT_DNS_INTERFACE if c-ares resolution fails
+                LOG_BCK_DEBUG("c-ares resolution failed or unnecessary, using CURLOPT_DNS_INTERFACE");
+                curl_easy_setopt(curl.get(), CURLOPT_DNS_INTERFACE, kPppInterface);
+            }
+#else
+            // Use ppp0 for DNS resolution via CURL
             curl_easy_setopt(curl.get(), CURLOPT_DNS_INTERFACE, kPppInterface);
+#endif
         } else {
             if (host == "localhost" || host == "127.0.0.1" || host == "::1") {
                 LOG_BCK_DEBUG("Skipping {} binding for localhost/local IP: {}", kPppInterface, host);
@@ -601,7 +668,23 @@ void Backend::SendAsyncDeauthorize(const std::string& baseAPI, const std::string
         if (ShouldBindToPppInterface(host)) {
             LOG_BCK_DEBUG("Async deauthorize: Binding to {} for host {}", kPppInterface, host);
             curl_easy_setopt(curl.get(), CURLOPT_INTERFACE, kPppInterface);
+            
+#ifdef USE_CARES
+            // Use c-ares for DNS resolution on ppp0 interface
+            std::string resolvedIp = GetCaresResolver().Resolve(host, kPppInterface);
+            if (!resolvedIp.empty() && resolvedIp != host) {
+                // Replace hostname with resolved IP in URL
+                std::string resolvedUrl = ReplaceHostInUrl(url, resolvedIp);
+                curl_easy_setopt(curl.get(), CURLOPT_URL, resolvedUrl.c_str());
+                LOG_BCK_DEBUG("Async deauthorize: Using c-ares resolved URL: {}", resolvedUrl);
+            } else {
+                // Fall back to CURLOPT_DNS_INTERFACE if c-ares resolution fails
+                LOG_BCK_DEBUG("Async deauthorize: c-ares resolution failed or unnecessary, using CURLOPT_DNS_INTERFACE");
+                curl_easy_setopt(curl.get(), CURLOPT_DNS_INTERFACE, kPppInterface);
+            }
+#else
             curl_easy_setopt(curl.get(), CURLOPT_DNS_INTERFACE, kPppInterface);
+#endif
         }
 #endif
 
