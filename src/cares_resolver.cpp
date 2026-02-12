@@ -15,6 +15,7 @@
 #include <atomic>
 #include <mutex>
 #include <condition_variable>
+#include <chrono>
 
 namespace fuelflux {
 
@@ -245,37 +246,65 @@ std::string CaresResolver::Resolve(const std::string& hostname, const std::strin
     ResolveContext ctx;
     ares_gethostbyname(channel.get(), hostname.c_str(), AF_INET, HostCallback, &ctx);
     
-    // Wait for resolution to complete
+    // Wait for resolution to complete with overall timeout protection
+    // c-ares has its own retry logic (10s timeout * 3 retries = 30s max)
+    // Add extra margin for processing delays
+    constexpr int kMaxResolutionTimeSeconds = 45;
+    auto startTime = std::chrono::steady_clock::now();
+    
     int nfds;
     fd_set read_fds, write_fds;
-    struct timeval tv;
+    struct timeval tv, max_tv;
+    int loopCount = 0;
     
     while (!ctx.done) {
+        // Check overall timeout to prevent infinite hangs
+        auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(
+            std::chrono::steady_clock::now() - startTime);
+        if (elapsed.count() >= kMaxResolutionTimeSeconds) {
+            LOG_BCK_ERROR("DNS resolution overall timeout ({}s) exceeded for {}", 
+                          kMaxResolutionTimeSeconds, hostname);
+            break;
+        }
+        
         FD_ZERO(&read_fds);
         FD_ZERO(&write_fds);
         
         nfds = ares_fds(channel.get(), &read_fds, &write_fds);
         if (nfds == 0) {
-            // No more file descriptors to wait on
+            // No more file descriptors to wait on - c-ares may have given up
+            LOG_BCK_DEBUG("DNS resolution: no file descriptors (loop {})", loopCount);
             break;
         }
         
-        // Set timeout
-        tv.tv_sec = 2;
-        tv.tv_usec = 0;
-        struct timeval* tvp = ares_timeout(channel.get(), &tv, &tv);
+        // Set select timeout (max 2 seconds per iteration)
+        max_tv.tv_sec = 2;
+        max_tv.tv_usec = 0;
+        struct timeval* tvp = ares_timeout(channel.get(), &max_tv, &tv);
         
         int result = select(nfds, &read_fds, &write_fds, nullptr, tvp);
+        ++loopCount;
+        
         if (result < 0) {
-            LOG_BCK_ERROR("select() failed during DNS resolution");
+            int err = errno;
+            if (err == EINTR) {
+                // Interrupted by signal, retry
+                LOG_BCK_DEBUG("DNS resolution: select() interrupted, retrying (loop {})", loopCount);
+                continue;
+            }
+            LOG_BCK_ERROR("select() failed during DNS resolution: {} (errno: {})", 
+                          std::strerror(err), err);
             break;
+        } else if (result == 0) {
+            // Timeout - let ares_process handle internal timeout logic
+            LOG_BCK_DEBUG("DNS resolution: select() timeout, processing (loop {})", loopCount);
         }
         
         ares_process(channel.get(), &read_fds, &write_fds);
     }
     
     if (!ctx.done) {
-        LOG_BCK_ERROR("DNS resolution timed out for {}", hostname);
+        LOG_BCK_ERROR("DNS resolution incomplete for {} after {} iterations", hostname, loopCount);
         return "";
     }
     

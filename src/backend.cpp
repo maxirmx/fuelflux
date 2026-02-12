@@ -401,13 +401,15 @@ nlohmann::json Backend::HttpRequestWrapper(const std::string& endpoint,
 #ifdef TARGET_SIM800C
         // Bind to PPP interface if available and not localhost
         std::string host = ExtractHostFromUrl(baseAPI_);
+#ifdef USE_CARES
+        // DNS resolution list for CURLOPT_RESOLVE (must stay in scope until curl_easy_perform)
+        CurlSlist resolveList;
+#endif
         if (ShouldBindToPppInterface(host)) {
             LOG_BCK_DEBUG("Binding to {} for host {}", kPppInterface, host);
             curl_easy_setopt(curl.get(), CURLOPT_INTERFACE, kPppInterface);
             
 #ifdef USE_CARES
-            // DNS resolution list for CURLOPT_RESOLVE (must stay in scope until curl_easy_perform)
-            CurlSlist resolveList;
             // Use c-ares with Yandex DNS for hostname resolution
             // Bind DNS queries to ppp0 interface via ares_set_local_dev()
             // Then use CURLOPT_RESOLVE to provide the resolved IP to curl
@@ -558,13 +560,15 @@ nlohmann::json Backend::HttpRequestWrapper(const std::string& endpoint,
 #ifdef TARGET_SIM800C
         // Bind to PPP interface if available and not localhost
         std::string host = ExtractHostFromUrl(baseAPI_);
+#ifdef USE_CARES
+        // DNS resolution list for CURLOPT_RESOLVE (must stay in scope until curl_easy_perform)
+        CurlSlist resolveList;
+#endif
         if (ShouldBindToPppInterface(host)) {
             LOG_BCK_DEBUG("Binding to {} for host {}", kPppInterface, host);
             curl_easy_setopt(curl.get(), CURLOPT_INTERFACE, kPppInterface);
             
 #ifdef USE_CARES
-            // DNS resolution list for CURLOPT_RESOLVE (must stay in scope until curl_easy_perform)
-            CurlSlist resolveList;
             // Use c-ares with Yandex DNS for hostname resolution
             // Bind DNS queries to ppp0 interface via ares_set_local_dev()
             // Then use CURLOPT_RESOLVE to provide the resolved IP to curl
@@ -701,13 +705,15 @@ void Backend::SendAsyncDeauthorize(const std::string& baseAPI, const std::string
 #ifdef TARGET_SIM800C
         // Bind to PPP interface if available and not localhost
         std::string host = ExtractHostFromUrl(baseAPI);
+#ifdef USE_CARES
+        // DNS resolution list for CURLOPT_RESOLVE (must stay in scope until curl_easy_perform)
+        CurlSlist resolveList;
+#endif
         if (ShouldBindToPppInterface(host)) {
             LOG_BCK_DEBUG("Async deauthorize: Binding to {} for host {}", kPppInterface, host);
             curl_easy_setopt(curl.get(), CURLOPT_INTERFACE, kPppInterface);
             
 #ifdef USE_CARES
-            // DNS resolution list for CURLOPT_RESOLVE (must stay in scope until curl_easy_perform)
-            CurlSlist resolveList;
             // Use c-ares with Yandex DNS for hostname resolution via ppp0
             SetupDnsResolution(curl.get(), resolveList, host, url, "Async deauthorize: ");
 #endif
