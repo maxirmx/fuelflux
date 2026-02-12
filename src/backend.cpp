@@ -5,6 +5,7 @@
 #include "backend.h"
 #include "backend_utils.h"
 #include "logger.h"
+#include "version.h"
 #include <curl/curl.h>
 #include <mutex>
 #include <sstream>
@@ -21,6 +22,9 @@
 namespace fuelflux {
 
 namespace {
+
+// User-Agent string with version
+const std::string kUserAgent = "fuelflux/" FUELFLUX_VERSION;
 
 // Ensure curl_global_init is called exactly once at process startup
 std::once_flag curl_init_flag;
@@ -255,7 +259,7 @@ Backend::Backend(const std::string& baseAPI, const std::string& controllerUid, s
 {
     // Initialize libcurl globally exactly once (thread-safe)
     std::call_once(curl_init_flag, InitCurlGlobally);
-    LOG_BCK_INFO("Backend initialized with base API: {} and controller UID: {}", baseAPI_, controllerUid_);
+    LOG_BCK_INFO("Backend initialized (v{}) with base API: {} and controller UID: {}", FUELFLUX_VERSION, baseAPI_, controllerUid_);
 }
 
 Backend::~Backend() {
@@ -291,7 +295,7 @@ nlohmann::json Backend::HttpRequestWrapper(const std::string& endpoint,
         curl_easy_setopt(curl.get(), CURLOPT_URL, url.c_str());
         
         // Set user agent
-        curl_easy_setopt(curl.get(), CURLOPT_USERAGENT, "fuelflux/0.1.0");
+        curl_easy_setopt(curl.get(), CURLOPT_USERAGENT, kUserAgent.c_str());
         
         // Set callback for response
         curl_easy_setopt(curl.get(), CURLOPT_WRITEFUNCTION, WriteCallback);
@@ -440,7 +444,7 @@ nlohmann::json Backend::HttpRequestWrapper(const std::string& endpoint,
         curl_easy_setopt(curl.get(), CURLOPT_URL, url.c_str());
         
         // Set user agent
-        curl_easy_setopt(curl.get(), CURLOPT_USERAGENT, "fuelflux/0.1.0");
+        curl_easy_setopt(curl.get(), CURLOPT_USERAGENT, kUserAgent.c_str());
         
         // Set callback for response
         curl_easy_setopt(curl.get(), CURLOPT_WRITEFUNCTION, WriteCallback);
@@ -577,7 +581,7 @@ void Backend::SendAsyncDeauthorize(const std::string& baseAPI, const std::string
         curl_easy_setopt(curl.get(), CURLOPT_URL, url.c_str());
         
         // Set user agent
-        curl_easy_setopt(curl.get(), CURLOPT_USERAGENT, "fuelflux/0.1.0");
+        curl_easy_setopt(curl.get(), CURLOPT_USERAGENT, kUserAgent.c_str());
         
         // Set callback for response
         curl_easy_setopt(curl.get(), CURLOPT_WRITEFUNCTION, WriteCallback);

@@ -9,6 +9,7 @@
 #include "console_emulator.h"
 #include "logger.h"
 #include "message_storage.h"
+#include "version.h"
 #ifdef TARGET_REAL_DISPLAY
 #include "peripherals/display.h"
 #endif
@@ -254,7 +255,7 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
                 retryCount = 0;
             }
             
-            LOG_INFO("Starting FuelFlux Controller...");
+            LOG_INFO("Starting FuelFlux Controller v{}...", FUELFLUX_VERSION);
             // Create console emulator
             ConsoleEmulator emulator;
             emulator.printWelcome();
