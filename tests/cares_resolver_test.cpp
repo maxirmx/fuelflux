@@ -90,10 +90,10 @@ TEST_F(CaresResolverTest, HandlesInterfaceParameter) {
     EXPECT_FALSE(ip.empty());
 }
 
-// Test that GetNameserverFromInterface doesn't crash
-TEST_F(CaresResolverTest, GetNameserverDoesNotCrash) {
-    // We can't test the actual result since we don't know what's in /etc/resolv.conf
-    // but we can ensure the function doesn't crash
+// Test that resolving with a specific interface doesn't crash
+TEST_F(CaresResolverTest, ResolveWithInterfaceDoesNotCrash) {
+    // We can't test the actual result since we don't know the system DNS configuration,
+    // but we can ensure that resolving with an interface parameter doesn't crash
     EXPECT_NO_THROW({
         resolver.Resolve("localhost", "eth0");
     });
