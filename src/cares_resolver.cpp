@@ -22,14 +22,14 @@ namespace {
 // Global c-ares library initialization state
 std::atomic<bool> g_cares_initialized{false};
 std::once_flag g_cares_init_flag;
-bool g_cares_init_success = false;
+std::atomic<bool> g_cares_init_success{false};
 
 // RAII wrapper for ares_channel
 class AresChannel {
 public:
     AresChannel(const std::string& interface) : channel_(nullptr), initialized_(false) {
         // Check if library is initialized
-        if (!g_cares_initialized.load()) {
+        if (!g_cares_initialized.load(std::memory_order_acquire)) {
             LOG_BCK_ERROR("c-ares library not initialized. Call InitializeCaresLibrary() first.");
             return;
         }
@@ -136,16 +136,16 @@ bool InitializeCaresLibrary() {
     std::call_once(g_cares_init_flag, []() {
         int status = ares_library_init(ARES_LIB_INIT_ALL);
         if (status == ARES_SUCCESS) {
-            g_cares_init_success = true;
+            g_cares_init_success.store(true, std::memory_order_relaxed);
             g_cares_initialized.store(true, std::memory_order_release);
             LOG_BCK_INFO("c-ares library initialized successfully");
         } else {
-            g_cares_init_success = false;
+            g_cares_init_success.store(false, std::memory_order_relaxed);
             LOG_BCK_ERROR("Failed to initialize c-ares library: {}", ares_strerror(status));
         }
     });
     
-    return g_cares_init_success;
+    return g_cares_init_success.load(std::memory_order_relaxed);
 }
 
 void CleanupCaresLibrary() {
