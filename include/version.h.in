@@ -1,0 +1,12 @@
+// Copyright (C) 2025, 2026 Maxim [maxirmx] Samsonov (www.sw.consulting)
+// All rights reserved.
+// This file is a part of fuelflux application
+// TEMPLATE FOR AUTO-GENERATED VERSION HEADER
+// This template is processed by CMake to generate version.h; do not edit the generated header, edit this template instead.
+
+#pragma once
+
+#define FUELFLUX_VERSION_MAJOR @PROJECT_VERSION_MAJOR@
+#define FUELFLUX_VERSION_MINOR @PROJECT_VERSION_MINOR@
+#define FUELFLUX_VERSION_PATCH @PROJECT_VERSION_PATCH@
+#define FUELFLUX_VERSION "@PROJECT_VERSION@"
