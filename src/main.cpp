@@ -1,4 +1,4 @@
-// Copyright (C) 2025, 2026 Maxim [maxirmx] Samsonov (www.sw.consulting)
+﻿// Copyright (C) 2025, 2026 Maxim [maxirmx] Samsonov (www.sw.consulting)
 // All rights reserved.
 // This file is a part of fuelflux application
 
@@ -9,7 +9,11 @@
 #include "console_emulator.h"
 #include "logger.h"
 #include "message_storage.h"
+#ifdef USE_CARES
+#include "cares_resolver.h"
+#endif
 #include "version.h"
+#include "peripherals/peripheral_interface.h"
 #ifdef TARGET_REAL_DISPLAY
 #include "peripherals/display.h"
 #endif
@@ -107,8 +111,8 @@ static void inputDispatcher(ConsoleEmulator& emulator) {
         }
     };
 
-    // Start in command mode
-    switchMode(InputMode::Command);
+    // Start in key mode
+    switchMode(InputMode::Key);
 
     while (g_running) {
 #ifndef _WIN32
@@ -206,6 +210,22 @@ static void inputDispatcher(ConsoleEmulator& emulator) {
 #endif
 }
 
+// Display failure message on a display interface
+static void displayFailureMessage(peripherals::IDisplay* display) {
+    if (display) {
+        try {
+            DisplayMessage msg;
+            msg.line1 = "";
+            msg.line2 = "Отказ";
+            msg.line3 = "";
+            msg.line4 = "";
+            display->showMessage(msg);
+        } catch (...) {
+            // Ignore display errors during failure state
+        }
+    }
+}
+
 int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
     // Setup signal handlers for graceful shutdown
     signal(SIGINT, signalHandler);
@@ -245,8 +265,14 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
     const int MAX_RETRIES = 10;
     int retryCount = 0;
     auto lastRetryTime = std::chrono::steady_clock::now();
+#ifdef USE_CARES
+    bool caresInitialized = false;
+#endif
     
     while (g_running) {
+        // Display pointer for failure message - created once per iteration, reused on failure
+        std::unique_ptr<peripherals::IDisplay> display;
+        
         try {
             // Reset retry count if enough time has passed since last failure (1 hour)
             auto now = std::chrono::steady_clock::now();
@@ -255,21 +281,27 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
                 retryCount = 0;
             }
             
+#ifdef USE_CARES
+            // Initialize c-ares library if not already initialized
+            if (!caresInitialized) {
+                if (!InitializeCaresLibrary()) {
+                    if (loggerReady) {
+                        LOG_ERROR("Failed to initialize c-ares library, will retry");
+                    } else {
+                        std::cerr << "Failed to initialize c-ares library, will retry" << std::endl;
+                    }
+                    throw std::runtime_error("c-ares initialization failed");
+                }
+                caresInitialized = true;
+            }
+#endif
+            
             LOG_INFO("Starting FuelFlux Controller v{}...", FUELFLUX_VERSION);
             // Create console emulator
             ConsoleEmulator emulator;
             emulator.printWelcome();
             
-            auto storage = std::make_shared<MessageStorage>(STORAGE_DB_PATH);
-            auto backend = Controller::CreateDefaultBackend(storage);
-            auto backlogBackend = Controller::CreateDefaultBackendShared(controllerId, nullptr);
-            BacklogWorker backlogWorker(storage, backlogBackend, std::chrono::seconds(30));
-            backlogWorker.Start();
-
-            // Create controller
-            Controller controller(controllerId, backend);
-            
-            // Create and setup peripherals
+            // Create display early so it can be used for failure message if needed
 #ifdef TARGET_REAL_DISPLAY
             // Use real hardware display with configuration from environment variables
             LOG_INFO("Using real hardware display (NHD-C12864A1Z-FSW-FBW-HTT)");
@@ -294,13 +326,24 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
             LOG_INFO("  RST Pin: {}", rstPin);
             LOG_INFO("  Font Path: {}", fontPath);
 
-            auto display = std::make_unique<peripherals::RealDisplay>(
+            display = std::make_unique<peripherals::RealDisplay>(
                 spiDevice, gpioChip, dcPin, rstPin, fontPath
             );
-            controller.setDisplay(std::move(display));
 #else
-            controller.setDisplay(emulator.createDisplay());
+            display = emulator.createDisplay();
 #endif
+            
+            auto storage = std::make_shared<MessageStorage>(STORAGE_DB_PATH);
+            auto backend = Controller::CreateDefaultBackend(storage);
+            auto backlogBackend = Controller::CreateDefaultBackendShared(controllerId, nullptr);
+            BacklogWorker backlogWorker(storage, backlogBackend, std::chrono::seconds(30));
+            backlogWorker.Start();
+
+            // Create controller
+            Controller controller(controllerId, backend);
+            
+            // Setup display - move ownership to controller
+            controller.setDisplay(std::move(display));
 
 #ifdef TARGET_REAL_KEYBOARD
             LOG_INFO("Using real hardware keyboard");
@@ -431,14 +474,39 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
 
         if (g_running) {
             if (retryCount >= MAX_RETRIES) {
-                LOG_CRITICAL("Maximum retry limit ({}) reached, stopping controller", MAX_RETRIES);
-                g_running = false;
-                break;
+                LOG_CRITICAL("Maximum retry limit ({}) reached, entering permanent failure state", MAX_RETRIES);
+                
+                // Display failure message if display was created
+                displayFailureMessage(display.get());
+                
+#ifdef USE_CARES
+                if (caresInitialized) {
+                    CleanupCaresLibrary();
+                    caresInitialized = false;
+                }
+#endif
+                
+                if (loggerReady) {
+                    Logger::shutdown();
+                    g_loggerReady = false;
+                    loggerReady = false;
+                }
+                
+                // Sleep forever - embedded application should not exit
+                while (true) {
+                    std::this_thread::sleep_for(std::chrono::hours(24));
+                }
             }
             LOG_WARN("Recovering after error (attempt {}/{}); restarting controller loop", retryCount, MAX_RETRIES);
             std::this_thread::sleep_for(std::chrono::seconds(1));
         }
     }
+    
+#ifdef USE_CARES
+    if (caresInitialized) {
+        CleanupCaresLibrary();
+    }
+#endif
     
     if (loggerReady) {
         Logger::shutdown();
