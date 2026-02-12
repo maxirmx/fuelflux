@@ -229,6 +229,9 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
         } else {
             std::cerr << "Failed to initialize c-ares library" << std::endl;
         }
+        if (loggerReady) {
+            Logger::shutdown();
+        }
         return 1;
     }
 #endif
