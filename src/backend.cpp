@@ -381,16 +381,18 @@ nlohmann::json Backend::HttpRequestWrapper(const std::string& endpoint,
             // Then use CURLOPT_RESOLVE to provide the resolved IP to curl
             // This preserves the hostname in the URL for Host header and SNI
             std::string resolvedIp = GetCaresResolver().Resolve(host, kPppInterface);
-            if (!resolvedIp.empty() && resolvedIp != host) {
+            if (resolvedIp.empty()) {
+                LOG_BCK_WARN("c-ares DNS resolution failed for {}, request may fail", host);
+            } else if (resolvedIp != host) {
+                // Hostname was successfully resolved to a different IP
                 int port = ExtractPortFromUrl(url);
                 // Format: "hostname:port:address"
                 std::string resolveEntry = host + ":" + std::to_string(port) + ":" + resolvedIp;
                 resolveList.append(resolveEntry.c_str());
                 curl_easy_setopt(curl.get(), CURLOPT_RESOLVE, resolveList.get());
                 LOG_BCK_DEBUG("Using CURLOPT_RESOLVE: {}", resolveEntry);
-            } else {
-                LOG_BCK_WARN("c-ares DNS resolution failed for {}, request may fail", host);
             }
+            // else: resolvedIp == host means it's already an IP literal, no warning needed
 #endif
         } else {
             if (IsLocalhost(host)) {
@@ -549,16 +551,18 @@ nlohmann::json Backend::HttpRequestWrapper(const std::string& endpoint,
             // Then use CURLOPT_RESOLVE to provide the resolved IP to curl
             // This preserves the hostname in the URL for Host header and SNI
             std::string resolvedIp = GetCaresResolver().Resolve(host, kPppInterface);
-            if (!resolvedIp.empty() && resolvedIp != host) {
+            if (resolvedIp.empty()) {
+                LOG_BCK_WARN("c-ares DNS resolution failed for {}, request may fail", host);
+            } else if (resolvedIp != host) {
+                // Hostname was successfully resolved to a different IP
                 int port = ExtractPortFromUrl(url);
                 // Format: "hostname:port:address"
                 std::string resolveEntry = host + ":" + std::to_string(port) + ":" + resolvedIp;
                 resolveList.append(resolveEntry.c_str());
                 curl_easy_setopt(curl.get(), CURLOPT_RESOLVE, resolveList.get());
                 LOG_BCK_DEBUG("Using CURLOPT_RESOLVE: {}", resolveEntry);
-            } else {
-                LOG_BCK_WARN("c-ares DNS resolution failed for {}, request may fail", host);
             }
+            // else: resolvedIp == host means it's already an IP literal, no warning needed
 #endif
         } else {
             if (IsLocalhost(host)) {
@@ -700,15 +704,17 @@ void Backend::SendAsyncDeauthorize(const std::string& baseAPI, const std::string
 #ifdef USE_CARES
             // Use c-ares with Yandex DNS for hostname resolution via ppp0
             std::string resolvedIp = GetCaresResolver().Resolve(host, kPppInterface);
-            if (!resolvedIp.empty() && resolvedIp != host) {
+            if (resolvedIp.empty()) {
+                LOG_BCK_WARN("Async deauthorize: c-ares DNS resolution failed for {}", host);
+            } else if (resolvedIp != host) {
+                // Hostname was successfully resolved to a different IP
                 int port = ExtractPortFromUrl(url);
                 std::string resolveEntry = host + ":" + std::to_string(port) + ":" + resolvedIp;
                 resolveList.append(resolveEntry.c_str());
                 curl_easy_setopt(curl.get(), CURLOPT_RESOLVE, resolveList.get());
                 LOG_BCK_DEBUG("Async deauthorize: Using CURLOPT_RESOLVE: {}", resolveEntry);
-            } else {
-                LOG_BCK_WARN("Async deauthorize: c-ares DNS resolution failed for {}", host);
             }
+            // else: resolvedIp == host means it's already an IP literal, no warning needed
 #endif
         }
 #endif
