@@ -16,6 +16,9 @@
 #include <mutex>
 #include <condition_variable>
 #include <chrono>
+#include <cerrno>
+#include <sys/select.h>
+#include <sys/time.h>
 
 namespace fuelflux {
 
