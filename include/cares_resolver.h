@@ -7,29 +7,35 @@
 #ifdef USE_CARES
 
 #include <string>
-#include <vector>
+#include <mutex>
 
 namespace fuelflux {
 
-// c-ares DNS resolver for use with sim800 binding
-// Resolves hostnames to IP addresses using c-ares library
+// Yandex DNS servers for reliable resolution over mobile networks
+constexpr const char* kYandexDns1 = "77.88.8.8";
+constexpr const char* kYandexDns2 = "77.88.8.1";
+
+// c-ares DNS resolver for use with SIM800C mobile connections
+// Uses Yandex DNS servers for reliable resolution over PPP interface
+// Thread-safe: concurrent calls to Resolve() are serialized via internal mutex
 class CaresResolver {
 public:
     CaresResolver();
     ~CaresResolver();
 
-    // Resolve hostname to IP address
+    // Resolve hostname to IP address using Yandex DNS
     // Returns empty string on failure
     // Parameters:
     //   hostname - hostname to resolve (e.g., "example.com")
-    //   interface - network interface to use for DNS resolution (e.g., "ppp0")
-    //               empty string means use default interface
+    //   interface - network interface to bind for DNS queries (e.g., "ppp0")
+    //               empty string means use system default
+    // Thread-safe: multiple threads can call this method concurrently
     std::string Resolve(const std::string& hostname, const std::string& interface = "");
 
 private:
-    // Get nameserver from interface (e.g., ppp0)
-    // Returns empty string if not found
-    std::string GetNameserverFromInterface(const std::string& interface);
+    // Mutex for thread-safe DNS resolution
+    // Protects against concurrent ares_library_init/cleanup and channel operations
+    mutable std::mutex resolve_mutex_;
 };
 
 } // namespace fuelflux

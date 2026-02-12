@@ -74,15 +74,14 @@ private:
     SystemState currentState_;
     SystemState previousState_;
     
-    // Transition table: (current_state, event) -> (next_state, action)
-    std::unordered_map<std::pair<SystemState, Event>, 
-                      std::pair<SystemState, std::function<void()>>> transitions_;
-    
     // Timeout handling
     std::chrono::steady_clock::time_point lastActivityTime_;
     static constexpr std::chrono::seconds TIMEOUT_DURATION{30};
     
     bool isTimeoutEnabled() const;
+
+    // Transition table: (current_state, event) -> (next_state, action)
+    std::unordered_map<std::pair<SystemState, Event>, std::pair<SystemState, std::function<void()>>> transitions_;
 
     // Override target state for conditional transitions.
     // When set by a transition action (under mutex_), processEvent will use this 

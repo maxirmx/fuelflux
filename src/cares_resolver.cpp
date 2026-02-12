@@ -11,11 +11,7 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
-#include <fstream>
-#include <sstream>
 #include <cstring>
-#include <vector>
-#include <memory>
 
 namespace fuelflux {
 
@@ -24,7 +20,7 @@ namespace {
 // RAII wrapper for ares_channel
 class AresChannel {
 public:
-    AresChannel() : channel_(nullptr), initialized_(false) {
+    AresChannel(const std::string& interface) : channel_(nullptr), initialized_(false) {
         int status = ares_library_init(ARES_LIB_INIT_ALL);
         if (status != ARES_SUCCESS) {
             LOG_BCK_ERROR("Failed to initialize c-ares library: {}", ares_strerror(status));
@@ -33,8 +29,8 @@ public:
         
         struct ares_options options;
         std::memset(&options, 0, sizeof(options));
-        options.timeout = 5000; // 5 seconds timeout
-        options.tries = 3;      // 3 retries
+        options.timeout = 10000; // 10 seconds timeout for slow mobile networks
+        options.tries = 3;       // 3 retries
         
         status = ares_init_options(&channel_, &options, ARES_OPT_TIMEOUT | ARES_OPT_TRIES);
         if (status != ARES_SUCCESS) {
@@ -43,6 +39,25 @@ public:
             return;
         }
         
+        // Set Yandex DNS servers
+        std::string dnsServers = std::string(kYandexDns1) + "," + kYandexDns2;
+        status = ares_set_servers_csv(channel_, dnsServers.c_str());
+        if (status != ARES_SUCCESS) {
+            LOG_BCK_ERROR("Failed to set Yandex DNS servers: {}", ares_strerror(status));
+            ares_destroy(channel_);
+            ares_library_cleanup();
+            return;
+        }
+        
+        // Bind DNS queries to specific interface (e.g., ppp0)
+        if (!interface.empty()) {
+            ares_set_local_dev(channel_, interface.c_str());
+            LOG_BCK_DEBUG("c-ares bound to interface: {}", interface);
+        }
+        
+        LOG_BCK_DEBUG("c-ares initialized with Yandex DNS: {}{}", 
+                      dnsServers, 
+                      interface.empty() ? "" : " on " + interface);
         initialized_ = true;
     }
     
@@ -59,22 +74,6 @@ public:
     
     ares_channel get() const { return channel_; }
     bool isInitialized() const { return initialized_; }
-    
-    // Set nameserver
-    bool setNameserver(const std::string& nameserver) {
-        if (!initialized_ || !channel_) {
-            return false;
-        }
-        
-        int status = ares_set_servers_csv(channel_, nameserver.c_str());
-        if (status != ARES_SUCCESS) {
-            LOG_BCK_ERROR("Failed to set nameserver {}: {}", nameserver, ares_strerror(status));
-            return false;
-        }
-        
-        LOG_BCK_DEBUG("Set c-ares nameserver to: {}", nameserver);
-        return true;
-    }
     
 private:
     ares_channel channel_;
@@ -134,47 +133,13 @@ CaresResolver::CaresResolver() {
 CaresResolver::~CaresResolver() {
 }
 
-std::string CaresResolver::GetNameserverFromInterface(const std::string& interface) {
-    // Read resolv.conf for the interface
-    // For ppp interfaces, the nameserver is typically in /etc/ppp/resolv.conf
-    // or we can read /etc/resolv.conf
-    
-    std::ifstream resolvConf("/etc/resolv.conf");
-    if (!resolvConf.is_open()) {
-        LOG_BCK_ERROR("Failed to open /etc/resolv.conf");
-        return "";
-    }
-    
-    std::string line;
-    std::vector<std::string> nameservers;
-    
-    while (std::getline(resolvConf, line)) {
-        std::istringstream iss(line);
-        std::string keyword;
-        iss >> keyword;
-        
-        if (keyword == "nameserver") {
-            std::string ns;
-            iss >> ns;
-            if (!ns.empty()) {
-                nameservers.push_back(ns);
-            }
-        }
-    }
-    
-    if (nameservers.empty()) {
-        LOG_BCK_WARN("No nameservers found in /etc/resolv.conf");
-        return "";
-    }
-    
-    // Use the first nameserver
-    LOG_BCK_DEBUG("Found nameserver for {}: {}", interface.empty() ? "default" : interface, nameservers[0]);
-    return nameservers[0];
-}
-
 std::string CaresResolver::Resolve(const std::string& hostname, const std::string& interface) {
-    LOG_BCK_DEBUG("Resolving {} using c-ares{}", hostname, 
-                  interface.empty() ? "" : " on interface " + interface);
+    // Serialize concurrent calls to prevent issues with ares_library_init/cleanup
+    std::lock_guard<std::mutex> lock(resolve_mutex_);
+    
+    LOG_BCK_DEBUG("Resolving {} using c-ares with Yandex DNS{}", 
+                  hostname,
+                  interface.empty() ? "" : " via " + interface);
     
     // Check if hostname is already an IP address
     struct in_addr addr4;
@@ -185,20 +150,10 @@ std::string CaresResolver::Resolve(const std::string& hostname, const std::strin
         return hostname;
     }
     
-    AresChannel channel;
+    AresChannel channel(interface);
     if (!channel.isInitialized()) {
         LOG_BCK_ERROR("Failed to initialize c-ares channel");
         return "";
-    }
-    
-    // Set nameserver if interface is specified
-    if (!interface.empty()) {
-        std::string nameserver = GetNameserverFromInterface(interface);
-        if (!nameserver.empty()) {
-            if (!channel.setNameserver(nameserver)) {
-                LOG_BCK_ERROR("Failed to set nameserver, falling back to default");
-            }
-        }
     }
     
     // Perform DNS resolution
@@ -221,7 +176,7 @@ std::string CaresResolver::Resolve(const std::string& hostname, const std::strin
         }
         
         // Set timeout
-        tv.tv_sec = 1;
+        tv.tv_sec = 2;
         tv.tv_usec = 0;
         struct timeval* tvp = ares_timeout(channel.get(), &tv, &tv);
         
@@ -244,6 +199,9 @@ std::string CaresResolver::Resolve(const std::string& hostname, const std::strin
         return "";
     }
     
+    LOG_BCK_INFO("Resolved {} -> {} via Yandex DNS{}", 
+                 hostname, ctx.result,
+                 interface.empty() ? "" : " on " + interface);
     return ctx.result;
 }
 
