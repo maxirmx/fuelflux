@@ -9,6 +9,9 @@
 #include "console_emulator.h"
 #include "logger.h"
 #include "message_storage.h"
+#ifdef USE_CARES
+#include "cares_resolver.h"
+#endif
 #ifdef TARGET_REAL_DISPLAY
 #include "peripherals/display.h"
 #endif
@@ -216,6 +219,18 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
     if (!loggerReady) {
         std::cerr << "Failed to initialize logging system" << std::endl;
     }
+    
+#ifdef USE_CARES
+    // Initialize c-ares library system-wide (before creating any DNS resolvers)
+    if (!InitializeCaresLibrary()) {
+        if (loggerReady) {
+            LOG_CRITICAL("Failed to initialize c-ares library");
+        } else {
+            std::cerr << "Failed to initialize c-ares library" << std::endl;
+        }
+        return 1;
+    }
+#endif
     
     // On Windows, set console to UTF-8 and enable virtual terminal processing
 #ifdef _WIN32
@@ -438,6 +453,10 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
             std::this_thread::sleep_for(std::chrono::seconds(1));
         }
     }
+    
+#ifdef USE_CARES
+    CleanupCaresLibrary();
+#endif
     
     if (loggerReady) {
         Logger::shutdown();

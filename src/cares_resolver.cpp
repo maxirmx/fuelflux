@@ -12,18 +12,24 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <cstring>
+#include <atomic>
+#include <mutex>
 
 namespace fuelflux {
 
 namespace {
 
+// Global c-ares library initialization state
+std::atomic<bool> g_cares_initialized{false};
+std::mutex g_cares_init_mutex;
+
 // RAII wrapper for ares_channel
 class AresChannel {
 public:
     AresChannel(const std::string& interface) : channel_(nullptr), initialized_(false) {
-        int status = ares_library_init(ARES_LIB_INIT_ALL);
-        if (status != ARES_SUCCESS) {
-            LOG_BCK_ERROR("Failed to initialize c-ares library: {}", ares_strerror(status));
+        // Check if library is initialized
+        if (!g_cares_initialized.load()) {
+            LOG_BCK_ERROR("c-ares library not initialized. Call InitializeCaresLibrary() first.");
             return;
         }
         
@@ -32,10 +38,9 @@ public:
         options.timeout = 10000; // 10 seconds timeout for slow mobile networks
         options.tries = 3;       // 3 retries
         
-        status = ares_init_options(&channel_, &options, ARES_OPT_TIMEOUT | ARES_OPT_TRIES);
+        int status = ares_init_options(&channel_, &options, ARES_OPT_TIMEOUT | ARES_OPT_TRIES);
         if (status != ARES_SUCCESS) {
             LOG_BCK_ERROR("Failed to initialize c-ares channel: {}", ares_strerror(status));
-            ares_library_cleanup();
             return;
         }
         
@@ -45,7 +50,6 @@ public:
         if (status != ARES_SUCCESS) {
             LOG_BCK_ERROR("Failed to set Yandex DNS servers: {}", ares_strerror(status));
             ares_destroy(channel_);
-            ares_library_cleanup();
             return;
         }
         
@@ -55,7 +59,7 @@ public:
             LOG_BCK_DEBUG("c-ares bound to interface: {}", interface);
         }
         
-        LOG_BCK_DEBUG("c-ares initialized with Yandex DNS: {}{}", 
+        LOG_BCK_DEBUG("c-ares channel initialized with Yandex DNS: {}{}", 
                       dnsServers, 
                       interface.empty() ? "" : " on " + interface);
         initialized_ = true;
@@ -64,7 +68,6 @@ public:
     ~AresChannel() {
         if (initialized_ && channel_) {
             ares_destroy(channel_);
-            ares_library_cleanup();
         }
     }
     
@@ -127,6 +130,38 @@ void HostCallback(void* arg, int status, int timeouts, struct hostent* host) {
 
 } // namespace
 
+bool InitializeCaresLibrary() {
+    std::lock_guard<std::mutex> lock(g_cares_init_mutex);
+    
+    // Check if already initialized
+    if (g_cares_initialized.load()) {
+        LOG_BCK_DEBUG("c-ares library already initialized");
+        return true;
+    }
+    
+    int status = ares_library_init(ARES_LIB_INIT_ALL);
+    if (status != ARES_SUCCESS) {
+        LOG_BCK_ERROR("Failed to initialize c-ares library: {}", ares_strerror(status));
+        return false;
+    }
+    
+    g_cares_initialized.store(true);
+    LOG_BCK_INFO("c-ares library initialized successfully");
+    return true;
+}
+
+void CleanupCaresLibrary() {
+    std::lock_guard<std::mutex> lock(g_cares_init_mutex);
+    
+    if (!g_cares_initialized.load()) {
+        return;
+    }
+    
+    ares_library_cleanup();
+    g_cares_initialized.store(false);
+    LOG_BCK_INFO("c-ares library cleaned up");
+}
+
 CaresResolver::CaresResolver() {
 }
 
@@ -134,8 +169,14 @@ CaresResolver::~CaresResolver() {
 }
 
 std::string CaresResolver::Resolve(const std::string& hostname, const std::string& interface) {
-    // Serialize concurrent calls to prevent issues with ares_library_init/cleanup
+    // Serialize concurrent calls to prevent issues with channel operations
     std::lock_guard<std::mutex> lock(resolve_mutex_);
+    
+    // Check if library is initialized
+    if (!g_cares_initialized.load()) {
+        LOG_BCK_ERROR("c-ares library not initialized. Call InitializeCaresLibrary() first.");
+        return "";
+    }
     
     LOG_BCK_DEBUG("Resolving {} using c-ares with Yandex DNS{}", 
                   hostname,
