@@ -772,13 +772,37 @@ bool ConsoleEmulator::processKeyboardInput(char c, SystemState state) {
 void ConsoleEmulator::printWelcome() const {
     // Box width is 64 characters (62 inside the borders)
     constexpr int kBoxInnerWidth = 62;
-    
+
     // Calculate centered version text
     std::string versionText = "Version " + std::string(FUELFLUX_VERSION);
-    int padding = (kBoxInnerWidth - static_cast<int>(versionText.length())) / 2;
-    std::string paddedVersion = std::string(padding, ' ') + versionText + 
-                                std::string(kBoxInnerWidth - padding - versionText.length(), ' ');
-    
+
+    // Ensure the text does not exceed the inner box width
+    std::string displayText = versionText;
+    if (displayText.length() > static_cast<std::size_t>(kBoxInnerWidth)) {
+        displayText = displayText.substr(0, static_cast<std::size_t>(kBoxInnerWidth));
+    }
+
+    // Compute left/right padding in a signed type and keep them within [0, kBoxInnerWidth]
+    const int innerWidth = kBoxInnerWidth;
+    const int textLen = static_cast<int>(displayText.length());
+
+    int paddingLeft = 0;
+    int paddingRight = 0;
+
+    if (textLen < innerWidth) {
+        const int totalPadding = innerWidth - textLen;
+        paddingLeft = totalPadding / 2;
+        paddingRight = innerWidth - paddingLeft - textLen;
+    }
+
+    if (paddingLeft < 0) paddingLeft = 0;
+    if (paddingRight < 0) paddingRight = 0;
+    if (paddingLeft > innerWidth) paddingLeft = innerWidth;
+    if (paddingRight > innerWidth) paddingRight = innerWidth;
+
+    std::string paddedVersion = std::string(static_cast<std::size_t>(paddingLeft), ' ')
+                              + displayText
+                              + std::string(static_cast<std::size_t>(paddingRight), ' ');
     std::string welcomeMsg = 
         "╔══════════════════════════════════════════════════════════════╗\n"
         "║                    FUEL FLUX CONTROLLER                      ║\n"
