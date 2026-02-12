@@ -133,19 +133,25 @@ void HostCallback(void* arg, int status, int timeouts, struct hostent* host) {
 
 bool InitializeCaresLibrary() {
     // Use call_once to ensure initialization happens exactly once
+    // std::call_once provides happens-before semantics, ensuring all stores
+    // in the lambda are visible to this thread when call_once returns
     std::call_once(g_cares_init_flag, []() {
         int status = ares_library_init(ARES_LIB_INIT_ALL);
         if (status == ARES_SUCCESS) {
-            g_cares_init_success.store(true, std::memory_order_relaxed);
+            // Store success status before setting initialized flag
+            // Both use release to ensure proper synchronization with readers
+            g_cares_init_success.store(true, std::memory_order_release);
             g_cares_initialized.store(true, std::memory_order_release);
             LOG_BCK_INFO("c-ares library initialized successfully");
         } else {
-            g_cares_init_success.store(false, std::memory_order_relaxed);
+            // Even on failure, use release for consistency
+            g_cares_init_success.store(false, std::memory_order_release);
             LOG_BCK_ERROR("Failed to initialize c-ares library: {}", ares_strerror(status));
         }
     });
     
-    return g_cares_init_success.load(std::memory_order_relaxed);
+    // call_once provides synchronization, but we use acquire for explicitness
+    return g_cares_init_success.load(std::memory_order_acquire);
 }
 
 void CleanupCaresLibrary() {

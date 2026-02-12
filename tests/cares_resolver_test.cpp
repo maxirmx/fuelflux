@@ -25,9 +25,13 @@ public:
 };
 
 // Register the environment (will be called once before all tests)
-// Google Test takes ownership of the environment object, so we don't need to store the result
-[[maybe_unused]] static const auto* const g_cares_env_registered = 
-    []() { return ::testing::AddGlobalTestEnvironment(new CaresEnvironment); }();
+// Google Test takes ownership, so we just need the side effect of registration
+namespace {
+[[maybe_unused]] const auto g_cares_env_init = []() {
+    ::testing::AddGlobalTestEnvironment(new CaresEnvironment);
+    return true;
+}();
+} // anonymous namespace
 
 class CaresResolverTest : public ::testing::Test {
 protected:
