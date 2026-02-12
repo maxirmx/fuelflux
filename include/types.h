@@ -39,6 +39,7 @@ enum class SystemState {
     Waiting,
     PinEntry,
     Authorization,
+    NotAuthorized,
     TankSelection,
     VolumeEntry,
     Refueling,
