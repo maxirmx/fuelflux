@@ -12,7 +12,6 @@
 #include <atomic>
 #include <mutex>
 #include <string>
-#include <optional>
 
 namespace fuelflux {
 
@@ -82,13 +81,6 @@ private:
 
     // Transition table: (current_state, event) -> (next_state, action)
     std::unordered_map<std::pair<SystemState, Event>, std::pair<SystemState, std::function<void()>>> transitions_;
-
-    // Override target state for conditional transitions.
-    // When set by a transition action (under mutex_), processEvent will use this 
-    // instead of the transition table's target state.
-    // MUST be accessed only while holding mutex_ to prevent race conditions.
-    // Reset before each action executes and consumed after action completes.
-    std::optional<SystemState> overrideTargetState_;
 
     // Concurrency
     mutable std::recursive_mutex mutex_;

@@ -70,6 +70,7 @@ enum class Event {
     IntakeComplete,
     CancelPressed,
     Timeout,
+    ErrorRecovery,
     Error
 };
 

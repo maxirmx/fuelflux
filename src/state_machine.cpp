@@ -50,7 +50,6 @@ bool StateMachine::processEvent(Event event) {
     std::function<void()> action;
     SystemState fromState;
     SystemState toState;
-    std::optional<SystemState> savedOverride;
     {
         std::scoped_lock lock(mutex_);
         fromState = currentState_;
@@ -64,10 +63,6 @@ bool StateMachine::processEvent(Event event) {
         toState = it->second.first;
         action = it->second.second;
         previousState_ = fromState;
-        // Save any existing override to prevent recursive calls from losing it
-        savedOverride = overrideTargetState_;
-        // Clear override before executing new action
-        overrideTargetState_.reset();
     }
 
     // Only call exit/enter if state actually changes
@@ -86,21 +81,6 @@ bool StateMachine::processEvent(Event event) {
             LOG_SM_ERROR("Exception in transition action: {}", e.what());
         } catch (...) {
             LOG_SM_ERROR("Unknown exception in transition action");
-        }
-    }
-
-    // Check if the action set an override target state and consume it
-    {
-        std::scoped_lock lock(mutex_);
-        if (overrideTargetState_.has_value()) {
-            toState = overrideTargetState_.value();
-            stateChanged = (fromState != toState);
-            // Reset after consuming the override
-            overrideTargetState_.reset();
-        }
-        // Restore saved override if it existed (in case of recursive calls)
-        if (savedOverride.has_value() && !overrideTargetState_.has_value()) {
-            overrideTargetState_ = savedOverride;
         }
     }
 
@@ -406,6 +386,7 @@ void StateMachine::setupTransitions() {
     transitions_[{SystemState::Error, Event::IntakeComplete}]      = {SystemState::Error,             noOp};
     transitions_[{SystemState::Error, Event::CancelPressed}]       = {SystemState::Error,             [this]() { onErrorCancelPressed();   }};
     transitions_[{SystemState::Error, Event::Timeout}]             = {SystemState::Error,             noOp};
+    transitions_[{SystemState::Error, Event::ErrorRecovery}]       = {SystemState::Waiting,           noOp};
     transitions_[{SystemState::Error, Event::Error}]               = {SystemState::Error,             noOp};
     
     LOG_SM_DEBUG("State machine transitions configured with {} entries", transitions_.size());
@@ -642,15 +623,12 @@ void StateMachine::onCancelPressed() {
 
 void StateMachine::onErrorCancelPressed() {
     LOG_SM_WARN("Cancel pressed in error state; reinitializing device");
-    if (controller_) {
-        bool ok = controller_->reinitializeDevice();
-        if (ok) {
-            // On successful reinit, override the target state to Waiting
-            // Must hold mutex_ to safely set overrideTargetState_
-            std::scoped_lock lock(mutex_);
-            overrideTargetState_ = SystemState::Waiting;
-        }
-        // On failure, state remains Error (no override, transition table says Error->Error)
+    if (!controller_) {
+        return;
+    }
+
+    if (controller_->reinitializeDevice()) {
+        controller_->postEvent(Event::ErrorRecovery);
     }
 }
 
