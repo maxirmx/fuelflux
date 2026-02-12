@@ -4,6 +4,7 @@
 
 #include <gtest/gtest.h>
 #include <gmock/gmock.h>
+#include <array>
 #include "backend.h"
 #include "config.h"
 #include "controller.h"
@@ -493,6 +494,95 @@ TEST_F(ControllerTest, EndCurrentSession) {
     controller->endCurrentSession();
     EXPECT_TRUE(controller->getCurrentInput().empty());
     EXPECT_EQ(controller->getSelectedTank(), 0);
+}
+
+
+TEST_F(ControllerTest, AuthorizationFailureTransitionsToNotAuthorized) {
+    EXPECT_CALL(*mockBackend, Authorize("denied-card")).WillOnce(Return(false));
+
+    controller->initialize();
+
+    std::thread controllerThread([this]() { controller->run(); });
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+
+    controller->handleCardPresented("denied-card");
+    ASSERT_TRUE(waitForState(SystemState::NotAuthorized));
+
+    DisplayMessage msg = controller->getStateMachine().getDisplayMessage();
+    EXPECT_EQ(msg.line1, "Доступ запрещен");
+
+    controller->shutdown();
+    if (controllerThread.joinable()) {
+        controllerThread.join();
+    }
+}
+
+TEST_F(ControllerTest, NotAuthorizedCancelAndTimeoutReturnToWaiting) {
+    EXPECT_CALL(*mockBackend, Authorize("denied-card")).Times(2).WillRepeatedly(Return(false));
+
+    controller->initialize();
+
+    std::thread controllerThread([this]() { controller->run(); });
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+
+    controller->handleCardPresented("denied-card");
+    ASSERT_TRUE(waitForState(SystemState::NotAuthorized));
+
+    controller->postEvent(Event::CancelPressed);
+    ASSERT_TRUE(waitForState(SystemState::Waiting));
+
+    controller->handleCardPresented("denied-card");
+    ASSERT_TRUE(waitForState(SystemState::NotAuthorized));
+
+    controller->postEvent(Event::Timeout);
+    ASSERT_TRUE(waitForState(SystemState::Waiting));
+
+    controller->shutdown();
+    if (controllerThread.joinable()) {
+        controllerThread.join();
+    }
+}
+
+TEST_F(ControllerTest, NotAuthorizedStateProcessesAllEvents) {
+    EXPECT_CALL(*mockBackend, Authorize(_)).WillRepeatedly(Return(false));
+
+    controller->initialize();
+
+    auto& sm = controller->getStateMachine();
+    ASSERT_TRUE(sm.processEvent(Event::CardPresented));
+    ASSERT_TRUE(sm.processEvent(Event::AuthorizationFailed));
+    ASSERT_EQ(sm.getCurrentState(), SystemState::NotAuthorized);
+
+    const std::array<Event, 18> allEvents = {
+        Event::CardPresented,
+        Event::PinEntryStarted,
+        Event::PinEntered,
+        Event::AuthorizationSuccess,
+        Event::AuthorizationFailed,
+        Event::TankSelected,
+        Event::VolumeEntered,
+        Event::AmountEntered,
+        Event::RefuelingStarted,
+        Event::RefuelingStopped,
+        Event::DataTransmissionComplete,
+        Event::IntakeSelected,
+        Event::IntakeDirectionSelected,
+        Event::IntakeVolumeEntered,
+        Event::IntakeComplete,
+        Event::CancelPressed,
+        Event::Timeout,
+        Event::Error
+    };
+
+    for (const auto event : allEvents) {
+        if (sm.getCurrentState() != SystemState::NotAuthorized) {
+            ASSERT_TRUE(sm.processEvent(Event::CardPresented));
+            ASSERT_TRUE(sm.processEvent(Event::AuthorizationFailed));
+            ASSERT_EQ(sm.getCurrentState(), SystemState::NotAuthorized);
+        }
+
+        EXPECT_TRUE(sm.processEvent(event));
+    }
 }
 
 TEST_F(ControllerTest, RefuelingCompletionDisplaysFinalVolume) {

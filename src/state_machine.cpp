@@ -194,7 +194,7 @@ void StateMachine::setupTransitions() {
     transitions_[{SystemState::Authorization, Event::PinEntryStarted}]     = {SystemState::Authorization,     noOp};
     transitions_[{SystemState::Authorization, Event::PinEntered}]          = {SystemState::Authorization,     noOp};
     transitions_[{SystemState::Authorization, Event::AuthorizationSuccess}]= {SystemState::TankSelection,     noOp};
-    transitions_[{SystemState::Authorization, Event::AuthorizationFailed}] = {SystemState::Error,             noOp};
+    transitions_[{SystemState::Authorization, Event::AuthorizationFailed}] = {SystemState::NotAuthorized,     noOp};
     transitions_[{SystemState::Authorization, Event::TankSelected}]        = {SystemState::Authorization,     noOp};
     transitions_[{SystemState::Authorization, Event::VolumeEntered}]       = {SystemState::Authorization,     noOp};
     transitions_[{SystemState::Authorization, Event::AmountEntered}]       = {SystemState::Authorization,     noOp};
@@ -208,6 +208,26 @@ void StateMachine::setupTransitions() {
     transitions_[{SystemState::Authorization, Event::CancelPressed}]       = {SystemState::Authorization,     noOp};
     transitions_[{SystemState::Authorization, Event::Timeout}]             = {SystemState::Authorization,     noOp};
     transitions_[{SystemState::Authorization, Event::Error}]               = {SystemState::Error,             noOp};
+
+    // From NotAuthorized state
+    transitions_[{SystemState::NotAuthorized, Event::CardPresented}]       = {SystemState::NotAuthorized,     noOp};
+    transitions_[{SystemState::NotAuthorized, Event::PinEntryStarted}]     = {SystemState::NotAuthorized,     noOp};
+    transitions_[{SystemState::NotAuthorized, Event::PinEntered}]          = {SystemState::NotAuthorized,     noOp};
+    transitions_[{SystemState::NotAuthorized, Event::AuthorizationSuccess}]= {SystemState::NotAuthorized,     noOp};
+    transitions_[{SystemState::NotAuthorized, Event::AuthorizationFailed}] = {SystemState::NotAuthorized,     noOp};
+    transitions_[{SystemState::NotAuthorized, Event::TankSelected}]        = {SystemState::NotAuthorized,     noOp};
+    transitions_[{SystemState::NotAuthorized, Event::VolumeEntered}]       = {SystemState::NotAuthorized,     noOp};
+    transitions_[{SystemState::NotAuthorized, Event::AmountEntered}]       = {SystemState::NotAuthorized,     noOp};
+    transitions_[{SystemState::NotAuthorized, Event::RefuelingStarted}]    = {SystemState::NotAuthorized,     noOp};
+    transitions_[{SystemState::NotAuthorized, Event::RefuelingStopped}]    = {SystemState::NotAuthorized,     noOp};
+    transitions_[{SystemState::NotAuthorized, Event::DataTransmissionComplete}] = {SystemState::NotAuthorized, noOp};
+    transitions_[{SystemState::NotAuthorized, Event::IntakeSelected}]      = {SystemState::NotAuthorized,     noOp};
+    transitions_[{SystemState::NotAuthorized, Event::IntakeDirectionSelected}] = {SystemState::NotAuthorized, noOp};
+    transitions_[{SystemState::NotAuthorized, Event::IntakeVolumeEntered}] = {SystemState::NotAuthorized,     noOp};
+    transitions_[{SystemState::NotAuthorized, Event::IntakeComplete}]      = {SystemState::NotAuthorized,     noOp};
+    transitions_[{SystemState::NotAuthorized, Event::CancelPressed}]       = {SystemState::Waiting,           [this]() { onCancelPressed();        }};
+    transitions_[{SystemState::NotAuthorized, Event::Timeout}]             = {SystemState::Waiting,           [this]() { onTimeout();              }};
+    transitions_[{SystemState::NotAuthorized, Event::Error}]               = {SystemState::Error,             noOp};
 
     // From TankSelection state
     transitions_[{SystemState::TankSelection, Event::CardPresented}]       = {SystemState::TankSelection,     noOp};
@@ -491,6 +511,13 @@ DisplayMessage StateMachine::getDisplayMessage() const {
             message.line2 = "Пожалуйста, подождите";
             message.line3 = "";
             message.line4 = controller_->getDeviceSerialNumber();
+            break;
+
+        case SystemState::NotAuthorized:
+            message.line1 = "Доступ запрещен";
+            message.line2 = "Неверная карта или PIN";
+            message.line3 = "Нажмите Отмена (B)";
+            message.line4 = "или подождите";
             break;
 
         case SystemState::TankSelection:
