@@ -14,6 +14,7 @@
 #include <cstring>
 #include <atomic>
 #include <mutex>
+#include <condition_variable>
 
 namespace fuelflux {
 
@@ -29,6 +30,7 @@ enum class InitState {
 
 std::atomic<InitState> g_cares_init_state{InitState::Uninitialized};
 std::mutex g_cares_init_mutex;
+std::condition_variable g_cares_init_cv;
 
 // RAII wrapper for ares_channel
 class AresChannel {
@@ -55,8 +57,10 @@ public:
         std::string dnsServers = std::string(kYandexDns1) + "," + kYandexDns2;
         status = ares_set_servers_csv(channel_, dnsServers.c_str());
         if (status != ARES_SUCCESS) {
-            LOG_BCK_ERROR("Failed to set Yandex DNS servers: {}", ares_strerror(status));
+            LOG_BCK_ERROR("Failed to set DNS servers '{}': {} (error code: {})", 
+                          dnsServers, ares_strerror(status), status);
             ares_destroy(channel_);
+            channel_ = nullptr;
             return;
         }
         
@@ -145,7 +149,7 @@ bool InitializeCaresLibrary() {
     }
     
     // Slow path: need to initialize (or retry after failure)
-    std::lock_guard<std::mutex> lock(g_cares_init_mutex);
+    std::unique_lock<std::mutex> lock(g_cares_init_mutex);
     
     // Double-check after acquiring lock
     state = g_cares_init_state.load(std::memory_order_acquire);
@@ -153,11 +157,16 @@ bool InitializeCaresLibrary() {
         return true;
     }
     
-    // If another thread is currently initializing, wait is not possible
-    // with this design, so we fail. Callers should retry.
+    // If another thread is currently initializing, wait for it to complete
     if (state == InitState::Initializing) {
-        LOG_BCK_WARN("c-ares library initialization already in progress");
-        return false;
+        LOG_BCK_DEBUG("c-ares library initialization in progress, waiting...");
+        g_cares_init_cv.wait(lock, []() {
+            InitState s = g_cares_init_state.load(std::memory_order_acquire);
+            return s != InitState::Initializing;
+        });
+        // Re-check state after waiting
+        state = g_cares_init_state.load(std::memory_order_acquire);
+        return state == InitState::Initialized;
     }
     
     // Mark as initializing
@@ -167,11 +176,16 @@ bool InitializeCaresLibrary() {
     int status = ares_library_init(ARES_LIB_INIT_ALL);
     if (status == ARES_SUCCESS) {
         g_cares_init_state.store(InitState::Initialized, std::memory_order_release);
+        lock.unlock();
+        g_cares_init_cv.notify_all();
         LOG_BCK_INFO("c-ares library initialized successfully");
         return true;
     } else {
         g_cares_init_state.store(InitState::Failed, std::memory_order_release);
-        LOG_BCK_ERROR("Failed to initialize c-ares library: {}", ares_strerror(status));
+        lock.unlock();
+        g_cares_init_cv.notify_all();
+        LOG_BCK_ERROR("Failed to initialize c-ares library: {} (error code: {})", 
+                      ares_strerror(status), status);
         return false;
     }
 }
