@@ -21,7 +21,8 @@ namespace {
 
 // Global c-ares library initialization state
 std::atomic<bool> g_cares_initialized{false};
-std::mutex g_cares_init_mutex;
+std::once_flag g_cares_init_flag;
+bool g_cares_init_success = false;
 
 // RAII wrapper for ares_channel
 class AresChannel {
@@ -131,35 +132,31 @@ void HostCallback(void* arg, int status, int timeouts, struct hostent* host) {
 } // namespace
 
 bool InitializeCaresLibrary() {
-    std::lock_guard<std::mutex> lock(g_cares_init_mutex);
+    // Use call_once to ensure initialization happens exactly once
+    std::call_once(g_cares_init_flag, []() {
+        int status = ares_library_init(ARES_LIB_INIT_ALL);
+        if (status == ARES_SUCCESS) {
+            g_cares_init_success = true;
+            g_cares_initialized.store(true, std::memory_order_release);
+            LOG_BCK_INFO("c-ares library initialized successfully");
+        } else {
+            g_cares_init_success = false;
+            LOG_BCK_ERROR("Failed to initialize c-ares library: {}", ares_strerror(status));
+        }
+    });
     
-    // Check if already initialized
-    if (g_cares_initialized.load()) {
-        LOG_BCK_DEBUG("c-ares library already initialized");
-        return true;
-    }
-    
-    int status = ares_library_init(ARES_LIB_INIT_ALL);
-    if (status != ARES_SUCCESS) {
-        LOG_BCK_ERROR("Failed to initialize c-ares library: {}", ares_strerror(status));
-        return false;
-    }
-    
-    g_cares_initialized.store(true);
-    LOG_BCK_INFO("c-ares library initialized successfully");
-    return true;
+    return g_cares_init_success;
 }
 
 void CleanupCaresLibrary() {
-    std::lock_guard<std::mutex> lock(g_cares_init_mutex);
-    
-    if (!g_cares_initialized.load()) {
-        return;
+    // Only cleanup if initialization succeeded
+    // NOTE: This should only be called at process shutdown, after all DNS resolvers
+    // have been destroyed and are no longer in use.
+    if (g_cares_initialized.load(std::memory_order_acquire)) {
+        ares_library_cleanup();
+        g_cares_initialized.store(false, std::memory_order_release);
+        LOG_BCK_INFO("c-ares library cleaned up");
     }
-    
-    ares_library_cleanup();
-    g_cares_initialized.store(false);
-    LOG_BCK_INFO("c-ares library cleaned up");
 }
 
 CaresResolver::CaresResolver() {
@@ -173,7 +170,11 @@ std::string CaresResolver::Resolve(const std::string& hostname, const std::strin
     std::lock_guard<std::mutex> lock(resolve_mutex_);
     
     // Check if library is initialized
-    if (!g_cares_initialized.load()) {
+    // NOTE: This check is for detecting programming errors (using resolver before init).
+    // The library should only be cleaned up at process shutdown, after all resolvers
+    // have stopped being used. If cleanup happens during resolution, it indicates
+    // incorrect lifecycle management by the caller.
+    if (!g_cares_initialized.load(std::memory_order_acquire)) {
         LOG_BCK_ERROR("c-ares library not initialized. Call InitializeCaresLibrary() first.");
         return "";
     }
