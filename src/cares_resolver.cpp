@@ -20,16 +20,22 @@ namespace fuelflux {
 namespace {
 
 // Global c-ares library initialization state
-std::atomic<bool> g_cares_initialized{false};
-std::once_flag g_cares_init_flag;
-std::atomic<bool> g_cares_init_success{false};
+enum class InitState {
+    Uninitialized,
+    Initializing,
+    Initialized,
+    Failed
+};
+
+std::atomic<InitState> g_cares_init_state{InitState::Uninitialized};
+std::mutex g_cares_init_mutex;
 
 // RAII wrapper for ares_channel
 class AresChannel {
 public:
     AresChannel(const std::string& interface) : channel_(nullptr), initialized_(false) {
         // Check if library is initialized
-        if (!g_cares_initialized.load(std::memory_order_acquire)) {
+        if (g_cares_init_state.load(std::memory_order_acquire) != InitState::Initialized) {
             LOG_BCK_ERROR("c-ares library not initialized. Call InitializeCaresLibrary() first.");
             return;
         }
@@ -54,15 +60,15 @@ public:
             return;
         }
         
+        LOG_BCK_DEBUG("c-ares channel initialized with Yandex DNS: {}", dnsServers);
+        
         // Bind DNS queries to specific interface (e.g., ppp0)
+        // Note: ares_set_local_dev() returns void; there is no error checking available
         if (!interface.empty()) {
             ares_set_local_dev(channel_, interface.c_str());
             LOG_BCK_DEBUG("c-ares bound to interface: {}", interface);
         }
         
-        LOG_BCK_DEBUG("c-ares channel initialized with Yandex DNS: {}{}", 
-                      dnsServers, 
-                      interface.empty() ? "" : " on " + interface);
         initialized_ = true;
     }
     
@@ -132,35 +138,52 @@ void HostCallback(void* arg, int status, int timeouts, struct hostent* host) {
 } // namespace
 
 bool InitializeCaresLibrary() {
-    // Use call_once to ensure initialization happens exactly once
-    // std::call_once provides happens-before semantics, ensuring all stores
-    // in the lambda are visible to this thread when call_once returns
-    std::call_once(g_cares_init_flag, []() {
-        int status = ares_library_init(ARES_LIB_INIT_ALL);
-        if (status == ARES_SUCCESS) {
-            // Store success status before setting initialized flag
-            // Both use release to ensure proper synchronization with readers
-            g_cares_init_success.store(true, std::memory_order_release);
-            g_cares_initialized.store(true, std::memory_order_release);
-            LOG_BCK_INFO("c-ares library initialized successfully");
-        } else {
-            // Even on failure, use release for consistency
-            g_cares_init_success.store(false, std::memory_order_release);
-            LOG_BCK_ERROR("Failed to initialize c-ares library: {}", ares_strerror(status));
-        }
-    });
+    // Fast path: already initialized successfully
+    InitState state = g_cares_init_state.load(std::memory_order_acquire);
+    if (state == InitState::Initialized) {
+        return true;
+    }
     
-    // call_once provides synchronization, but we use acquire for explicitness
-    return g_cares_init_success.load(std::memory_order_acquire);
+    // Slow path: need to initialize (or retry after failure)
+    std::lock_guard<std::mutex> lock(g_cares_init_mutex);
+    
+    // Double-check after acquiring lock
+    state = g_cares_init_state.load(std::memory_order_acquire);
+    if (state == InitState::Initialized) {
+        return true;
+    }
+    
+    // If another thread is currently initializing, wait is not possible
+    // with this design, so we fail. Callers should retry.
+    if (state == InitState::Initializing) {
+        LOG_BCK_WARN("c-ares library initialization already in progress");
+        return false;
+    }
+    
+    // Mark as initializing
+    g_cares_init_state.store(InitState::Initializing, std::memory_order_release);
+    
+    // Attempt initialization
+    int status = ares_library_init(ARES_LIB_INIT_ALL);
+    if (status == ARES_SUCCESS) {
+        g_cares_init_state.store(InitState::Initialized, std::memory_order_release);
+        LOG_BCK_INFO("c-ares library initialized successfully");
+        return true;
+    } else {
+        g_cares_init_state.store(InitState::Failed, std::memory_order_release);
+        LOG_BCK_ERROR("Failed to initialize c-ares library: {}", ares_strerror(status));
+        return false;
+    }
 }
 
 void CleanupCaresLibrary() {
-    // Only cleanup if initialization succeeded
-    // NOTE: This should only be called at process shutdown, after all DNS resolvers
-    // have been destroyed and are no longer in use.
-    if (g_cares_initialized.load(std::memory_order_acquire)) {
+    // Use atomic exchange to ensure cleanup runs exactly once, even if called
+    // concurrently from multiple threads.
+    InitState expected = InitState::Initialized;
+    if (g_cares_init_state.compare_exchange_strong(expected, InitState::Uninitialized,
+                                                     std::memory_order_acq_rel,
+                                                     std::memory_order_acquire)) {
         ares_library_cleanup();
-        g_cares_initialized.store(false, std::memory_order_release);
         LOG_BCK_INFO("c-ares library cleaned up");
     }
 }
@@ -180,7 +203,7 @@ std::string CaresResolver::Resolve(const std::string& hostname, const std::strin
     // The library should only be cleaned up at process shutdown, after all resolvers
     // have stopped being used. If cleanup happens during resolution, it indicates
     // incorrect lifecycle management by the caller.
-    if (!g_cares_initialized.load(std::memory_order_acquire)) {
+    if (g_cares_init_state.load(std::memory_order_acquire) != InitState::Initialized) {
         LOG_BCK_ERROR("c-ares library not initialized. Call InitializeCaresLibrary() first.");
         return "";
     }
@@ -247,9 +270,9 @@ std::string CaresResolver::Resolve(const std::string& hostname, const std::strin
         return "";
     }
     
-    LOG_BCK_INFO("Resolved {} -> {} via Yandex DNS{}", 
-                 hostname, ctx.result,
-                 interface.empty() ? "" : " on " + interface);
+    LOG_BCK_DEBUG("Resolved {} -> {} via Yandex DNS{}", 
+                  hostname, ctx.result,
+                  interface.empty() ? "" : " on " + interface);
     return ctx.result;
 }
 

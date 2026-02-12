@@ -17,7 +17,8 @@ constexpr const char* kYandexDns2 = "77.88.8.1";
 
 // Initialize c-ares library system-wide (must be called before using CaresResolver)
 // Returns true on success, false on failure
-// Thread-safe: can be called multiple times, initialization happens only once
+// Thread-safe: can be called multiple times; initialization happens only once unless it fails,
+// in which case it can be retried on subsequent calls
 bool InitializeCaresLibrary();
 
 // Cleanup c-ares library (should be called at process shutdown)
