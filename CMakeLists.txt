@@ -145,6 +145,14 @@ endif()
 find_package(CURL REQUIRED)
 find_package(SQLite3 REQUIRED)
 
+# c-ares for DNS resolution (only on non-Windows with TARGET_SIM800C)
+if(TARGET_SIM800C AND NOT MSVC)
+    find_package(PkgConfig REQUIRED)
+    pkg_check_modules(CARES REQUIRED libcares)
+    message(STATUS "Found c-ares: ${CARES_LIBRARIES}")
+    add_compile_definitions(USE_CARES)
+endif()
+
 # Conditional dependencies for real hardware
 if(TARGET_REAL_DISPLAY OR TARGET_REAL_PUMP OR TARGET_REAL_CARD_READER)
     find_package(PkgConfig REQUIRED)
@@ -186,6 +194,11 @@ set(LIB_SOURCES
     src/backend.cpp
     src/backend_base.cpp
 )
+
+# Add c-ares resolver if enabled
+if(TARGET_SIM800C AND NOT MSVC)
+    list(APPEND LIB_SOURCES src/cares_resolver.cpp)
+endif()
 
 # Add shared GPIO implementation for real hardware targets
 if(TARGET_REAL_DISPLAY OR TARGET_REAL_PUMP)
@@ -282,6 +295,12 @@ if(TARGET_REAL_CARD_READER)
     target_link_libraries(fuelflux_lib PUBLIC ${LIBNFC_LIBRARIES})
 endif()
 
+# Link c-ares if enabled
+if(TARGET_SIM800C AND NOT MSVC)
+    target_include_directories(fuelflux_lib PUBLIC ${CARES_INCLUDE_DIRS})
+    target_link_libraries(fuelflux_lib PUBLIC ${CARES_LIBRARIES})
+endif()
+
 # Create executable with only main.cpp
 add_executable(fuelflux src/main.cpp)
 
@@ -341,6 +360,7 @@ if(ENABLE_TESTING)
         tests/message_storage_test.cpp
         tests/backlog_worker_test.cpp
         tests/bounded_executor_test.cpp
+        tests/cares_resolver_test.cpp
     )
 
     # Create test executable
