@@ -39,6 +39,7 @@ enum class SystemState {
     Waiting,
     PinEntry,
     Authorization,
+    NotAuthorized,
     TankSelection,
     VolumeEntry,
     Refueling,
@@ -70,7 +71,8 @@ enum class Event {
     IntakeComplete,
     CancelPressed,
     Timeout,
-    Error
+    Error,
+    ErrorRecovery
 };
 
 // Key codes for keyboard input

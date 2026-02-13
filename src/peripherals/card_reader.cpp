@@ -27,7 +27,7 @@ std::string toHex(const uint8_t* data, size_t len) {
     std::ostringstream oss;
     for (size_t i = 0; i < len; ++i) {
         //    if (i) oss << ":";
-        oss << std::hex << std::setw(2) << std::setfill('0') << static_cast<int>(data[i]);
+        oss << static_cast<int>(data[i]);
     }
     return oss.str();
 }

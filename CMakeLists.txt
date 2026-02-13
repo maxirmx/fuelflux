@@ -3,7 +3,7 @@
 # This file is a part of fuelflux application
 
 cmake_minimum_required(VERSION 3.16)
-project(FuelFlux VERSION 0.0.4 LANGUAGES CXX)
+project(FuelFlux VERSION 0.0.5 LANGUAGES CXX)
 
 # Generate version header from template
 configure_file(
@@ -34,7 +34,9 @@ if(MSVC)
     option(TARGET_REAL_PUMP "Use real pump hardware" OFF)
     option(TARGET_REAL_FLOW_METER "Use real flow meter hardware" OFF)
     option(ENABLE_TESTING "Enable testing" ON)
-    option(ENABLE_AUTH_DELAY "Enable 3-second authorization delay for testing/simulation" ON)
+    # This will cause backend integration test to fail
+    option(ENABLE_AUTH_DELAY "Enable 3-second authorization delay for testing/simulation" OFF)
+    # ....
     option(CODE_COVERAGE "Enable code coverage instrumentation" OFF)
 else()
     option(TARGET_SIM800C "Use PPP interface binding for HTTP backend" ON) 
@@ -195,6 +197,7 @@ set(LIB_SOURCES
     src/console_emulator.cpp
     src/backend.cpp
     src/backend_base.cpp
+    src/url_utils.cpp
 )
 
 # Add c-ares resolver if enabled
@@ -239,6 +242,7 @@ set(HEADERS
     include/console_emulator.h
     include/backend.h
     include/types.h
+    include/url_utils.h
 )
 
 # Add shared GPIO header for real hardware targets
@@ -370,6 +374,7 @@ if(ENABLE_TESTING)
         tests/backlog_worker_test.cpp
         tests/bounded_executor_test.cpp
         tests/cares_resolver_test.cpp
+        tests/url_utils_test.cpp
     )
 
     # Create test executable

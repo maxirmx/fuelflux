@@ -3,6 +3,7 @@
 // This file is a part of fuelflux application
 
 #include "backend.h"
+#include "url_utils.h"
 #include "backend_utils.h"
 #include "logger.h"
 #include "version.h"
@@ -225,33 +226,6 @@ bool ShouldBindToPppInterface(const std::string& host) {
     return IsPppInterfaceAvailable();
 }
 
-std::string ExtractHostFromUrl(const std::string& url) {
-    std::string urlToParse = url;
-    size_t schemePos = urlToParse.find("://");
-    if (schemePos != std::string::npos) {
-        urlToParse = urlToParse.substr(schemePos + 3);
-    }
-    
-    // Handle IPv6 addresses in brackets
-    if (!urlToParse.empty() && urlToParse[0] == '[') {
-        size_t bracketEnd = urlToParse.find(']');
-        if (bracketEnd != std::string::npos) {
-            return urlToParse.substr(1, bracketEnd - 1);
-        }
-    }
-    
-    // Find port or path separator
-    size_t portPos = urlToParse.find(':');
-    size_t pathPos = urlToParse.find('/');
-    
-    if (portPos != std::string::npos && (pathPos == std::string::npos || portPos < pathPos)) {
-        return urlToParse.substr(0, portPos);
-    }
-    if (pathPos != std::string::npos) {
-        return urlToParse.substr(0, pathPos);
-    }
-    return urlToParse;
-}
 
 #ifdef USE_CARES
 // Helper function to extract port from URL (returns 443 for https, 80 for http by default)

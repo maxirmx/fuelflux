@@ -68,6 +68,11 @@ private:
     void onCancelPressed();
     void onErrorCancelPressed();
     void onTimeout();
+    void onEnterAuthorization();
+    void onEnterRefuelDataTransmission();
+    void onEnterIntakeDataTransmission();
+    void onEnableCardReading();
+    void onDisableCardReading();
 
 private:
     Controller* controller_;
@@ -79,16 +84,10 @@ private:
     static constexpr std::chrono::seconds TIMEOUT_DURATION{30};
     
     bool isTimeoutEnabled() const;
+    bool isTimeoutEnabledForState(SystemState state) const;
 
     // Transition table: (current_state, event) -> (next_state, action)
     std::unordered_map<std::pair<SystemState, Event>, std::pair<SystemState, std::function<void()>>> transitions_;
-
-    // Override target state for conditional transitions.
-    // When set by a transition action (under mutex_), processEvent will use this 
-    // instead of the transition table's target state.
-    // MUST be accessed only while holding mutex_ to prevent race conditions.
-    // Reset before each action executes and consumed after action completes.
-    std::optional<SystemState> overrideTargetState_;
 
     // Concurrency
     mutable std::recursive_mutex mutex_;
