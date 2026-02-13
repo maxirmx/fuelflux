@@ -68,6 +68,11 @@ private:
     void onCancelPressed();
     void onErrorCancelPressed();
     void onTimeout();
+    void onEnterAuthorization();
+    void onEnterRefuelDataTransmission();
+    void onEnterIntakeDataTransmission();
+    void onEnableCardReading();
+    void onDisableCardReading();
 
 private:
     Controller* controller_;
