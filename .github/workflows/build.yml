@@ -59,8 +59,7 @@ jobs:
           lcov --capture --directory build --output-file coverage.info
           # Remove external library coverage
           lcov --remove coverage.info '/usr/*' '*/build/_deps/*' '*/tests/*' --output-file coverage.info
-          # List coverage data for debugging
-          lcov --list coverage.info
+     
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v4
@@ -68,13 +67,6 @@ jobs:
           files: ./coverage.info
           fail_ci_if_error: true
           token: ${{ secrets.CODECOV_TOKEN }}
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: fuelflux-ubuntu-x64
-          path: build/bin/fuelflux
-          if-no-files-found: error
 
   build-arm64:
     if: ${{ github.event_name == 'push' }}
@@ -122,9 +114,3 @@ jobs:
               ctest --output-on-failure -C Release
             "
 
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: fuelflux-ubuntu-arm64
-          path: build-arm64/bin/fuelflux
-          if-no-files-found: error
