@@ -57,8 +57,8 @@ jobs:
           sudo apt-get install -y lcov
           # Capture coverage data
           lcov --capture --directory build --output-file coverage.info
-          # Remove external library coverage
-          lcov --remove coverage.info '/usr/*' '*/build/_deps/*' '*/tests/*' --output-file coverage.info
+          # Remove external library coverage, build artifacts, and tests
+          lcov --remove coverage.info '/usr/*' '*/build/_deps/*' '*/tests/*' '*_test.cpp' '*/CMakeFiles/*' --output-file coverage.info
      
 
       - name: Upload coverage to Codecov
