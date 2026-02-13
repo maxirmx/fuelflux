@@ -84,6 +84,10 @@ bool StateMachine::processEvent(Event event) {
         lastActivityTime_ = std::chrono::steady_clock::now();
     }
 
+    LOG_SM_INFO("Transition: {} -> {} (event: {})",
+        static_cast<int>(previousState_), static_cast<int>(currentState_),
+        static_cast<int>(event));
+
     // Execute transition action
     if (action) {
         try {
@@ -99,10 +103,6 @@ bool StateMachine::processEvent(Event event) {
         // Enter new state without holding the lock
         onEnterState(toState);
     }
-
-    LOG_SM_INFO("Transition: {} -> {} (event: {})", 
-               static_cast<int>(previousState_), static_cast<int>(currentState_), 
-               static_cast<int>(event));
 
     return true;
 }
@@ -704,11 +704,15 @@ void StateMachine::onDisableCardReading() {
 
 bool StateMachine::isTimeoutEnabled() const {
     std::scoped_lock lock(mutex_);
-    return currentState_ != SystemState::Waiting && 
-           currentState_ != SystemState::Refueling &&
-           currentState_ != SystemState::Authorization &&
-           currentState_ != SystemState::RefuelDataTransmission &&
-           currentState_ != SystemState::IntakeDataTransmission;
+    return isTimeoutEnabledForState(currentState_);
+}
+
+bool StateMachine::isTimeoutEnabledForState(SystemState state) const {
+    return state != SystemState::Waiting && 
+           state != SystemState::Refueling &&
+           state != SystemState::Authorization &&
+           state != SystemState::RefuelDataTransmission &&
+           state != SystemState::IntakeDataTransmission;
 }
 
 void StateMachine::updateActivityTime() {
@@ -734,11 +738,7 @@ void StateMachine::timeoutThreadFunction() {
         // If timeouts are disabled for this state, skip checking (no lock held here)
         // Waiting, Refueling, Authorization, and data transmission states have timeout checking disabled here.
         // These states involve blocking backend operations or don't require timeout.
-        if (stateCopy == SystemState::Waiting ||
-            stateCopy == SystemState::Refueling ||
-            stateCopy == SystemState::Authorization ||
-            stateCopy == SystemState::RefuelDataTransmission ||
-            stateCopy == SystemState::IntakeDataTransmission) {
+        if (!isTimeoutEnabledForState(stateCopy)) {
             continue;
         }
 
