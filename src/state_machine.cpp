@@ -215,6 +215,7 @@ void StateMachine::setupTransitions() {
 
     // From TankSelection state
     transitions_[{SystemState::TankSelection, Event::CardPresented}]       = {SystemState::TankSelection,     noOp};
+    transitions_[{SystemState::TankSelection, Event::PinEntryStarted}]     = {SystemState::TankSelection,     noOp};
     transitions_[{SystemState::TankSelection, Event::PinEntered}]          = {SystemState::TankSelection,     noOp};
     transitions_[{SystemState::TankSelection, Event::AuthorizationSuccess}]= {SystemState::TankSelection,     noOp};
     transitions_[{SystemState::TankSelection, Event::AuthorizationFailed}] = {SystemState::TankSelection,     noOp};
