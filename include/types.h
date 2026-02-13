@@ -71,7 +71,8 @@ enum class Event {
     IntakeComplete,
     CancelPressed,
     Timeout,
-    Error
+    Error,
+    ErrorRecovery
 };
 
 // Key codes for keyboard input
