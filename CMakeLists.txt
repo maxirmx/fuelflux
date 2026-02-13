@@ -34,7 +34,9 @@ if(MSVC)
     option(TARGET_REAL_PUMP "Use real pump hardware" OFF)
     option(TARGET_REAL_FLOW_METER "Use real flow meter hardware" OFF)
     option(ENABLE_TESTING "Enable testing" ON)
-    option(ENABLE_AUTH_DELAY "Enable 3-second authorization delay for testing/simulation" ON)
+    # This will cause backend integration test to fail
+    option(ENABLE_AUTH_DELAY "Enable 3-second authorization delay for testing/simulation" OFF)
+    # ....
     option(CODE_COVERAGE "Enable code coverage instrumentation" OFF)
 else()
     option(TARGET_SIM800C "Use PPP interface binding for HTTP backend" ON) 
