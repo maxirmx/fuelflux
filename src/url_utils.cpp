@@ -16,7 +16,14 @@ std::string ExtractHostFromUrl(const std::string& url) {
         urlToParse.remove_prefix(schemePos + 3);
     }
 
-    const auto atPos = urlToParse.rfind('@');
+    // Limit userinfo parsing to the authority section (before the first '/')
+    const auto authorityEndPos = urlToParse.find('/');
+    const std::string_view authority =
+        (authorityEndPos == std::string_view::npos)
+            ? urlToParse
+            : urlToParse.substr(0, authorityEndPos);
+
+    const auto atPos = authority.rfind('@');
     if (atPos != std::string_view::npos) {
         urlToParse.remove_prefix(atPos + 1);
     }
