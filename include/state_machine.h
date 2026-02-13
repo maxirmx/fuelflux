@@ -68,6 +68,11 @@ private:
     void onCancelPressed();
     void onErrorCancelPressed();
     void onTimeout();
+    void onEnterAuthorization();
+    void onEnterRefuelDataTransmission();
+    void onEnterIntakeDataTransmission();
+    void onEnableCardReading();
+    void onDisableCardReading();
 
 private:
     Controller* controller_;
@@ -79,6 +84,7 @@ private:
     static constexpr std::chrono::seconds TIMEOUT_DURATION{30};
     
     bool isTimeoutEnabled() const;
+    bool isTimeoutEnabledForState(SystemState state) const;
 
     // Transition table: (current_state, event) -> (next_state, action)
     std::unordered_map<std::pair<SystemState, Event>, std::pair<SystemState, std::function<void()>>> transitions_;
