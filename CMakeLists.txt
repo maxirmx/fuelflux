@@ -193,6 +193,7 @@ set(LIB_SOURCES
     src/console_emulator.cpp
     src/backend.cpp
     src/backend_base.cpp
+    src/url_utils.cpp
 )
 
 # Add c-ares resolver if enabled
@@ -237,6 +238,7 @@ set(HEADERS
     include/console_emulator.h
     include/backend.h
     include/types.h
+    include/url_utils.h
 )
 
 # Add shared GPIO header for real hardware targets
@@ -361,6 +363,7 @@ if(ENABLE_TESTING)
         tests/backlog_worker_test.cpp
         tests/bounded_executor_test.cpp
         tests/cares_resolver_test.cpp
+        tests/url_utils_test.cpp
     )
 
     # Create test executable

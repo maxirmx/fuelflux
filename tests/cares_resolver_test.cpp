@@ -4,6 +4,7 @@
 
 #include <gtest/gtest.h>
 #include "cares_resolver.h"
+#include <chrono>
 
 #ifdef USE_CARES
 
@@ -97,6 +98,41 @@ TEST_F(CaresResolverTest, ResolveWithInterfaceDoesNotCrash) {
     EXPECT_NO_THROW({
         resolver.Resolve("localhost", "eth0");
     });
+}
+
+TEST_F(CaresResolverTest, CachesOnlyConfiguredBackendHostname) {
+    CaresResolver::TimePoint now = CaresResolver::Clock::now();
+    CaresResolver targetedResolver("localhost", [&now]() { return now; });
+
+    const std::string backendIp = targetedResolver.Resolve("localhost");
+    ASSERT_EQ(backendIp, "127.0.0.1");
+    EXPECT_TRUE(targetedResolver.HasValidTargetedCacheForTesting());
+    EXPECT_EQ(targetedResolver.GetTargetedCachedIpForTesting(), backendIp);
+
+    const std::string nonTargetIp = targetedResolver.Resolve("127.0.0.1");
+    EXPECT_EQ(nonTargetIp, "127.0.0.1");
+    EXPECT_EQ(targetedResolver.GetTargetedCachedIpForTesting(), backendIp);
+}
+
+TEST_F(CaresResolverTest, UsesCacheFor24HoursAndExpiresAfterTtl) {
+    CaresResolver::TimePoint now = CaresResolver::Clock::now();
+    CaresResolver targetedResolver("localhost", [&now]() { return now; });
+
+    const std::string firstIp = targetedResolver.Resolve("localhost");
+    ASSERT_EQ(firstIp, "127.0.0.1");
+    ASSERT_TRUE(targetedResolver.HasValidTargetedCacheForTesting());
+
+    now += std::chrono::hours(23);
+    const std::string cachedIp = targetedResolver.Resolve("localhost", "definitely_nonexistent_interface0");
+    EXPECT_EQ(cachedIp, firstIp);
+    EXPECT_TRUE(targetedResolver.HasValidTargetedCacheForTesting());
+
+    now += std::chrono::hours(2);
+    EXPECT_FALSE(targetedResolver.HasValidTargetedCacheForTesting());
+
+    const std::string refreshedIp = targetedResolver.Resolve("localhost");
+    EXPECT_EQ(refreshedIp, firstIp);
+    EXPECT_TRUE(targetedResolver.HasValidTargetedCacheForTesting());
 }
 
 } // namespace
