@@ -136,7 +136,7 @@ void StateMachine::setupTransitions() {
     // From Waiting state
     transitions_[{SystemState::Waiting, Event::CardPresented}]        = {SystemState::Authorization,     [this]() { onDisableCardReading(); onEnterAuthorization(); }};
     transitions_[{SystemState::Waiting, Event::PinEntryStarted}]      = {SystemState::PinEntry,          [this]() { onDisableCardReading(); }};
-    transitions_[{SystemState::Waiting, Event::PinEntered}]           = {SystemState::Authorization,     [this]() { onEnterAuthorization(); }};
+    transitions_[{SystemState::Waiting, Event::PinEntered}]           = {SystemState::Authorization,     [this]() { onDisableCardReading(); onEnterAuthorization(); }};
     transitions_[{SystemState::Waiting, Event::AuthorizationSuccess}] = {SystemState::Waiting,           noOp};
     transitions_[{SystemState::Waiting, Event::AuthorizationFailed}]  = {SystemState::Waiting,           noOp};
     transitions_[{SystemState::Waiting, Event::TankSelected}]         = {SystemState::Waiting,           noOp};
@@ -599,7 +599,6 @@ void StateMachine::onCancelRefueling() {
     if (controller_) {
         // Stop pump and flowmeter first
         controller_->stopRefueling();
-        // Data transmission will be handled in onEnterState(DataTransmission)
     }
 }
 
@@ -621,7 +620,6 @@ void StateMachine::onIntakeVolumeEntered() {
     LOG_SM_INFO("Intake volume entered");
     if (controller_) {
         controller_->clearInput();  // Clear after intake volume entry
-        // Data transmission will be handled in onEnterState(DataTransmission)
     }
 }
 
