@@ -3,6 +3,8 @@
 // This file is a part of fuelflux application
 
 #include "cares_resolver.h"
+#include "config.h"
+#include "url_utils.h"
 #include "logger.h"
 #include <ares.h>
 #include <netdb.h>
@@ -141,6 +143,7 @@ void HostCallback(void* arg, int status, int timeouts, struct hostent* host) {
     }
 }
 
+
 } // namespace
 
 bool InitializeCaresLibrary() {
@@ -204,10 +207,35 @@ void CleanupCaresLibrary() {
     }
 }
 
-CaresResolver::CaresResolver() {
-}
+CaresResolver::CaresResolver()
+    : CaresResolver(ExtractHostFromUrl(BACKEND_API_URL), Clock::now) {}
+
+CaresResolver::CaresResolver(const std::string& cachedHostname, TimeProvider timeProvider)
+    : cached_hostname_(cachedHostname),
+      time_provider_(std::move(timeProvider)) {}
 
 CaresResolver::~CaresResolver() {
+}
+
+bool CaresResolver::HasValidTargetedCacheForTesting() const {
+    std::lock_guard<std::mutex> lock(resolve_mutex_);
+    return HasValidBackendCacheEntry();
+}
+
+std::string CaresResolver::GetTargetedCachedIpForTesting() const {
+    std::lock_guard<std::mutex> lock(resolve_mutex_);
+    if (!backend_api_cache_entry_.has_value()) {
+        return "";
+    }
+    return backend_api_cache_entry_->ip;
+}
+
+bool CaresResolver::IsBackendApiHostname(const std::string& hostname) const {
+    return !cached_hostname_.empty() && hostname == cached_hostname_;
+}
+
+bool CaresResolver::HasValidBackendCacheEntry() const {
+    return backend_api_cache_entry_.has_value() && time_provider_() < backend_api_cache_entry_->expiresAt;
 }
 
 std::string CaresResolver::Resolve(const std::string& hostname, const std::string& interface) {
@@ -235,6 +263,11 @@ std::string CaresResolver::Resolve(const std::string& hostname, const std::strin
         inet_pton(AF_INET6, hostname.c_str(), &addr6) == 1) {
         LOG_BCK_DEBUG("Hostname {} is already an IP address", hostname);
         return hostname;
+    }
+
+    if (IsBackendApiHostname(hostname) && HasValidBackendCacheEntry()) {
+        LOG_BCK_DEBUG("Using cached DNS entry for {} -> {}", hostname, backend_api_cache_entry_->ip);
+        return backend_api_cache_entry_->ip;
     }
     
     AresChannel channel(interface);
@@ -317,6 +350,12 @@ std::string CaresResolver::Resolve(const std::string& hostname, const std::strin
     LOG_BCK_DEBUG("Resolved {} -> {} via Yandex DNS{}", 
                   hostname, ctx.result,
                   interface.empty() ? "" : " on " + interface);
+
+    if (IsBackendApiHostname(hostname)) {
+        backend_api_cache_entry_ = CacheEntry{ctx.result, time_provider_() + kBackendApiCacheTtl};
+        LOG_BCK_DEBUG("Updated targeted DNS cache for {} (valid for 24h)", hostname);
+    }
+
     return ctx.result;
 }
 

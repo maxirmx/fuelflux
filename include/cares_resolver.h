@@ -8,6 +8,9 @@
 
 #include <string>
 #include <mutex>
+#include <chrono>
+#include <functional>
+#include <optional>
 
 namespace fuelflux {
 
@@ -31,7 +34,12 @@ void CleanupCaresLibrary();
 // NOTE: InitializeCaresLibrary() must be called successfully before using this class
 class CaresResolver {
 public:
+    using Clock = std::chrono::steady_clock;
+    using TimePoint = Clock::time_point;
+    using TimeProvider = std::function<TimePoint()>;
+
     CaresResolver();
+    explicit CaresResolver(const std::string& cachedHostname, TimeProvider timeProvider = Clock::now);
     ~CaresResolver();
 
     // Resolve hostname to IP address using Yandex DNS
@@ -43,7 +51,25 @@ public:
     // Thread-safe: multiple threads can call this method concurrently
     std::string Resolve(const std::string& hostname, const std::string& interface = "");
 
+    // Test helpers for validating targeted cache behavior
+    bool HasValidTargetedCacheForTesting() const;
+    std::string GetTargetedCachedIpForTesting() const;
+
 private:
+    struct CacheEntry {
+        std::string ip;
+        TimePoint expiresAt;
+    };
+
+    bool IsBackendApiHostname(const std::string& hostname) const;
+    bool HasValidBackendCacheEntry() const;
+
+    static constexpr auto kBackendApiCacheTtl = std::chrono::hours(24);
+
+    std::string cached_hostname_;
+    TimeProvider time_provider_;
+    std::optional<CacheEntry> backend_api_cache_entry_;
+
     // Mutex for thread-safe DNS resolution
     // Protects concurrent channel operations
     mutable std::mutex resolve_mutex_;
