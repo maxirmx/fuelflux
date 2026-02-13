@@ -50,7 +50,6 @@ bool StateMachine::processEvent(Event event) {
     std::function<void()> action;
     SystemState fromState;
     SystemState toState;
-    std::optional<SystemState> savedOverride;
     {
         std::scoped_lock lock(mutex_);
         fromState = currentState_;
@@ -64,10 +63,6 @@ bool StateMachine::processEvent(Event event) {
         toState = it->second.first;
         action = it->second.second;
         previousState_ = fromState;
-        // Save any existing override to prevent recursive calls from losing it
-        savedOverride = overrideTargetState_;
-        // Clear override before executing new action
-        overrideTargetState_.reset();
     }
 
     // Only call exit/enter if state actually changes
@@ -86,21 +81,6 @@ bool StateMachine::processEvent(Event event) {
             LOG_SM_ERROR("Exception in transition action: {}", e.what());
         } catch (...) {
             LOG_SM_ERROR("Unknown exception in transition action");
-        }
-    }
-
-    // Check if the action set an override target state and consume it
-    {
-        std::scoped_lock lock(mutex_);
-        if (overrideTargetState_.has_value()) {
-            toState = overrideTargetState_.value();
-            stateChanged = (fromState != toState);
-            // Reset after consuming the override
-            overrideTargetState_.reset();
-        }
-        // Restore saved override if it existed (in case of recursive calls)
-        if (savedOverride.has_value() && !overrideTargetState_.has_value()) {
-            overrideTargetState_ = savedOverride;
         }
     }
 
@@ -168,6 +148,7 @@ void StateMachine::setupTransitions() {
     transitions_[{SystemState::Waiting, Event::CancelPressed}]        = {SystemState::Waiting,           noOp};
     transitions_[{SystemState::Waiting, Event::Timeout}]              = {SystemState::Waiting,           noOp};
     transitions_[{SystemState::Waiting, Event::Error}]                = {SystemState::Error,             noOp};
+    transitions_[{SystemState::Waiting, Event::ErrorRecovery}]        = {SystemState::Waiting,           noOp};
 
     // From PinEntry state
     transitions_[{SystemState::PinEntry, Event::CardPresented}]       = {SystemState::Authorization,     noOp};
@@ -188,6 +169,7 @@ void StateMachine::setupTransitions() {
     transitions_[{SystemState::PinEntry, Event::CancelPressed}]       = {SystemState::Waiting,           [this]() { onCancelPressed();        }};
     transitions_[{SystemState::PinEntry, Event::Timeout}]             = {SystemState::Waiting,           [this]() { onTimeout();              }};
     transitions_[{SystemState::PinEntry, Event::Error}]               = {SystemState::Error,             noOp};
+    transitions_[{SystemState::PinEntry, Event::ErrorRecovery}]       = {SystemState::PinEntry,          noOp};
 
     // From Authorization state
     transitions_[{SystemState::Authorization, Event::CardPresented}]       = {SystemState::Authorization,     noOp};
@@ -208,6 +190,7 @@ void StateMachine::setupTransitions() {
     transitions_[{SystemState::Authorization, Event::CancelPressed}]       = {SystemState::Authorization,     noOp};
     transitions_[{SystemState::Authorization, Event::Timeout}]             = {SystemState::Authorization,     noOp};
     transitions_[{SystemState::Authorization, Event::Error}]               = {SystemState::Error,             noOp};
+    transitions_[{SystemState::Authorization, Event::ErrorRecovery}]       = {SystemState::Authorization,     noOp};
 
     // From NotAuthorized state
     transitions_[{SystemState::NotAuthorized, Event::CardPresented}]       = {SystemState::NotAuthorized,     noOp};
@@ -228,9 +211,11 @@ void StateMachine::setupTransitions() {
     transitions_[{SystemState::NotAuthorized, Event::CancelPressed}]       = {SystemState::Waiting,           [this]() { onCancelPressed();        }};
     transitions_[{SystemState::NotAuthorized, Event::Timeout}]             = {SystemState::Waiting,           [this]() { onTimeout();              }};
     transitions_[{SystemState::NotAuthorized, Event::Error}]               = {SystemState::Error,             noOp};
+    transitions_[{SystemState::NotAuthorized, Event::ErrorRecovery}]       = {SystemState::NotAuthorized,     noOp};
 
     // From TankSelection state
     transitions_[{SystemState::TankSelection, Event::CardPresented}]       = {SystemState::TankSelection,     noOp};
+    transitions_[{SystemState::TankSelection, Event::PinEntryStarted}]     = {SystemState::TankSelection,     noOp};
     transitions_[{SystemState::TankSelection, Event::PinEntered}]          = {SystemState::TankSelection,     noOp};
     transitions_[{SystemState::TankSelection, Event::AuthorizationSuccess}]= {SystemState::TankSelection,     noOp};
     transitions_[{SystemState::TankSelection, Event::AuthorizationFailed}] = {SystemState::TankSelection,     noOp};
@@ -247,6 +232,7 @@ void StateMachine::setupTransitions() {
     transitions_[{SystemState::TankSelection, Event::CancelPressed}]       = {SystemState::Waiting,           [this]() { onCancelPressed();        }};
     transitions_[{SystemState::TankSelection, Event::Timeout}]             = {SystemState::Waiting,           [this]() { onTimeout();              }};
     transitions_[{SystemState::TankSelection, Event::Error}]               = {SystemState::Error,             noOp};
+    transitions_[{SystemState::TankSelection, Event::ErrorRecovery}]       = {SystemState::TankSelection,     noOp};
 
     // From VolumeEntry state
     transitions_[{SystemState::VolumeEntry, Event::CardPresented}]       = {SystemState::VolumeEntry,       noOp};
@@ -267,6 +253,7 @@ void StateMachine::setupTransitions() {
     transitions_[{SystemState::VolumeEntry, Event::CancelPressed}]       = {SystemState::Waiting,           [this]() { onCancelPressed();        }};
     transitions_[{SystemState::VolumeEntry, Event::Timeout}]             = {SystemState::Waiting,           [this]() { onTimeout();              }};
     transitions_[{SystemState::VolumeEntry, Event::Error}]               = {SystemState::Error,             noOp};
+    transitions_[{SystemState::VolumeEntry, Event::ErrorRecovery}]       = {SystemState::VolumeEntry,       noOp};
 
     // From Refueling state
     transitions_[{SystemState::Refueling, Event::CardPresented}]       = {SystemState::Refueling,         noOp};
@@ -287,6 +274,7 @@ void StateMachine::setupTransitions() {
     transitions_[{SystemState::Refueling, Event::CancelPressed}]       = {SystemState::RefuelDataTransmission, [this]() { onCancelRefueling();      }};
     transitions_[{SystemState::Refueling, Event::Timeout}]             = {SystemState::Refueling,         noOp};
     transitions_[{SystemState::Refueling, Event::Error}]               = {SystemState::Error,             noOp};
+    transitions_[{SystemState::Refueling, Event::ErrorRecovery}]       = {SystemState::Refueling,         noOp};
 
     // From RefuelDataTransmission state
     transitions_[{SystemState::RefuelDataTransmission, Event::CardPresented}]       = {SystemState::RefuelDataTransmission,  noOp};
@@ -307,6 +295,7 @@ void StateMachine::setupTransitions() {
     transitions_[{SystemState::RefuelDataTransmission, Event::CancelPressed}]       = {SystemState::RefuelDataTransmission,  noOp};
     transitions_[{SystemState::RefuelDataTransmission, Event::Timeout}]             = {SystemState::RefuelDataTransmission,  noOp};
     transitions_[{SystemState::RefuelDataTransmission, Event::Error}]               = {SystemState::Error,             noOp};
+    transitions_[{SystemState::RefuelDataTransmission, Event::ErrorRecovery}]       = {SystemState::RefuelDataTransmission,  noOp};
 
     // From RefuelingComplete state
     transitions_[{SystemState::RefuelingComplete, Event::CardPresented}]       = {SystemState::Authorization,     noOp};
@@ -327,6 +316,7 @@ void StateMachine::setupTransitions() {
     transitions_[{SystemState::RefuelingComplete, Event::CancelPressed}]       = {SystemState::Waiting,           [this]() { onCancelPressed();        }};
     transitions_[{SystemState::RefuelingComplete, Event::Timeout}]             = {SystemState::Waiting,           [this]() { onTimeout();              }};
     transitions_[{SystemState::RefuelingComplete, Event::Error}]               = {SystemState::Error,             noOp};
+    transitions_[{SystemState::RefuelingComplete, Event::ErrorRecovery}]       = {SystemState::RefuelingComplete, noOp};
 
     // From IntakeDirectionSelection state
     transitions_[{SystemState::IntakeDirectionSelection, Event::CardPresented}]       = {SystemState::IntakeDirectionSelection, noOp};
@@ -347,6 +337,7 @@ void StateMachine::setupTransitions() {
     transitions_[{SystemState::IntakeDirectionSelection, Event::CancelPressed}]       = {SystemState::Waiting,                  [this]() { onCancelPressed();        }};
     transitions_[{SystemState::IntakeDirectionSelection, Event::Timeout}]             = {SystemState::Waiting,                  [this]() { onTimeout();              }};
     transitions_[{SystemState::IntakeDirectionSelection, Event::Error}]               = {SystemState::Error,                    noOp};
+    transitions_[{SystemState::IntakeDirectionSelection, Event::ErrorRecovery}]       = {SystemState::IntakeDirectionSelection, noOp};
 
     // From IntakeVolumeEntry state
     transitions_[{SystemState::IntakeVolumeEntry, Event::CardPresented}]       = {SystemState::IntakeVolumeEntry, noOp};
@@ -367,6 +358,7 @@ void StateMachine::setupTransitions() {
     transitions_[{SystemState::IntakeVolumeEntry, Event::CancelPressed}]       = {SystemState::Waiting,           [this]() { onCancelPressed();        }};
     transitions_[{SystemState::IntakeVolumeEntry, Event::Timeout}]             = {SystemState::Waiting,           [this]() { onTimeout();              }};
     transitions_[{SystemState::IntakeVolumeEntry, Event::Error}]               = {SystemState::Error,             noOp};
+    transitions_[{SystemState::IntakeVolumeEntry, Event::ErrorRecovery}]       = {SystemState::IntakeVolumeEntry, noOp};
 
     // From IntakeDataTransmission state
     transitions_[{SystemState::IntakeDataTransmission, Event::CardPresented}]       = {SystemState::IntakeDataTransmission, noOp};
@@ -387,6 +379,7 @@ void StateMachine::setupTransitions() {
     transitions_[{SystemState::IntakeDataTransmission, Event::CancelPressed}]       = {SystemState::IntakeDataTransmission, noOp};
     transitions_[{SystemState::IntakeDataTransmission, Event::Timeout}]             = {SystemState::IntakeDataTransmission, noOp};
     transitions_[{SystemState::IntakeDataTransmission, Event::Error}]               = {SystemState::Error,             noOp};
+    transitions_[{SystemState::IntakeDataTransmission, Event::ErrorRecovery}]       = {SystemState::IntakeDataTransmission, noOp};
 
     // From IntakeComplete state
     transitions_[{SystemState::IntakeComplete, Event::CardPresented}]       = {SystemState::IntakeComplete,    noOp};
@@ -407,6 +400,7 @@ void StateMachine::setupTransitions() {
     transitions_[{SystemState::IntakeComplete, Event::CancelPressed}]       = {SystemState::Waiting,           [this]() { onCancelPressed();        }};
     transitions_[{SystemState::IntakeComplete, Event::Timeout}]             = {SystemState::Waiting,           [this]() { onTimeout();              }};
     transitions_[{SystemState::IntakeComplete, Event::Error}]               = {SystemState::Error,             noOp};
+    transitions_[{SystemState::IntakeComplete, Event::ErrorRecovery}]       = {SystemState::IntakeComplete,    noOp};
 
     // From Error state
     transitions_[{SystemState::Error, Event::CardPresented}]       = {SystemState::Error,             noOp};
@@ -427,6 +421,7 @@ void StateMachine::setupTransitions() {
     transitions_[{SystemState::Error, Event::CancelPressed}]       = {SystemState::Error,             [this]() { onErrorCancelPressed();   }};
     transitions_[{SystemState::Error, Event::Timeout}]             = {SystemState::Error,             noOp};
     transitions_[{SystemState::Error, Event::Error}]               = {SystemState::Error,             noOp};
+    transitions_[{SystemState::Error, Event::ErrorRecovery}]       = {SystemState::Waiting,           noOp};
     
     LOG_SM_DEBUG("State machine transitions configured with {} entries", transitions_.size());
 }
@@ -672,12 +667,10 @@ void StateMachine::onErrorCancelPressed() {
     if (controller_) {
         bool ok = controller_->reinitializeDevice();
         if (ok) {
-            // On successful reinit, override the target state to Waiting
-            // Must hold mutex_ to safely set overrideTargetState_
-            std::scoped_lock lock(mutex_);
-            overrideTargetState_ = SystemState::Waiting;
+            // On successful reinit, post ErrorRecovery event to transition to Waiting
+            controller_->postEvent(Event::ErrorRecovery);
         }
-        // On failure, state remains Error (no override, transition table says Error->Error)
+        // On failure, state remains Error (no event posted)
     }
 }
 
