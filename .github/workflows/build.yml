@@ -55,10 +55,14 @@ jobs:
         run: |
           # Install lcov if not present
           sudo apt-get install -y lcov
-          # Capture coverage data
-          lcov --capture --directory build --output-file coverage.info
-          # Remove external library coverage, build artifacts, and tests
-          lcov --remove coverage.info '/usr/*' '*/build/_deps/*' '*/tests/*' '*_test.cpp' '*/CMakeFiles/*' --output-file coverage.info
+          # Capture coverage excluding test directories, dependencies, and system files from the start
+          lcov --capture --directory build --output-file coverage.info \
+            --exclude '*/tests/*' \
+            --exclude '*_test.cpp' \
+            --exclude '*test.cpp' \
+            --exclude '*/build/_deps/*' \
+            --exclude '/usr/*' \
+            --exclude '*/CMakeFiles/*'
      
 
       - name: Upload coverage to Codecov
