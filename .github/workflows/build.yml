@@ -43,13 +43,33 @@ jobs:
                libcurl4-openssl-dev libfmt-dev nlohmann-json3-dev libc-ares-dev
 
       - name: Configure CMake
-        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DENABLE_TESTING=ON
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DENABLE_TESTING=ON -DCODE_COVERAGE=ON
 
       - name: Build
         run: cmake --build build --config Release -j$(nproc)
 
       - name: Run tests
         run: cd build && ctest --output-on-failure -C Release
+
+      - name: Generate coverage report
+        run: |
+          # Install lcov if not present
+          sudo apt-get install -y lcov
+          # Capture coverage data
+          # Note: --ignore-errors mismatch is used to suppress false positive warnings
+          # from gcov about mismatched line numbers in optimized C++ template code
+          lcov --capture --directory build --output-file coverage.info --ignore-errors mismatch
+          # Remove external library coverage
+          lcov --remove coverage.info '/usr/*' '*/build/_deps/*' '*/tests/*' --output-file coverage.info --ignore-errors mismatch
+          # List coverage data for debugging
+          lcov --list coverage.info
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          files: ./coverage.info
+          fail_ci_if_error: true
+          token: ${{ secrets.CODECOV_TOKEN }}
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4

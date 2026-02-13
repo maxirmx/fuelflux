@@ -35,6 +35,7 @@ if(MSVC)
     option(TARGET_REAL_FLOW_METER "Use real flow meter hardware" OFF)
     option(ENABLE_TESTING "Enable testing" ON)
     option(ENABLE_AUTH_DELAY "Enable 3-second authorization delay for testing/simulation" ON)
+    option(CODE_COVERAGE "Enable code coverage instrumentation" OFF)
 else()
     option(TARGET_SIM800C "Use PPP interface binding for HTTP backend" ON) 
     option(TARGET_REAL_DISPLAY "Use real NHD display hardware" OFF)   # OFF for now
@@ -44,6 +45,7 @@ else()
     option(TARGET_REAL_FLOW_METER "Use real flow meter hardware" OFF)
     option(ENABLE_TESTING "Enable testing" OFF)
     option(ENABLE_AUTH_DELAY "Enable 3-second authorization delay for testing/simulation" OFF)
+    option(CODE_COVERAGE "Enable code coverage instrumentation" OFF)
 endif()
 
 if(TARGET_SIM800C)
@@ -301,6 +303,13 @@ if(TARGET_SIM800C AND NOT MSVC)
     target_link_libraries(fuelflux_lib PUBLIC ${CARES_LIBRARIES})
 endif()
 
+# Add code coverage flags if enabled
+if(CODE_COVERAGE AND NOT MSVC)
+    message(STATUS "Code coverage enabled")
+    target_compile_options(fuelflux_lib PUBLIC --coverage)
+    target_link_options(fuelflux_lib PUBLIC --coverage)
+endif()
+
 # Create executable with only main.cpp
 add_executable(fuelflux src/main.cpp)
 
@@ -374,6 +383,12 @@ if(ENABLE_TESTING)
         GTest::gmock
         httplib::httplib
     )
+
+    # Add code coverage flags to test executable if enabled
+    if(CODE_COVERAGE AND NOT MSVC)
+        target_compile_options(fuelflux_tests PRIVATE --coverage)
+        target_link_options(fuelflux_tests PRIVATE --coverage)
+    endif()
 
     # Set output directory for tests
     set_target_properties(fuelflux_tests PROPERTIES
