@@ -375,7 +375,7 @@ void StateMachine::setupTransitions() {
     transitions_[{SystemState::IntakeDataTransmission, Event::AmountEntered}]       = {SystemState::IntakeDataTransmission, noOp};
     transitions_[{SystemState::IntakeDataTransmission, Event::RefuelingStarted}]    = {SystemState::IntakeDataTransmission, noOp};
     transitions_[{SystemState::IntakeDataTransmission, Event::RefuelingStopped}]    = {SystemState::IntakeDataTransmission, noOp};
-    transitions_[{SystemState::IntakeDataTransmission, Event::DataTransmissionComplete}] = {SystemState::IntakeComplete, noOp};
+    transitions_[{SystemState::IntakeDataTransmission, Event::DataTransmissionComplete}] = {SystemState::IntakeComplete, [this]() { onEnableCardReading(); }};
     transitions_[{SystemState::IntakeDataTransmission, Event::IntakeSelected}]      = {SystemState::IntakeDataTransmission, noOp};
     transitions_[{SystemState::IntakeDataTransmission, Event::IntakeDirectionSelected}] = {SystemState::IntakeDataTransmission, noOp};
     transitions_[{SystemState::IntakeDataTransmission, Event::IntakeVolumeEntered}] = {SystemState::IntakeDataTransmission, noOp};
