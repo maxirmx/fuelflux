@@ -73,6 +73,13 @@ bool StateMachine::processEvent(Event event) {
         onExitState(fromState);
     }
 
+    // Update state and activity time under lock
+    {
+        std::scoped_lock lock(mutex_);
+        currentState_ = toState;
+        lastActivityTime_ = std::chrono::steady_clock::now();
+    }
+
     // Execute transition action
     if (action) {
         try {
@@ -82,13 +89,6 @@ bool StateMachine::processEvent(Event event) {
         } catch (...) {
             LOG_SM_ERROR("Unknown exception in transition action");
         }
-    }
-
-    // Update state and activity time under lock
-    {
-        std::scoped_lock lock(mutex_);
-        currentState_ = toState;
-        lastActivityTime_ = std::chrono::steady_clock::now();
     }
 
     if (stateChanged) {
