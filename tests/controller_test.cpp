@@ -546,7 +546,7 @@ TEST_F(ControllerTest, NotAuthorizedStateProcessesAllEvents) {
     ASSERT_TRUE(sm.processEvent(Event::AuthorizationFailed));
     ASSERT_EQ(sm.getCurrentState(), SystemState::NotAuthorized);
 
-    const std::array<Event, 18> allEvents = {
+    const std::array<Event, 19> allEvents = {
         Event::CardPresented,
         Event::PinEntryStarted,
         Event::PinEntered,
@@ -564,11 +564,13 @@ TEST_F(ControllerTest, NotAuthorizedStateProcessesAllEvents) {
         Event::IntakeComplete,
         Event::CancelPressed,
         Event::Timeout,
-        Event::Error
+        Event::ErrorRecovery,
+        Event::Error                           // Error shall be the last not to implement reset here
     };
 
     for (const auto event : allEvents) {
-        if (sm.getCurrentState() != SystemState::NotAuthorized) {
+		auto currentState = sm.getCurrentState();
+        if (currentState != SystemState::NotAuthorized) {
             ASSERT_TRUE(sm.processEvent(Event::CardPresented));
             ASSERT_TRUE(sm.processEvent(Event::AuthorizationFailed));
             ASSERT_EQ(sm.getCurrentState(), SystemState::NotAuthorized);

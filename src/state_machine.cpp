@@ -660,7 +660,6 @@ void StateMachine::onErrorCancelPressed() {
         else {
             controller_->postEvent(Event::CancelPressed);
         }
-        // On success, we're already transitioning to Waiting state
     }
 }
 
