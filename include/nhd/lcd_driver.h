@@ -25,6 +25,9 @@ public:
     // Clear the display
     virtual void clear() = 0;
     
+    // Control display backlight/power (if supported)
+    virtual void set_backlight(bool enabled) = 0;
+    
     // Get display dimensions
     virtual int width() const = 0;
     virtual int height() const = 0;

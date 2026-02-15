@@ -18,6 +18,7 @@ public:
     void init() override;
     void set_framebuffer(const std::vector<uint8_t>& fb) override;
     void clear() override;
+    void set_backlight(bool enabled) override { display_on(enabled); }
     int width() const override { return w_; }
     int height() const override { return h_; }
     

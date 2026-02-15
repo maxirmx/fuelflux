@@ -22,6 +22,11 @@ public:
         set_mono_framebuffer(fb); 
     }
     void clear() override { fill(0x0000); }
+    void set_backlight(bool enabled) override { 
+        // ILI9488 doesn't have built-in backlight control in this implementation
+        // Could be extended if hardware supports it
+        (void)enabled; 
+    }
     int width() const override { return w_; }
     int height() const override { return h_; }
     

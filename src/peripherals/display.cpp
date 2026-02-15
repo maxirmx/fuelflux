@@ -171,17 +171,7 @@ void RealDisplay::setBacklight(bool enabled) {
     }
     
     try {
-#ifdef DISPLAY_ST7565
-        // ST7565 has display_on method for backlight control
-        auto* st7565 = dynamic_cast<St7565*>(lcd_.get());
-        if (st7565) {
-            st7565->display_on(enabled);
-        }
-#elif defined(DISPLAY_ILI9488)
-        // ILI9488 doesn't have built-in backlight control in this implementation
-        // Could be extended if hardware supports it
-        (void)enabled; // Suppress unused warning
-#endif
+        lcd_->set_backlight(enabled);
     } catch (const std::exception& e) {
         LOG_ERROR("Error setting backlight on RealDisplay: {}", e.what());
     }
