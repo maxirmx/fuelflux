@@ -1,0 +1,62 @@
+{
+  "sinks": [
+    {
+      "name": "console",
+      "type": "stdout_color",
+      "level": "warn",
+      "pattern": "[%Y-%m-%d %H:%M:%S.%e] [%n] [%l] %v"
+    },
+    {
+      "name": "file",
+      "type": "rotating_file",
+      "filename": "@LOG_DIR@/fuelflux.log",
+      "max_size": "10MB",
+      "max_files": 5,
+      "level": "debug",
+      "pattern": "[%Y-%m-%d %H:%M:%S.%e] [%t] [%n] [%l] [%s:%#] %v"
+    },
+    {
+      "name": "error_file",
+      "type": "rotating_file",
+      "filename": "@LOG_DIR@/fuelflux_error.log",
+      "max_size": "5MB",
+      "max_files": 3,
+      "level": "warn",
+      "pattern": "[%Y-%m-%d %H:%M:%S.%e] [%t] [%n] [%l] [%s:%#] %v"
+    }
+  ],
+  "loggers": [
+    {
+      "name": "fuelflux",
+      "level": "debug",
+      "sinks": [ "console", "file", "error_file" ]
+    },
+    {
+      "name": "StateMachine",
+      "level": "info",
+      "sinks": [ "console", "file", "error_file" ]
+    },
+    {
+      "name": "Controller",
+      "level": "info",
+      "sinks": [ "console", "file", "error_file" ]
+    },
+    {
+      "name": "Peripherals",
+      "level": "debug",
+      "sinks": [ "console", "file", "error_file" ]
+    },
+    {
+      "name": "CloudService",
+      "level": "info",
+      "sinks": [ "console", "file", "error_file" ]
+    }
+  ],
+  "global_level": "debug",
+  "async": {
+    "enabled": true,
+    "queue_size": 8192,
+    "thread_count": 1,
+    "overflow_policy": "block"
+  }
+}

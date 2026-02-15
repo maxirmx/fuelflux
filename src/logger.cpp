@@ -3,6 +3,7 @@
 // This file is a part of fuelflux application
 
 #include "logger.h"
+#include "config.h"
 #include <nlohmann/json.hpp>
 #include <fstream>
 #include <iostream>
@@ -68,36 +69,36 @@ bool Logger::initialize(const std::string& configPath) {
 }
 
 bool Logger::initializeDefault() {
-    if (initialized_) {
-        return true;
-    }
+if (initialized_) {
+    return true;
+}
     
-    try {
-        // Create logs directory if it doesn't exist
-        std::filesystem::create_directories("logs");
+try {
+    // Create logs directory if it doesn't exist
+    std::filesystem::create_directories(LOG_DIR);
         
-        // Initialize async logging
-        spdlog::init_thread_pool(8192, 1);
+    // Initialize async logging
+    spdlog::init_thread_pool(8192, 1);
         
-        // Create sinks
-        auto console_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
-        console_sink->set_level(spdlog::level::info);
-        console_sink->set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%n] [%^%l%$] %v");
+    // Create sinks
+    auto console_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
+    console_sink->set_level(spdlog::level::info);
+    console_sink->set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%n] [%^%l%$] %v");
         
-        auto file_sink = std::make_shared<spdlog::sinks::rotating_file_sink_mt>(
-            "logs/fuelflux.log", 1024 * 1024 * 10, 5);
-        file_sink->set_level(spdlog::level::debug);
-        file_sink->set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%t] [%n] [%l] [%s:%#] %v");
+    auto file_sink = std::make_shared<spdlog::sinks::rotating_file_sink_mt>(
+        LOG_DIR + "/fuelflux.log", 1024 * 1024 * 10, 5);
+    file_sink->set_level(spdlog::level::debug);
+    file_sink->set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%t] [%n] [%l] [%s:%#] %v");
         
-        auto error_sink = std::make_shared<spdlog::sinks::rotating_file_sink_mt>(
-            "logs/fuelflux_error.log", 1024 * 1024 * 5, 3);
-        error_sink->set_level(spdlog::level::warn);
-        error_sink->set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%t] [%n] [%l] [%s:%#] %v");
+    auto error_sink = std::make_shared<spdlog::sinks::rotating_file_sink_mt>(
+        LOG_DIR + "/fuelflux_error.log", 1024 * 1024 * 5, 3);
+    error_sink->set_level(spdlog::level::warn);
+    error_sink->set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%t] [%n] [%l] [%s:%#] %v");
         
-        std::vector<spdlog::sink_ptr> sinks{console_sink, file_sink, error_sink};
+    std::vector<spdlog::sink_ptr> sinks{console_sink, file_sink, error_sink};
         
-        // Create loggers
-        auto main_logger = std::make_shared<spdlog::async_logger>(
+    // Create loggers
+    auto main_logger = std::make_shared<spdlog::async_logger>(
             "fuelflux", sinks.begin(), sinks.end(), 
             spdlog::thread_pool(), spdlog::async_overflow_policy::block);
         main_logger->set_level(spdlog::level::debug);
