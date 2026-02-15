@@ -23,6 +23,7 @@ class MessageStorage;
 struct BackendTankInfo {
     int idTank;
     std::string nameTank = "";
+    Volume volume = 0.0;  // Tank capacity in liters
 };
 
 // Interface for backend communication to enable mocking in tests

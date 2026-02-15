@@ -104,6 +104,7 @@ class Controller {
     // Tank operations
     void selectTank(TankNumber tankNumber);
     bool isTankValid(TankNumber tankNumber) const;
+    Volume getTankVolume(TankNumber tankNumber) const;
 
     // Volume/Amount operations
     void enterVolume(Volume volume);
