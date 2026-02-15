@@ -54,11 +54,9 @@ private:
     // State transition table
     void setupTransitions();
     
-    // State entry/exit actions
-    void onEnterState(SystemState state);
-    void onExitState(SystemState state);
-    
     // Transition actions
+    void doAuthorization();
+    void doRefuelingDataTransmission();
     void onTankSelected();
     void onVolumeEntered();
     void onCancelRefueling();

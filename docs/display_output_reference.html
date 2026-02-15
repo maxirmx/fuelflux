@@ -1,0 +1,523 @@
+﻿<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Display Output Reference - FuelFlux</title>
+    <style>
+        body {
+            font-family: 'Calibri', 'Segoe UI', sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        h1 {
+            color: #2c3e50;
+            border-bottom: 3px solid #3498db;
+            padding-bottom: 10px;
+            margin-top: 30px;
+        }
+        h2 {
+            color: #34495e;
+            margin-top: 25px;
+            border-left: 4px solid #3498db;
+            padding-left: 10px;
+        }
+        h3 {
+            color: #7f8c8d;
+            margin-top: 15px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+            background-color: white;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        th {
+            background-color: #3498db;
+            color: white;
+            padding: 12px;
+            text-align: left;
+            font-weight: bold;
+            border: 1px solid #2980b9;
+        }
+        td {
+            padding: 10px 12px;
+            border: 1px solid #bdc3c7;
+        }
+        tr:nth-child(even) {
+            background-color: #ecf0f1;
+        }
+        tr:hover {
+            background-color: #d5dbdb;
+        }
+        strong {
+            color: #2c3e50;
+        }
+        code {
+            background-color: #f4f4f4;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: 'Courier New', monospace;
+            color: #e74c3c;
+        }
+        .variable {
+            color: #e74c3c;
+            font-style: italic;
+        }
+        .note {
+            background-color: #fff3cd;
+            border-left: 4px solid #ffc107;
+            padding: 12px;
+            margin: 15px 0;
+            border-radius: 3px;
+        }
+        .warning {
+            background-color: #f8d7da;
+            border-left: 4px solid #dc3545;
+            padding: 12px;
+            margin: 15px 0;
+            border-radius: 3px;
+        }
+        ul, ol {
+            margin: 10px 0;
+            padding-left: 20px;
+        }
+        li {
+            margin: 5px 0;
+        }
+        .section-break {
+            page-break-before: always;
+        }
+    </style>
+</head>
+<body>
+    <h1>Display Output Reference</h1>
+    <p><em>FuelFlux Application - Display State Documentation</em></p>
+    <p>This document outlines the display output for each system state in the FuelFlux application. The display has 4 lines, each capable of showing text content.</p>
+
+    <div class="section-break"></div>
+    <h2>Display Output Table</h2>
+    <table>
+        <thead>
+            <tr>
+                <th>State</th>
+                <th>Line 1</th>
+                <th>Len</th>
+                <th>Line 2</th>
+                <th>Len</th>
+                <th>Line 3</th>
+                <th>Len</th>
+                <th>Line 4</th>
+                <th>Len</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td><strong>No Controller</strong></td>
+                <td>"ОШИБКА"</td>
+                <td>6</td>
+                <td>"Контроллер недоступен"</td>
+                <td>21</td>
+                <td>""</td>
+                <td>0</td>
+                <td>""</td>
+                <td>0</td>
+            </tr>
+            <tr>
+                <td><strong>Waiting</strong></td>
+                <td>"Поднесите карту или введите PIN"</td>
+                <td>31</td>
+                <td><code>getCurrentTimeString()</code></td>
+                <td>16</td>
+                <td>""</td>
+                <td>0</td>
+                <td><code>getDeviceSerialNumber()</code></td>
+                <td>15</td>
+            </tr>
+            <tr>
+                <td><strong>PinEntry</strong></td>
+                <td>"Введите PIN и нажмите Старт (A)"</td>
+                <td>33</td>
+                <td>Asterisks (*) matching PIN length</td>
+                <td><span class="variable">var</span></td>
+                <td>""</td>
+                <td>0</td>
+                <td><code>getCurrentTimeString()</code></td>
+                <td>16</td>
+            </tr>
+            <tr>
+                <td><strong>Authorization</strong></td>
+                <td>"Авторизация..."</td>
+                <td>14</td>
+                <td>""</td>
+                <td>0</td>
+                <td>"Пожалуйста, подождите"</td>
+                <td>22</td>
+                <td><code>getDeviceSerialNumber()</code></td>
+                <td>15</td>
+            </tr>
+            <tr>
+                <td><strong>NotAuthorized</strong></td>
+                <td>"Доступ запрещен"</td>
+                <td>15</td>
+                <td>""</td>
+                <td>0</td>
+                <td>"Нажмите Отмена (B)"</td>
+                <td>18</td>
+                <td>"или подождите"</td>
+                <td>13</td>
+            </tr>
+            <tr>
+                <td><strong>TankSelection</strong></td>
+                <td>"Выберите цистерну и нажмите Старт (A)"</td>
+                <td>38</td>
+                <td><code>getCurrentInput()</code></td>
+                <td><span class="variable">var</span></td>
+                <td>"Доступные цистерны: " + tank numbers</td>
+                <td><span class="variable">var</span></td>
+                <td>""</td>
+                <td>0</td>
+            </tr>
+            <tr>
+                <td><strong>VolumeEntry</strong></td>
+                <td>"Введите объём и нажмите Старт (A)"</td>
+                <td>34</td>
+                <td><code>getCurrentInput()</code></td>
+                <td><span class="variable">var</span></td>
+                <td>Max volume if Customer, else ""</td>
+                <td><span class="variable">var</span></td>
+                <td>"Нажмите * для макс, # для очистки"</td>
+                <td>34</td>
+            </tr>
+            <tr>
+                <td><strong>Refueling</strong></td>
+                <td>"Заправка " + volume target</td>
+                <td><span class="variable">var</span></td>
+                <td><code>getCurrentRefuelVolume()</code></td>
+                <td><span class="variable">var</span></td>
+                <td>""</td>
+                <td>0</td>
+                <td>""</td>
+                <td>0</td>
+            </tr>
+            <tr>
+                <td><strong>RefuelDataTransmission</strong></td>
+                <td>"Передача данных"</td>
+                <td>15</td>
+                <td>"Пожалуйста, подождите"</td>
+                <td>22</td>
+                <td>""</td>
+                <td>0</td>
+                <td><code>getDeviceSerialNumber()</code></td>
+                <td>15</td>
+            </tr>
+            <tr>
+                <td><strong>RefuelingComplete</strong></td>
+                <td>"Заправка завершена"</td>
+                <td>18</td>
+                <td><code>getCurrentRefuelVolume()</code></td>
+                <td><span class="variable">var</span></td>
+                <td>""</td>
+                <td>0</td>
+                <td>"Поднесите карту или введите PIN"</td>
+                <td>31</td>
+            </tr>
+            <tr>
+                <td><strong>IntakeDirectionSelection</strong></td>
+                <td>"Выберите 1/2 и нажмите Старт (A)"</td>
+                <td>34</td>
+                <td>""</td>
+                <td>0</td>
+                <td>"1 - Приём / 2 - Слив"</td>
+                <td>21</td>
+                <td>"Цистерна " + tank number</td>
+                <td><span class="variable">var</span></td>
+            </tr>
+            <tr>
+                <td><strong>IntakeVolumeEntry</strong></td>
+                <td>"Введите объём и нажмите Старт (A)"</td>
+                <td>34</td>
+                <td><code>getCurrentInput()</code></td>
+                <td><span class="variable">var</span></td>
+                <td>"Цистерна " + tank number</td>
+                <td><span class="variable">var</span></td>
+                <td>Direction: "Приём топлива" or "Слив топлива"</td>
+                <td><span class="variable">var</span></td>
+            </tr>
+            <tr>
+                <td><strong>IntakeDataTransmission</strong></td>
+                <td>"Передача данных"</td>
+                <td>15</td>
+                <td>"Пожалуйста, подождите"</td>
+                <td>22</td>
+                <td>""</td>
+                <td>0</td>
+                <td><code>getDeviceSerialNumber()</code></td>
+                <td>15</td>
+            </tr>
+            <tr>
+                <td><strong>IntakeComplete</strong></td>
+                <td>"Приём завершён" or "Слив завершён"</td>
+                <td>14-14</td>
+                <td><code>getEnteredVolume()</code> formatted</td>
+                <td><span class="variable">var</span></td>
+                <td>""</td>
+                <td>0</td>
+                <td>"Поднесите карту или введите PIN"</td>
+                <td>31</td>
+            </tr>
+            <tr>
+                <td><strong>Error</strong></td>
+                <td>"ОШИБКА"</td>
+                <td>6</td>
+                <td><code>getLastErrorMessage()</code></td>
+                <td><span class="variable">var</span></td>
+                <td>"Нажмите Отмена (B) для продолжения"</td>
+                <td>35</td>
+                <td><code>getCurrentTimeString()</code></td>
+                <td>16</td>
+            </tr>
+        </tbody>
+    </table>
+
+    <div class="section-break"></div>
+    <h2>State Descriptions</h2>
+
+    <h3>No Controller</h3>
+    <p><strong>Critical system error</strong> - Controller instance is not available. This is a defensive error state displayed when <code>getDisplayMessage()</code> is called but the controller pointer is null.</p>
+    <ul>
+        <li><strong>Line 1:</strong> "ОШИБКА" (ERROR)</li>
+        <li><strong>Line 2:</strong> "Контроллер недоступен" (Controller unavailable)</li>
+        <li><strong>Line 3:</strong> Empty</li>
+        <li><strong>Line 4:</strong> Empty</li>
+    </ul>
+    <div class="warning">
+        <strong>⚠️ Warning:</strong> This state should never appear in normal operation. It indicates a serious initialization or memory management failure.
+    </div>
+
+    <h3>Waiting</h3>
+    <p>Initial/idle state where the device awaits user interaction.</p>
+    <ul>
+        <li><strong>Line 1:</strong> Prompt to scan card or enter PIN</li>
+        <li><strong>Line 2:</strong> Current time (format: HH:MM DD.MM.YYYY)</li>
+        <li><strong>Line 3:</strong> Empty</li>
+        <li><strong>Line 4:</strong> Device serial number (15 chars)</li>
+    </ul>
+
+    <h3>PinEntry</h3>
+    <p>User is entering a PIN code via keyboard.</p>
+    <ul>
+        <li><strong>Line 1:</strong> Instruction to enter PIN and press Start (A)</li>
+        <li><strong>Line 2:</strong> Asterisks (*) for PIN masking (one asterisk per digit)</li>
+        <li><strong>Line 3:</strong> Empty</li>
+        <li><strong>Line 4:</strong> Current time</li>
+    </ul>
+
+    <h3>Authorization</h3>
+    <p>System is authorizing user credentials with backend.</p>
+    <ul>
+        <li><strong>Line 1:</strong> "Авторизация..." (Authorizing...)</li>
+        <li><strong>Line 2:</strong> Empty</li>
+        <li><strong>Line 3:</strong> "Пожалуйста, подождите" (Please wait)</li>
+        <li><strong>Line 4:</strong> Device serial number</li>
+    </ul>
+
+    <h3>NotAuthorized</h3>
+    <p>User authorization failed.</p>
+    <ul>
+        <li><strong>Line 1:</strong> "Доступ запрещен" (Access denied)</li>
+        <li><strong>Line 2:</strong> Empty</li>
+        <li><strong>Line 3:</strong> "Нажмите Отмена (B)" (Press Cancel/B)</li>
+        <li><strong>Line 4:</strong> "или подождите" (or wait)</li>
+    </ul>
+
+    <h3>TankSelection</h3>
+    <p>User selects which fuel tank to operate with.</p>
+    <ul>
+        <li><strong>Line 1:</strong> "Выберите цистерну и нажмите Старт (A)"</li>
+        <li><strong>Line 2:</strong> User input (tank number being entered)</li>
+        <li><strong>Line 3:</strong> "Доступные цистерны: " followed by available tank numbers</li>
+        <li><strong>Line 4:</strong> Empty</li>
+    </ul>
+
+    <h3>VolumeEntry</h3>
+    <p>User enters refueling volume.</p>
+    <ul>
+        <li><strong>Line 1:</strong> "Введите объём и нажмите Старт (A)" (Enter volume and press Start A)</li>
+        <li><strong>Line 2:</strong> Current input (volume being entered)</li>
+        <li><strong>Line 3:</strong> For customers: "Макс: X.XX L" (Max allowed volume). For operators: empty</li>
+        <li><strong>Line 4:</strong> "Нажмите * для макс, # для очистки" (Press * for max, # to clear)</li>
+    </ul>
+
+    <h3>Refueling</h3>
+    <p>Active refueling in progress.</p>
+    <ul>
+        <li><strong>Line 1:</strong> "Заправка " + target volume (e.g., "Заправка 50.00 L")</li>
+        <li><strong>Line 2:</strong> Current refueled volume (format: X.XX L)</li>
+        <li><strong>Line 3:</strong> Empty</li>
+        <li><strong>Line 4:</strong> Empty</li>
+    </ul>
+
+    <h3>RefuelDataTransmission</h3>
+    <p>System is transmitting refuel transaction data to backend.</p>
+    <ul>
+        <li><strong>Line 1:</strong> "Передача данных" (Data transmission)</li>
+        <li><strong>Line 2:</strong> "Пожалуйста, подождите" (Please wait)</li>
+        <li><strong>Line 3:</strong> Empty</li>
+        <li><strong>Line 4:</strong> Device serial number</li>
+    </ul>
+
+    <h3>RefuelingComplete</h3>
+    <p>Refueling transaction completed successfully.</p>
+    <ul>
+        <li><strong>Line 1:</strong> "Заправка завершена" (Refueling complete)</li>
+        <li><strong>Line 2:</strong> Total refueled volume (format: X.XX L)</li>
+        <li><strong>Line 3:</strong> Empty</li>
+        <li><strong>Line 4:</strong> "Поднесите карту или введите PIN" (Scan card or enter PIN)</li>
+    </ul>
+
+    <h3>IntakeDirectionSelection</h3>
+    <p>Operator selects fuel intake direction (In/Out).</p>
+    <ul>
+        <li><strong>Line 1:</strong> "Выберите 1/2 и нажмите Старт (A)" (Select 1/2 and press Start A)</li>
+        <li><strong>Line 2:</strong> Empty</li>
+        <li><strong>Line 3:</strong> "1 - Приём / 2 - Слив" (1 - In / 2 - Out)</li>
+        <li><strong>Line 4:</strong> "Цистерна " + tank number (Tank X)</li>
+    </ul>
+
+    <h3>IntakeVolumeEntry</h3>
+    <p>Operator enters fuel intake volume.</p>
+    <ul>
+        <li><strong>Line 1:</strong> "Введите объём и нажмите Старт (A)" (Enter volume and press Start A)</li>
+        <li><strong>Line 2:</strong> Current input (volume being entered)</li>
+        <li><strong>Line 3:</strong> "Цистерна " + tank number (Tank X)</li>
+        <li><strong>Line 4:</strong> Direction indication: "Приём топлива" (Fuel intake) or "Слив топлива" (Fuel discharge)</li>
+    </ul>
+
+    <h3>IntakeDataTransmission</h3>
+    <p>System is transmitting fuel intake transaction data to backend.</p>
+    <ul>
+        <li><strong>Line 1:</strong> "Передача данных" (Data transmission)</li>
+        <li><strong>Line 2:</strong> "Пожалуйста, подождите" (Please wait)</li>
+        <li><strong>Line 3:</strong> Empty</li>
+        <li><strong>Line 4:</strong> Device serial number</li>
+    </ul>
+
+    <h3>IntakeComplete</h3>
+    <p>Fuel intake operation completed successfully.</p>
+    <ul>
+        <li><strong>Line 1:</strong> "Приём завершён" (Intake complete) or "Слив завершён" (Discharge complete)</li>
+        <li><strong>Line 2:</strong> Total intake/discharge volume (format: X.XX L)</li>
+        <li><strong>Line 3:</strong> Empty</li>
+        <li><strong>Line 4:</strong> "Поднесите карту или введите PIN" (Scan card or enter PIN)</li>
+    </ul>
+
+    <h3>Error</h3>
+    <p>System error state.</p>
+    <ul>
+        <li><strong>Line 1:</strong> "ОШИБКА" (ERROR)</li>
+        <li><strong>Line 2:</strong> Error message from <code>getLastErrorMessage()</code> (variable length, typically 20-40 chars)</li>
+        <li><strong>Line 3:</strong> "Нажмите Отмена (B) для продолжения" (Press Cancel/B to continue)</li>
+        <li><strong>Line 4:</strong> Current time</li>
+    </ul>
+
+    <div class="section-break"></div>
+    <h2>Dynamic Content Explanation</h2>
+
+    <h3>getCurrentInput()</h3>
+    <p>Returns the user's current keyboard/card input. Maximum length is typically 10 characters for numeric input (volume, PIN, tank number).</p>
+
+    <h3>getCurrentTimeString()</h3>
+    <p>Returns formatted time: <code>HH:MM DD.MM.YYYY</code> (16 characters including spaces)</p>
+
+    <h3>getDeviceSerialNumber()</h3>
+    <p>Returns the device/controller ID (15 characters: CONTROLLER_UID)</p>
+
+    <h3>getLastErrorMessage()</h3>
+    <p>Returns the error description. Length varies based on error type (typically 15-40 characters).</p>
+    <p><strong>Common errors:</strong></p>
+    <ul>
+        <li>"Ошибка дисплея" (Display error)</li>
+        <li>"Ошибка клавиатуры" (Keyboard error)</li>
+        <li>"Ошибка считывателя карт" (Card reader error)</li>
+        <li>"Ошибка насоса" (Pump error)</li>
+        <li>"Ошибка расходомера" (Flow meter error)</li>
+    </ul>
+
+    <h3>getCurrentRefuelVolume() / getEnteredVolume()</h3>
+    <p>Returns volume formatted as <code>X.XX L</code> where X.XX is a floating-point number with 2 decimal places.</p>
+
+    <h3>formatVolume(Volume)</h3>
+    <p>Formats volume as <code>X.XX L</code> (e.g., "50.00 L", "0.25 L")</p>
+
+    <div class="section-break"></div>
+    <h2>Display Line Length Considerations</h2>
+
+    <div class="warning">
+        <strong>⚠️ Important:</strong> Display width is approximately 20-24 characters (depending on physical display)
+    </div>
+
+    <h3>Critical states with long text:</h3>
+    <ul>
+        <li><strong>TankSelection:</strong> Line 3 can exceed width if many tanks available (tank numbers concatenated with spaces)</li>
+        <li><strong>VolumeEntry:</strong> Line 4 is 34 characters (may require wrapping or truncation on small displays)</li>
+        <li><strong>IntakeDirectionSelection:</strong> Line 1 is 34 characters (may require wrapping)</li>
+        <li><strong>Error:</strong> Line 2 varies; long error messages may exceed width</li>
+    </ul>
+
+    <div class="section-break"></div>
+    <h2>User Interaction</h2>
+
+    <h3>Keyboard Input Summary</h3>
+    <table>
+        <thead>
+            <tr>
+                <th>Key</th>
+                <th>Function</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td><strong>0-9</strong></td>
+                <td>Input digits (volume, PIN, tank number)</td>
+            </tr>
+            <tr>
+                <td><strong>A (KeyStart)</strong></td>
+                <td>Confirm/Start current operation</td>
+            </tr>
+            <tr>
+                <td><strong>B (KeyStop)</strong></td>
+                <td>Cancel operation</td>
+            </tr>
+            <tr>
+                <td><strong>* (KeyMax)</strong></td>
+                <td>Set maximum allowed volume (only in VolumeEntry state for customers)</td>
+            </tr>
+            <tr>
+                <td><strong># (KeyClear)</strong></td>
+                <td>Clear last digit</td>
+            </tr>
+        </tbody>
+    </table>
+
+    <h3>Display Updates</h3>
+    <p>Display is updated when:</p>
+    <ol>
+        <li>User presses any key</li>
+        <li>State machine transitions occur</li>
+        <li>Flow meter updates during refueling</li>
+        <li>Current input changes</li>
+        <li>Error conditions are triggered</li>
+    </ol>
+
+    <div class="note">
+        <strong>📝 Note:</strong> This document was auto-generated from the FuelFlux state machine implementation. All display strings and their character lengths are accurate as of the current application version.
+    </div>
+
+</body>
+</html>

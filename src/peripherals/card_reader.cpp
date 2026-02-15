@@ -162,7 +162,7 @@ void HardwareCardReader::pollingLoop() {
         }
 
         auto uid = pollForUid(device_);
-        if (uid.has_value()) {
+        if (uid.has_value() && readingEnabled_) {
 			LOG_INFO("Card presented with UID: {}", *uid);
             CardPresentedCallback callback;
             {

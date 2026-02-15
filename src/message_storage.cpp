@@ -13,9 +13,11 @@ namespace fuelflux {
 MessageStorage::MessageStorage(const std::string& dbPath)
 : db_(nullptr)
 , dbPath_(dbPath) {
-// Ensure the directory exists
-std::filesystem::path dbfile(dbPath);
-std::filesystem::create_directories(dbfile.parent_path());
+// Ensure the directory exists (skip for in-memory databases)
+if (dbPath != ":memory:") {
+    std::filesystem::path dbfile(dbPath);
+    std::filesystem::create_directories(dbfile.parent_path());
+}
     
 sqlite3* db = nullptr;
 if (sqlite3_open(dbPath.c_str(), &db) != SQLITE_OK) {

@@ -189,6 +189,14 @@ protected:
     MockPump* mockPump;
     MockFlowMeter* mockFlowMeter;
 
+    // Helper to safely shutdown controller and join thread
+    void shutdownControllerAndJoinThread(std::thread& controllerThread) {
+        controller->shutdown();
+        if (controllerThread.joinable()) {
+            controllerThread.join();
+        }
+    }
+
     void SetUp() override {
         auto backend = std::make_shared<NiceMock<MockBackend>>();
         mockBackend = backend.get();
@@ -330,10 +338,7 @@ TEST_F(ControllerTest, HandleKeyPressDigit) {
     EXPECT_EQ(controller->getStateMachine().getCurrentState(), SystemState::PinEntry);
     
     // Shutdown to stop event loop
-    controller->shutdown();
-    if (controllerThread.joinable()) {
-        controllerThread.join();
-    }
+    shutdownControllerAndJoinThread(controllerThread);
 }
 
 // Test key press handling - clear
@@ -365,10 +370,7 @@ TEST_F(ControllerTest, HandleKeyPressClear) {
     EXPECT_EQ(controller->getCurrentInput(), "1");
 
     // Shutdown to stop event loop
-    controller->shutdown();
-    if (controllerThread.joinable()) {
-        controllerThread.join();
-    }
+    shutdownControllerAndJoinThread(controllerThread);
 }
 
 // Test state machine initial state
@@ -438,10 +440,7 @@ TEST_F(ControllerTest, ErrorCancelReinitializesDevice) {
     EXPECT_CALL(*mockPump, shutdown()).Times(1);
     EXPECT_CALL(*mockFlowMeter, shutdown()).Times(1);
     
-    controller->shutdown();
-    if (controllerThread.joinable()) {
-        controllerThread.join();
-    }
+    shutdownControllerAndJoinThread(controllerThread);
 }
 
 // Test display update
@@ -511,10 +510,7 @@ TEST_F(ControllerTest, AuthorizationFailureTransitionsToNotAuthorized) {
     DisplayMessage msg = controller->getStateMachine().getDisplayMessage();
     EXPECT_EQ(msg.line1, "Доступ запрещен");
 
-    controller->shutdown();
-    if (controllerThread.joinable()) {
-        controllerThread.join();
-    }
+    shutdownControllerAndJoinThread(controllerThread);
 }
 
 TEST_F(ControllerTest, NotAuthorizedCancelAndTimeoutReturnToWaiting) {
@@ -537,10 +533,7 @@ TEST_F(ControllerTest, NotAuthorizedCancelAndTimeoutReturnToWaiting) {
     controller->postEvent(Event::Timeout);
     ASSERT_TRUE(waitForState(SystemState::Waiting));
 
-    controller->shutdown();
-    if (controllerThread.joinable()) {
-        controllerThread.join();
-    }
+    shutdownControllerAndJoinThread(controllerThread);
 }
 
 TEST_F(ControllerTest, NotAuthorizedStateProcessesAllEvents) {
@@ -651,8 +644,7 @@ TEST_F(ControllerTest, RefuelingCompletionDisplaysFinalVolume) {
     ASSERT_TRUE(waitForState(SystemState::Waiting));
     EXPECT_DOUBLE_EQ(controller->getCurrentRefuelVolume(), 0.0);
 
-    controller->shutdown();
-    if (controllerThread.joinable()) controllerThread.join();
+    shutdownControllerAndJoinThread(controllerThread);
 }
 
 // Test clear input
@@ -804,10 +796,7 @@ TEST_F(ControllerTest, PinEntryStartedEvent) {
     EXPECT_EQ(controller->getCurrentInput(), "5");
     
     // Shutdown to stop event loop
-    controller->shutdown();
-    if (controllerThread.joinable()) {
-        controllerThread.join();
-    }
+    shutdownControllerAndJoinThread(controllerThread);
 }
 
 // Test card presentation during PIN entry
@@ -838,10 +827,7 @@ TEST_F(ControllerTest, CardPresentedDuringPinEntry) {
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
     
     // Shutdown to stop event loop
-    controller->shutdown();
-    if (controllerThread.joinable()) {
-        controllerThread.join();
-    }
+    shutdownControllerAndJoinThread(controllerThread);
 }
 
 // Test invalid tank number - doesn't exist
@@ -862,10 +848,7 @@ TEST_F(ControllerTest, InvalidTankNumberDoesNotExist) {
     // by checking that invalid tanks are rejected
     
     // Shutdown to stop event loop
-    controller->shutdown();
-    if (controllerThread.joinable()) {
-        controllerThread.join();
-    }
+    shutdownControllerAndJoinThread(controllerThread);
     
     // Direct validation test
     EXPECT_FALSE(controller->isTankValid(0));
@@ -917,10 +900,7 @@ TEST_F(ControllerTest, TankSelectionInvalidNumber) {
     EXPECT_FALSE(controller->isTankValid(99)); // Non-existent tank
     
     // Cleanup
-    controller->shutdown();
-    if (controllerThread.joinable()) {
-        controllerThread.join();
-    }
+    shutdownControllerAndJoinThread(controllerThread);
 }
 
 // Test parseVolumeFromInput edge cases via enterVolume
@@ -1049,10 +1029,7 @@ TEST_F(ControllerTest, CustomerRefuelWorkflow) {
     mockFlowMeter->simulateFlow(50.0);
     ASSERT_TRUE(waitForState(SystemState::RefuelingComplete));
 
-    controller->shutdown();
-    if (controllerThread.joinable()) {
-        controllerThread.join();
-    }
+    shutdownControllerAndJoinThread(controllerThread);
 }
 
 // Test display message structure for Waiting state
@@ -1092,13 +1069,10 @@ TEST_F(ControllerTest, DisplayMessagePinEntryState) {
     // Verify structure
     EXPECT_EQ(msg.line1, "Введите PIN и нажмите Старт (A)");
     EXPECT_EQ(msg.line2, "*");  // One digit entered, masked
-    EXPECT_FALSE(msg.line3.empty());  // Should have timestamp
-    EXPECT_EQ(msg.line4, "");
+    EXPECT_EQ(msg.line3, "");
+    EXPECT_FALSE(msg.line4.empty());  // Should have timestamp
     
-    controller->shutdown();
-    if (controllerThread.joinable()) {
-        controllerThread.join();
-    }
+    shutdownControllerAndJoinThread(controllerThread);
 }
 
 // Test display message for TankSelection state
@@ -1131,10 +1105,7 @@ TEST_F(ControllerTest, DisplayMessageTankSelectionState) {
     EXPECT_TRUE(msg.line3.find("2") != std::string::npos);
     EXPECT_EQ(msg.line4, "");
     
-    controller->shutdown();
-    if (controllerThread.joinable()) {
-        controllerThread.join();
-    }
+    shutdownControllerAndJoinThread(controllerThread);
 }
 
 // Test display message for VolumeEntry state
@@ -1168,10 +1139,7 @@ TEST_F(ControllerTest, DisplayMessageVolumeEntryState) {
     EXPECT_TRUE(msg.line3.find("Макс:") != std::string::npos);  // Should show max for customers
     EXPECT_EQ(msg.line4, "Нажмите * для макс, # для очистки");
     
-    controller->shutdown();
-    if (controllerThread.joinable()) {
-        controllerThread.join();
-    }
+    shutdownControllerAndJoinThread(controllerThread);
 }
 
 // Test that all states provide exactly four lines
