@@ -1671,12 +1671,18 @@ TEST_F(ControllerTest, VolumeValidationBothConstraintsSatisfied) {
 }
 
 TEST_F(ControllerTest, OperatorNotRestrictedByTankCapacity) {
-    // Setup: Operator should not be restricted by tank capacity during refueling
-    // (Note: Operators typically use intake flow, but if they refuel, tank capacity should still apply)
+    // Setup: Operators use intake flow, not refueling volume entry
+    // This test verifies that operators go directly to IntakeDirectionSelection
+    // and don't encounter volume validation (which only applies to customer refueling)
     mockBackend->roleId_ = static_cast<int>(UserRole::Operator);
     mockBackend->allowance_ = 0.0;  // Operators don't have allowance
     mockBackend->price_ = 0.0;
-    mockBackend->tanksStorage_ = { BackendTankInfo{1, "Tank A", 50.0} };
+    
+    BackendTankInfo tank1;
+    tank1.idTank = 1;
+    tank1.nameTank = "Tank A";
+    tank1.volume = 50.0;
+    mockBackend->tanksStorage_ = { tank1 };
 
     EXPECT_CALL(*mockBackend, Authorize("operator-card")).WillOnce([this]() {
         mockBackend->authorized_ = true;
@@ -1699,8 +1705,8 @@ TEST_F(ControllerTest, OperatorNotRestrictedByTankCapacity) {
     controller->handleCardPresented("operator-card");
     ASSERT_TRUE(waitForState(SystemState::TankSelection));
 
-    // Operators go to IntakeDirectionSelection, not VolumeEntry for refueling
-    // This test verifies operators can proceed without refueling volume validation
+    // Operators go to IntakeDirectionSelection, not VolumeEntry
+    // Tank capacity validation doesn't apply to operators since they use intake flow
     controller->selectTank(1);
     ASSERT_TRUE(waitForState(SystemState::IntakeDirectionSelection));
 
