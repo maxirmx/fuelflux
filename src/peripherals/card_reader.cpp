@@ -23,11 +23,12 @@ namespace {
 constexpr auto kPollDelay = std::chrono::milliseconds(150);
 constexpr auto kReadCooldown = std::chrono::milliseconds(500);
 
-std::string toHex(const uint8_t* data, size_t len) {
+std::string toString(const uint8_t* data, size_t len) {
     std::ostringstream oss;
     for (size_t i = 0; i < len; ++i) {
         //    if (i) oss << ":";
-        oss << std::hex << std::setw(2) << std::setfill('0') << static_cast<int>(data[i]);
+        // oss << std::hex << std::setw(2) << std::setfill('0') << static_cast<int>(data[i]);
+        oss <<  static_cast<int>(data[i]);
     }
     return oss.str();
 }
@@ -46,7 +47,7 @@ std::optional<std::string> pollForUid(nfc_device* device) {
     if (target.nm.nmt == NMT_ISO14443A) {
         const auto& nai = target.nti.nai;
         if (nai.szUidLen > 0) {
-            return toHex(nai.abtUid, nai.szUidLen);
+            return toString(nai.abtUid, nai.szUidLen);
         }
     }
 
