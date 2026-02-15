@@ -6,19 +6,24 @@
 #include <cstdint>
 #include <vector>
 #include "nhd/spi_linux.h"
+#include "nhd/lcd_driver.h"
 #include "hardware/gpio_line.h"
 
-class St7565 {
+class St7565 : public ILcdDriver {
 public:
     St7565(SpiLinux& spi, GpioLine& dc, GpioLine& rst, int width=128, int height=64);
 
-    void reset();
-    void init();
+    // ILcdDriver implementation
+    void reset() override;
+    void init() override;
+    void set_framebuffer(const std::vector<uint8_t>& fb) override;
+    void clear() override;
+    int width() const override { return w_; }
+    int height() const override { return h_; }
+    
+    // ST7565-specific methods
     void set_contrast(uint8_t v);
     void display_on(bool on);
-
-    void set_framebuffer(const std::vector<uint8_t>& fb);
-    void clear();
 
 private:
     void cmd(uint8_t b);
