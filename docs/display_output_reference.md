@@ -1,4 +1,4 @@
-# Display Output Reference
+п»ї# Display Output Reference
 
 This document outlines the display output for each system state in the FuelFlux application. The display has 4 lines, each capable of showing text content.
 
@@ -6,29 +6,29 @@ This document outlines the display output for each system state in the FuelFlux 
 
 | State | Line 1 | Len | Line 2 | Len | Line 3 | Len | Line 4 | Len |
 |-------|--------|-----|---------|-----|---------|-----|----------|-----|
-| **No Controller** | "ОШИБКА" | 6 | "Контроллер недоступен" | 21 | "" | 0 | "" | 0 |
-| **Waiting** | "Поднесите карту или введите PIN" | 31 | `getCurrentTimeString()` | 16 | "" | 0 | `getDeviceSerialNumber()` | 15 |
-| **PinEntry** | "Введите PIN и нажмите Старт (A)" | 33 | Asterisks (*) matching PIN length | var | "" | 0 | `getCurrentTimeString()` | 16 |
-| **Authorization** | "Авторизация..." | 14 | "" | 0 | "Пожалуйста, подождите" | 22 | `getDeviceSerialNumber()` | 15 |
-| **NotAuthorized** | "Доступ запрещен" | 15 | "" | 0 | "Нажмите Отмена (B)" | 18 | "или подождите" | 13 |
-| **TankSelection** | "Выберите цистерну и нажмите Старт (A)" | 38 | `getCurrentInput()` | var | "Доступные цистерны: " + tank numbers | var | "" | 0 |
-| **VolumeEntry** | "Введите объём и нажмите Старт (A)" | 34 | `getCurrentInput()` | var | Max volume if Customer, else "" | var | "Нажмите * для макс, # для очистки" | 34 |
-| **Refueling** | "Заправка " + volume target | var | `getCurrentRefuelVolume()` | var | "" | 0 | "" | 0 |
-| **RefuelDataTransmission** | "Передача данных" | 15 | "Пожалуйста, подождите" | 22 | "" | 0 | `getDeviceSerialNumber()` | 15 |
-| **RefuelingComplete** | "Заправка завершена" | 18 | `getCurrentRefuelVolume()` | var | "" | 0 | "Поднесите карту или введите PIN" | 31 |
-| **IntakeDirectionSelection** | "Выберите 1/2 и нажмите Старт (A)" | 34 | "" | 0 | "1 - Приём / 2 - Слив" | 21 | "Цистерна " + tank number | var |
-| **IntakeVolumeEntry** | "Введите объём и нажмите Старт (A)" | 34 | `getCurrentInput()` | var | "Цистерна " + tank number | var | Direction: "Приём топлива" or "Слив топлива" | var |
-| **IntakeDataTransmission** | "Передача данных" | 15 | "Пожалуйста, подождите" | 22 | "" | 0 | `getDeviceSerialNumber()` | 15 |
-| **IntakeComplete** | "Приём завершён" or "Слив завершён" | 14-14 | `getEnteredVolume()` formatted | var | "" | 0 | "Поднесите карту или введите PIN" | 31 |
-| **Error** | "ОШИБКА" | 6 | `getLastErrorMessage()` | var | "Нажмите Отмена (B) для продолжения" | 35 | `getCurrentTimeString()` | 16 |
+| **No Controller** | "РћРЁРР‘РљРђ" | 6 | "РљРѕРЅС‚СЂРѕР»Р»РµСЂ РЅРµРґРѕСЃС‚СѓРїРµРЅ" | 21 | "" | 0 | "" | 0 |
+| **Waiting** | "РџРѕРґРЅРµСЃРёС‚Рµ РєР°СЂС‚Сѓ РёР»Рё РІРІРµРґРёС‚Рµ PIN" | 31 | `getCurrentTimeString()` | 16 | "" | 0 | `getDeviceSerialNumber()` | 15 |
+| **PinEntry** | "Р’РІРµРґРёС‚Рµ PIN Рё РЅР°Р¶РјРёС‚Рµ РЎС‚Р°СЂС‚ (A)" | 33 | Asterisks (*) matching PIN length | var | "" | 0 | `getCurrentTimeString()` | 16 |
+| **Authorization** | "РђРІС‚РѕСЂРёР·Р°С†РёСЏ..." | 14 | "" | 0 | "РџРѕР¶Р°Р»СѓР№СЃС‚Р°, РїРѕРґРѕР¶РґРёС‚Рµ" | 22 | `getDeviceSerialNumber()` | 15 |
+| **NotAuthorized** | "Р”РѕСЃС‚СѓРї Р·Р°РїСЂРµС‰РµРЅ" | 15 | "" | 0 | "РќР°Р¶РјРёС‚Рµ РћС‚РјРµРЅР° (B)" | 18 | "РёР»Рё РїРѕРґРѕР¶РґРёС‚Рµ" | 13 |
+| **TankSelection** | "Р’С‹Р±РµСЂРёС‚Рµ С†РёСЃС‚РµСЂРЅСѓ Рё РЅР°Р¶РјРёС‚Рµ РЎС‚Р°СЂС‚ (A)" | 38 | `getCurrentInput()` | var | "Р”РѕСЃС‚СѓРїРЅС‹Рµ С†РёСЃС‚РµСЂРЅС‹: " + tank numbers | var | "" | 0 |
+| **VolumeEntry** | "Р’РІРµРґРёС‚Рµ РѕР±СЉС‘Рј Рё РЅР°Р¶РјРёС‚Рµ РЎС‚Р°СЂС‚ (A)" | 34 | `getCurrentInput()` | var | Max volume if Customer, else "" | var | "РќР°Р¶РјРёС‚Рµ * РґР»СЏ РјР°РєСЃ, # РґР»СЏ РѕС‡РёСЃС‚РєРё" | 34 |
+| **Refueling** | "Р—Р°РїСЂР°РІРєР° " + volume target | var | `getCurrentRefuelVolume()` | var | "" | 0 | "" | 0 |
+| **RefuelDataTransmission** | "РџРµСЂРµРґР°С‡Р° РґР°РЅРЅС‹С…" | 15 | "РџРѕР¶Р°Р»СѓР№СЃС‚Р°, РїРѕРґРѕР¶РґРёС‚Рµ" | 22 | "" | 0 | `getDeviceSerialNumber()` | 15 |
+| **RefuelingComplete** | "Р—Р°РїСЂР°РІРєР° Р·Р°РІРµСЂС€РµРЅР°" | 18 | `getCurrentRefuelVolume()` | var | "" | 0 | "РџРѕРґРЅРµСЃРёС‚Рµ РєР°СЂС‚Сѓ РёР»Рё РІРІРµРґРёС‚Рµ PIN" | 31 |
+| **IntakeDirectionSelection** | "Р’С‹Р±РµСЂРёС‚Рµ 1/2 Рё РЅР°Р¶РјРёС‚Рµ РЎС‚Р°СЂС‚ (A)" | 34 | "" | 0 | "1 - РџСЂРёС‘Рј / 2 - РЎР»РёРІ" | 21 | "Р¦РёСЃС‚РµСЂРЅР° " + tank number | var |
+| **IntakeVolumeEntry** | "Р’РІРµРґРёС‚Рµ РѕР±СЉС‘Рј Рё РЅР°Р¶РјРёС‚Рµ РЎС‚Р°СЂС‚ (A)" | 34 | `getCurrentInput()` | var | "Р¦РёСЃС‚РµСЂРЅР° " + tank number | var | Direction: "РџСЂРёС‘Рј С‚РѕРїР»РёРІР°" or "РЎР»РёРІ С‚РѕРїР»РёРІР°" | var |
+| **IntakeDataTransmission** | "РџРµСЂРµРґР°С‡Р° РґР°РЅРЅС‹С…" | 15 | "РџРѕР¶Р°Р»СѓР№СЃС‚Р°, РїРѕРґРѕР¶РґРёС‚Рµ" | 22 | "" | 0 | `getDeviceSerialNumber()` | 15 |
+| **IntakeComplete** | "РџСЂРёС‘Рј Р·Р°РІРµСЂС€С‘РЅ" or "РЎР»РёРІ Р·Р°РІРµСЂС€С‘РЅ" | 14-14 | `getEnteredVolume()` formatted | var | "" | 0 | "РџРѕРґРЅРµСЃРёС‚Рµ РєР°СЂС‚Сѓ РёР»Рё РІРІРµРґРёС‚Рµ PIN" | 31 |
+| **Error** | "РћРЁРР‘РљРђ" | 6 | `getLastErrorMessage()` | var | "РќР°Р¶РјРёС‚Рµ РћС‚РјРµРЅР° (B) РґР»СЏ РїСЂРѕРґРѕР»Р¶РµРЅРёСЏ" | 35 | `getCurrentTimeString()` | 16 |
 
 ## State Descriptions
 
 ### No Controller
 **Critical system error** - Controller instance is not available. This is a defensive error state displayed when `getDisplayMessage()` is called but the controller pointer is null.
 
-- Line 1: "ОШИБКА" (ERROR)
-- Line 2: "Контроллер недоступен" (Controller unavailable)
+- Line 1: "РћРЁРР‘РљРђ" (ERROR)
+- Line 2: "РљРѕРЅС‚СЂРѕР»Р»РµСЂ РЅРµРґРѕСЃС‚СѓРїРµРЅ" (Controller unavailable)
 - Line 3: Empty
 - Line 4: Empty
 
@@ -50,86 +50,86 @@ User is entering a PIN code via keyboard.
 
 ### Authorization
 System is authorizing user credentials with backend.
-- Line 1: "Авторизация..." (Authorizing...)
+- Line 1: "РђРІС‚РѕСЂРёР·Р°С†РёСЏ..." (Authorizing...)
 - Line 2: Empty
-- Line 3: "Пожалуйста, подождите" (Please wait)
+- Line 3: "РџРѕР¶Р°Р»СѓР№СЃС‚Р°, РїРѕРґРѕР¶РґРёС‚Рµ" (Please wait)
 - Line 4: Device serial number
 
 ### NotAuthorized
 User authorization failed.
-- Line 1: "Доступ запрещен" (Access denied)
+- Line 1: "Р”РѕСЃС‚СѓРї Р·Р°РїСЂРµС‰РµРЅ" (Access denied)
 - Line 2: Empty
-- Line 3: "Нажмите Отмена (B)" (Press Cancel/B)
-- Line 4: "или подождите" (or wait)
+- Line 3: "РќР°Р¶РјРёС‚Рµ РћС‚РјРµРЅР° (B)" (Press Cancel/B)
+- Line 4: "РёР»Рё РїРѕРґРѕР¶РґРёС‚Рµ" (or wait)
 
 ### TankSelection
 User selects which fuel tank to operate with.
-- Line 1: "Выберите цистерну и нажмите Старт (A)"
+- Line 1: "Р’С‹Р±РµСЂРёС‚Рµ С†РёСЃС‚РµСЂРЅСѓ Рё РЅР°Р¶РјРёС‚Рµ РЎС‚Р°СЂС‚ (A)"
 - Line 2: User input (tank number being entered)
-- Line 3: "Доступные цистерны: " followed by available tank numbers
+- Line 3: "Р”РѕСЃС‚СѓРїРЅС‹Рµ С†РёСЃС‚РµСЂРЅС‹: " followed by available tank numbers
 - Line 4: Empty
 
 ### VolumeEntry
 User enters refueling volume.
-- Line 1: "Введите объём и нажмите Старт (A)" (Enter volume and press Start A)
+- Line 1: "Р’РІРµРґРёС‚Рµ РѕР±СЉС‘Рј Рё РЅР°Р¶РјРёС‚Рµ РЎС‚Р°СЂС‚ (A)" (Enter volume and press Start A)
 - Line 2: Current input (volume being entered)
-- Line 3: For customers: "Макс: X.XX L" (Max allowed volume). For operators: empty
-- Line 4: "Нажмите * для макс, # для очистки" (Press * for max, # to clear)
+- Line 3: For customers: "РњР°РєСЃ: X.XX L" (Max allowed volume). For operators: empty
+- Line 4: "РќР°Р¶РјРёС‚Рµ * РґР»СЏ РјР°РєСЃ, # РґР»СЏ РѕС‡РёСЃС‚РєРё" (Press * for max, # to clear)
 
 ### Refueling
 Active refueling in progress.
-- Line 1: "Заправка " + target volume (e.g., "Заправка 50.00 L")
+- Line 1: "Р—Р°РїСЂР°РІРєР° " + target volume (e.g., "Р—Р°РїСЂР°РІРєР° 50.00 L")
 - Line 2: Current refueled volume (format: X.XX L)
 - Line 3: Empty
 - Line 4: Empty
 
 ### RefuelDataTransmission
 System is transmitting refuel transaction data to backend.
-- Line 1: "Передача данных" (Data transmission)
-- Line 2: "Пожалуйста, подождите" (Please wait)
+- Line 1: "РџРµСЂРµРґР°С‡Р° РґР°РЅРЅС‹С…" (Data transmission)
+- Line 2: "РџРѕР¶Р°Р»СѓР№СЃС‚Р°, РїРѕРґРѕР¶РґРёС‚Рµ" (Please wait)
 - Line 3: Empty
 - Line 4: Device serial number
 
 ### RefuelingComplete
 Refueling transaction completed successfully.
-- Line 1: "Заправка завершена" (Refueling complete)
+- Line 1: "Р—Р°РїСЂР°РІРєР° Р·Р°РІРµСЂС€РµРЅР°" (Refueling complete)
 - Line 2: Total refueled volume (format: X.XX L)
 - Line 3: Empty
-- Line 4: "Поднесите карту или введите PIN" (Scan card or enter PIN)
+- Line 4: "РџРѕРґРЅРµСЃРёС‚Рµ РєР°СЂС‚Сѓ РёР»Рё РІРІРµРґРёС‚Рµ PIN" (Scan card or enter PIN)
 
 ### IntakeDirectionSelection
 Operator selects fuel intake direction (In/Out).
-- Line 1: "Выберите 1/2 и нажмите Старт (A)" (Select 1/2 and press Start A)
+- Line 1: "Р’С‹Р±РµСЂРёС‚Рµ 1/2 Рё РЅР°Р¶РјРёС‚Рµ РЎС‚Р°СЂС‚ (A)" (Select 1/2 and press Start A)
 - Line 2: Empty
-- Line 3: "1 - Приём / 2 - Слив" (1 - In / 2 - Out)
-- Line 4: "Цистерна " + tank number (Tank X)
+- Line 3: "1 - РџСЂРёС‘Рј / 2 - РЎР»РёРІ" (1 - In / 2 - Out)
+- Line 4: "Р¦РёСЃС‚РµСЂРЅР° " + tank number (Tank X)
 
 ### IntakeVolumeEntry
 Operator enters fuel intake volume.
-- Line 1: "Введите объём и нажмите Старт (A)" (Enter volume and press Start A)
+- Line 1: "Р’РІРµРґРёС‚Рµ РѕР±СЉС‘Рј Рё РЅР°Р¶РјРёС‚Рµ РЎС‚Р°СЂС‚ (A)" (Enter volume and press Start A)
 - Line 2: Current input (volume being entered)
-- Line 3: "Цистерна " + tank number (Tank X)
-- Line 4: Direction indication: "Приём топлива" (Fuel intake) or "Слив топлива" (Fuel discharge)
+- Line 3: "Р¦РёСЃС‚РµСЂРЅР° " + tank number (Tank X)
+- Line 4: Direction indication: "РџСЂРёС‘Рј С‚РѕРїР»РёРІР°" (Fuel intake) or "РЎР»РёРІ С‚РѕРїР»РёРІР°" (Fuel discharge)
 
 ### IntakeDataTransmission
 System is transmitting fuel intake transaction data to backend.
-- Line 1: "Передача данных" (Data transmission)
-- Line 2: "Пожалуйста, подождите" (Please wait)
+- Line 1: "РџРµСЂРµРґР°С‡Р° РґР°РЅРЅС‹С…" (Data transmission)
+- Line 2: "РџРѕР¶Р°Р»СѓР№СЃС‚Р°, РїРѕРґРѕР¶РґРёС‚Рµ" (Please wait)
 - Line 3: Empty
 - Line 4: Device serial number
 
 ### IntakeComplete
 Fuel intake operation completed successfully.
-- Line 1: "Приём завершён" (Intake complete) or "Слив завершён" (Discharge complete)
+- Line 1: "РџСЂРёС‘Рј Р·Р°РІРµСЂС€С‘РЅ" (Intake complete) or "РЎР»РёРІ Р·Р°РІРµСЂС€С‘РЅ" (Discharge complete)
 - Line 2: Total intake/discharge volume (format: X.XX L)
 - Line 3: Empty
-- Line 4: "Поднесите карту или введите PIN" (Scan card or enter PIN)
+- Line 4: "РџРѕРґРЅРµСЃРёС‚Рµ РєР°СЂС‚Сѓ РёР»Рё РІРІРµРґРёС‚Рµ PIN" (Scan card or enter PIN)
 
 ### Error
 System error state.
-- Line 1: "ОШИБКА" (ERROR)
+- Line 1: "РћРЁРР‘РљРђ" (ERROR)
 - Line 2: Error message from `getLastErrorMessage()` (variable length, typically 20-40 chars)
-- Line 3: "Нажмите Отмена (B) для продолжения" (Press Cancel/B to continue)
+- Line 3: "РќР°Р¶РјРёС‚Рµ РћС‚РјРµРЅР° (B) РґР»СЏ РїСЂРѕРґРѕР»Р¶РµРЅРёСЏ" (Press Cancel/B to continue)
 - Line 4: Current time
 
 ## Dynamic Content Explanation
@@ -146,11 +146,11 @@ Returns the device/controller ID (15 characters: CONTROLLER_UID)
 ### getLastErrorMessage()
 Returns the error description. Length varies based on error type (typically 15-40 characters).
 Common errors:
-- "Ошибка дисплея" (Display error)
-- "Ошибка клавиатуры" (Keyboard error)
-- "Ошибка считывателя карт" (Card reader error)
-- "Ошибка насоса" (Pump error)
-- "Ошибка расходомера" (Flow meter error)
+- "РћС€РёР±РєР° РґРёСЃРїР»РµСЏ" (Display error)
+- "РћС€РёР±РєР° РєР»Р°РІРёР°С‚СѓСЂС‹" (Keyboard error)
+- "РћС€РёР±РєР° СЃС‡РёС‚С‹РІР°С‚РµР»СЏ РєР°СЂС‚" (Card reader error)
+- "РћС€РёР±РєР° РЅР°СЃРѕСЃР°" (Pump error)
+- "РћС€РёР±РєР° СЂР°СЃС…РѕРґРѕРјРµСЂР°" (Flow meter error)
 
 ### getCurrentRefuelVolume() / getEnteredVolume()
 Returns volume formatted as `X.XX L` where X.XX is a floating-point number with 2 decimal places.
