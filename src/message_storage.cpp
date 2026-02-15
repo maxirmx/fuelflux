@@ -5,20 +5,24 @@
 #include "message_storage.h"
 
 #include <sqlite3.h>
-
+#include <filesystem>
 #include <stdexcept>
 
 namespace fuelflux {
 
 MessageStorage::MessageStorage(const std::string& dbPath)
-    : db_(nullptr)
-    , dbPath_(dbPath) {
-    sqlite3* db = nullptr;
-    if (sqlite3_open(dbPath.c_str(), &db) != SQLITE_OK) {
-        std::string error = sqlite3_errmsg(db);
-        sqlite3_close(db);
-        throw std::runtime_error("Failed to open SQLite database: " + error);
-    }
+: db_(nullptr)
+, dbPath_(dbPath) {
+// Ensure the directory exists
+std::filesystem::path dbfile(dbPath);
+std::filesystem::create_directories(dbfile.parent_path());
+    
+sqlite3* db = nullptr;
+if (sqlite3_open(dbPath.c_str(), &db) != SQLITE_OK) {
+    std::string error = sqlite3_errmsg(db);
+    sqlite3_close(db);
+    throw std::runtime_error("Failed to open SQLite database: " + error);
+}
 
     db_ = db;
     sqlite3_busy_timeout(db, 5000);

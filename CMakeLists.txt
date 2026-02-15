@@ -36,8 +36,8 @@ if(MSVC)
     option(ENABLE_TESTING "Enable testing" ON)
     # This will cause backend integration test to fail
     option(ENABLE_AUTH_DELAY "Enable 3-second authorization delay for testing/simulation" OFF)
-    # ....
     option(CODE_COVERAGE "Enable code coverage instrumentation" OFF)
+    option(UNIX_FOLDER_CONVENTION "Use Unix-style folder convention (e.g. /var/fuelflux) for logs and database" OFF) 
 else()
     option(TARGET_SIM800C "Use PPP interface binding for HTTP backend" ON) 
     option(TARGET_REAL_DISPLAY "Use real NHD display hardware" OFF)   # OFF for now
@@ -48,6 +48,7 @@ else()
     option(ENABLE_TESTING "Enable testing" OFF)
     option(ENABLE_AUTH_DELAY "Enable 3-second authorization delay for testing/simulation" OFF)
     option(CODE_COVERAGE "Enable code coverage instrumentation" OFF)
+    option(UNIX_FOLDER_CONVENTION "Use Unix-style folder convention (e.g. /var/fuelflux) for logs and database" ON) 
 endif()
 
 if(TARGET_SIM800C)
@@ -92,6 +93,17 @@ endif()
 if(ENABLE_AUTH_DELAY)
     message(STATUS "ENABLE_AUTH_DELAY enabled - 3-second authorization delay for testing/simulation")
     add_compile_definitions(ENABLE_AUTH_DELAY)
+endif()
+
+if(UNIX_FOLDER_CONVENTION)
+    message(STATUS "UNIX_FOLDER_CONVENTION enabled - logs at /var/fuelflux/logs, database at /var/fuelflux/db")
+    add_compile_definitions(FUELFLUX_UNIX_FOLDER_CONVENTION)
+    set(LOG_DIR "/var/fuelflux/logs")
+    set(DB_DIR "/var/fuelflux/db")
+else()
+    message(STATUS "UNIX_FOLDER_CONVENTION disabled - logs at ./fuelflux/logs, database at ./fuelflux/db")
+    set(LOG_DIR "fuelflux/logs")
+    set(DB_DIR "fuelflux/db")
 endif()
 
 # Set default install prefix to a more reasonable location
@@ -328,16 +340,23 @@ set_target_properties(fuelflux PROPERTIES
 # Install target
 install(TARGETS fuelflux DESTINATION bin)
 
+# Generate logging.json configuration file based on LOG_DIR setting
+configure_file(
+    "config/logging.json.in"
+    "${CMAKE_BINARY_DIR}/config/logging.json"
+    @ONLY
+)
+
 # Install configuration files
 # The logging.json file will be installed to <install_prefix>/config/
 # At runtime, the application looks for config/logging.json relative to working directory
-install(FILES config/logging.json DESTINATION config)
+install(FILES ${CMAKE_BINARY_DIR}/config/logging.json DESTINATION config)
 
 # Ensure the config directory is copied next to the built executable for each build
 add_custom_command(TARGET fuelflux POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:fuelflux>/config"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        "${CMAKE_SOURCE_DIR}/config/logging.json"
+        "${CMAKE_BINARY_DIR}/config/logging.json"
         "$<TARGET_FILE_DIR:fuelflux>/config/logging.json"
     COMMENT "Copy logging.json to output config folder"
 )

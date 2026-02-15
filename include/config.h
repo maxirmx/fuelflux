@@ -8,4 +8,11 @@
 
 const std::string CONTROLLER_UID = "232390330480218";  
 const std::string BACKEND_API_URL = "http://ttft.uxp.ru";
-const std::string STORAGE_DB_PATH = "fuelflux_storage.db";
+
+#ifdef FUELFLUX_UNIX_FOLDER_CONVENTION
+const std::string STORAGE_DB_PATH = "/var/fuelflux/db/fuelflux_storage.db";
+const std::string LOG_DIR = "/var/fuelflux/logs";
+#else
+const std::string STORAGE_DB_PATH = "fuelflux/db/fuelflux_storage.db";
+const std::string LOG_DIR = "fuelflux/logs";
+#endif
