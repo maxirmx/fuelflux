@@ -1,4 +1,4 @@
-﻿// Copyright (C) 2025, 2026 Maxim [maxirmx] Samsonov (www.sw.consulting)
+// Copyright (C) 2025, 2026 Maxim [maxirmx] Samsonov (www.sw.consulting)
 // All rights reserved.
 // This file is a part of fuelflux application
 
@@ -7,6 +7,7 @@
 #include "config.h"
 #include "console_emulator.h"
 #include "logger.h"
+#include "message_storage.h"
 #include <sstream>
 #include <iomanip>
 #include <ctime>
@@ -26,10 +27,12 @@ std::shared_ptr<IBackend> Controller::CreateDefaultBackendShared(const std::stri
     return std::make_shared<Backend>(BACKEND_API_URL, controllerUid, storage);
 }
 
-Controller::Controller(ControllerId controllerId, std::shared_ptr<IBackend> backend)
+Controller::Controller(ControllerId controllerId, std::shared_ptr<IBackend> backend, 
+                       std::shared_ptr<MessageStorage> storage)
     : controllerId_(std::move(controllerId))
     , stateMachine_(this)
     , backend_(backend ? std::move(backend) : CreateDefaultBackend())
+    , storage_(std::move(storage))
     , selectedTank_(0)
     , enteredVolume_(0.0)
     , selectedIntakeDirection_(IntakeDirection::In)
@@ -41,6 +44,7 @@ Controller::Controller(ControllerId controllerId, std::shared_ptr<IBackend> back
 }
 
 Controller::~Controller() {
+    stopCacheUpdateThread();
     shutdown();
 }
 
@@ -55,6 +59,11 @@ bool Controller::initialize() {
     
     // Initialize state machine
     stateMachine_.initialize();
+    
+    // Start cache update thread if storage is available
+    if (storage_) {
+        startCacheUpdateThread();
+    }
     
     // Set isRunning_ to true even if initialization failed to allow
     // the controller to run in Error state and wait for reinitialization.
@@ -78,6 +87,9 @@ void Controller::shutdown() {
     
         // Shutdown peripherals
         shutdownPeripherals();
+        
+        // Stop cache update thread
+        stopCacheUpdateThread();
     }
     LOG_CTRL_INFO("Shutdown complete");
 }
@@ -373,6 +385,11 @@ void Controller::requestAuthorization(const UserId& userId) {
         currentUser_.allowance = backend_->GetAllowance();
         currentUser_.price = backend_->GetPrice();
 
+        // Update user cache on successful authorization
+        if (storage_) {
+            storage_->UpdateCacheEntry(userId, currentUser_.allowance, backend_->GetRoleId());
+        }
+
         availableTanks_.clear();
         for (const auto& tank : backend_->GetFuelTanks()) {
             TankInfo info;
@@ -528,6 +545,17 @@ void Controller::completeIntakeOperation() {
 void Controller::logRefuelTransaction(const RefuelTransaction& transaction) {
     if (backend_) {
         (void)backend_->Refuel(transaction.tankNumber, transaction.volume);
+        
+        // Deduct allowance from cache for RoleId==1 (Customer) regardless of success
+        // Only do this for new refuels when authorized, not backlog processing
+        if (storage_ && currentUser_.role == UserRole::Customer && backend_->IsAuthorized()) {
+            double newAllowance = currentUser_.allowance - transaction.volume;
+            if (newAllowance < 0.0) {
+                newAllowance = 0.0;
+            }
+            storage_->UpdateCacheEntry(transaction.userId, newAllowance, static_cast<int>(currentUser_.role));
+            LOG_CTRL_INFO("Updated cache allowance for {}: {}", transaction.userId, newAllowance);
+        }
     }
 }
 
@@ -744,6 +772,127 @@ void Controller::shutdownPeripherals() {
     if (cardReader_) cardReader_->shutdown();
     if (pump_) pump_->shutdown();
     if (flowMeter_) flowMeter_->shutdown();
+}
+
+void Controller::populateUserCache() {
+    if (!storage_ || !backend_) {
+        LOG_CTRL_WARN("Cannot populate user cache: storage or backend not available");
+        return;
+    }
+
+    LOG_CTRL_INFO("Starting user cache population");
+    
+    try {
+        // Clear staging table
+        storage_->ClearCacheStaging();
+        
+        const int batchSize = 10;
+        int first = 0;
+        int fetchedCount = 0;
+        int totalFetched = 0;
+        
+        // Fetch cards in batches until we get less than requested
+        do {
+            auto cards = backend_->GetCards(controllerId_, first, batchSize);
+            fetchedCount = static_cast<int>(cards.size());
+            
+            // Add all fetched cards to staging
+            for (const auto& card : cards) {
+                if (!storage_->AddCacheEntryStaging(card.uid, card.allowance, card.roleId)) {
+                    LOG_CTRL_ERROR("Failed to add card {} to cache staging", card.uid);
+                }
+            }
+            
+            totalFetched += fetchedCount;
+            first += fetchedCount;
+            
+        } while (fetchedCount == batchSize);
+        
+        // Swap staging to active cache
+        if (storage_->SwapCache()) {
+            LOG_CTRL_INFO("User cache populated successfully with {} entries", totalFetched);
+        } else {
+            LOG_CTRL_ERROR("Failed to swap user cache");
+        }
+        
+    } catch (const std::exception& e) {
+        LOG_CTRL_ERROR("Exception during cache population: {}", e.what());
+    }
+}
+
+void Controller::cacheUpdateWorker() {
+    LOG_CTRL_INFO("Cache update thread started");
+    
+    // Populate cache immediately on startup
+    populateUserCache();
+    
+    // Calculate next scheduled update at 2 AM
+    auto now = std::chrono::system_clock::now();
+    auto nowTime = std::chrono::system_clock::to_time_t(now);
+    std::tm tm = *std::localtime(&nowTime);
+    
+    // Set to 2 AM today
+    tm.tm_hour = 2;
+    tm.tm_min = 0;
+    tm.tm_sec = 0;
+    
+    nextScheduledUpdate_ = std::chrono::system_clock::from_time_t(std::mktime(&tm));
+    
+    // If 2 AM has already passed today, schedule for tomorrow
+    if (nextScheduledUpdate_ <= now) {
+        nextScheduledUpdate_ += std::chrono::hours(24);
+    }
+    
+    LOG_CTRL_INFO("Next scheduled cache update at 2 AM");
+    
+    while (cacheThreadRunning_) {
+        std::unique_lock<std::mutex> lock(cacheUpdateMutex_);
+        
+        auto now = std::chrono::system_clock::now();
+        
+        // Wait until next scheduled update or 1 hour (whichever comes first)
+        auto waitUntil = std::min(now + std::chrono::hours(1), nextScheduledUpdate_);
+        
+        if (cacheUpdateCv_.wait_until(lock, waitUntil, [this] { return !cacheThreadRunning_; })) {
+            // Thread was signaled to stop
+            break;
+        }
+        
+        now = std::chrono::system_clock::now();
+        
+        // Check if it's time for scheduled update
+        if (now >= nextScheduledUpdate_) {
+            LOG_CTRL_INFO("Performing scheduled cache update");
+            populateUserCache();
+            
+            // Schedule next update for tomorrow at 2 AM
+            nextScheduledUpdate_ += std::chrono::hours(24);
+        }
+    }
+    
+    LOG_CTRL_INFO("Cache update thread stopped");
+}
+
+void Controller::startCacheUpdateThread() {
+    if (cacheThreadRunning_) {
+        return;
+    }
+    
+    cacheThreadRunning_ = true;
+    cacheUpdateThread_ = std::thread(&Controller::cacheUpdateWorker, this);
+}
+
+void Controller::stopCacheUpdateThread() {
+    if (!cacheThreadRunning_) {
+        return;
+    }
+    
+    cacheThreadRunning_ = false;
+    cacheUpdateCv_.notify_all();
+    
+    if (cacheUpdateThread_.joinable()) {
+        cacheUpdateThread_.join();
+    }
 }
 
 } // namespace fuelflux

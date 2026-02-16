@@ -10,6 +10,9 @@
 #include <queue>
 #include <mutex>
 #include <condition_variable>
+#include <thread>
+#include <atomic>
+#include <chrono>
 
 #include "backend.h"
 #include "state_machine.h"
@@ -19,10 +22,13 @@
 
 namespace fuelflux {
 
+class MessageStorage;
+
 // Main controller class that orchestrates the entire system
 class Controller {
   public:
-    Controller(ControllerId controllerId, std::shared_ptr<IBackend> backend = nullptr);
+    Controller(ControllerId controllerId, std::shared_ptr<IBackend> backend = nullptr, 
+               std::shared_ptr<MessageStorage> storage = nullptr);
     ~Controller();
 
     // System lifecycle
@@ -131,6 +137,11 @@ class Controller {
     std::string getCurrentTimeString() const;
     std::string getDeviceSerialNumber() const;
     
+    // User cache management
+    void populateUserCache();
+    void startCacheUpdateThread();
+    void stopCacheUpdateThread();
+    
     // Backend creation helper
     static std::shared_ptr<IBackend> CreateDefaultBackend(std::shared_ptr<MessageStorage> storage = nullptr);
     static std::shared_ptr<IBackend> CreateDefaultBackendShared(const std::string& controllerUid, 
@@ -148,6 +159,15 @@ class Controller {
     std::unique_ptr<peripherals::IPump> pump_;
     std::unique_ptr<peripherals::IFlowMeter> flowMeter_;
     std::shared_ptr<IBackend> backend_;
+    std::shared_ptr<MessageStorage> storage_;
+    
+    // Cache update thread
+    std::thread cacheUpdateThread_;
+    std::atomic<bool> cacheThreadRunning_{false};
+    std::mutex cacheUpdateMutex_;
+    std::condition_variable cacheUpdateCv_;
+    std::chrono::system_clock::time_point nextScheduledUpdate_;
+    
     // Current session state
     UserInfo currentUser_;
     std::vector<TankInfo> availableTanks_;
@@ -177,6 +197,7 @@ class Controller {
     TankNumber parseTankFromInput() const;
     void resetSessionData();
     void selectIntakeDirection(IntakeDirection direction);
+    void cacheUpdateWorker();
     /**
      * Initializes all configured peripherals (display, keyboard, card reader, pump, flow meter, backend).
      *

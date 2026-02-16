@@ -339,8 +339,8 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
             BacklogWorker backlogWorker(storage, backlogBackend, std::chrono::seconds(30));
             backlogWorker.Start();
 
-            // Create controller
-            Controller controller(controllerId, backend);
+            // Create controller with storage
+            Controller controller(controllerId, backend, storage);
             
             // Setup display - move ownership to controller
             controller.setDisplay(std::move(display));
