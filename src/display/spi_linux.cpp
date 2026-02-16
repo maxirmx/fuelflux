@@ -2,7 +2,7 @@
 // All rights reserved.
 // This file is a part of fuelflux application
 
-#include "nhd/spi_linux.h"
+#include "display/spi_linux.h"
 #include <fcntl.h>
 #include <unistd.h>
 #include <sys/ioctl.h>

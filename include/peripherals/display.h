@@ -10,18 +10,37 @@
 #include <memory>
 #include <string>
 
-// Forward declarations for NHD classes
+// Forward declarations for display classes
 class FourLineDisplay;
 class SpiLinux;
 class GpioLine;
-class St7565;
+class ILcdDriver;
 
-// Default hardware configuration for NHD display on Orange Pi Zero 2W
-namespace nhd_defaults {
+// Default hardware configuration for displays on Orange Pi Zero 2W
+namespace display_defaults {
     constexpr const char* SPI_DEVICE = "/dev/spidev1.0";
     constexpr const char* GPIO_CHIP = "/dev/gpiochip0";
-    constexpr int DC_PIN = 262;   // Data/Command GPIO line offset
-    constexpr int RST_PIN = 226;  // Reset GPIO line offset
+    
+    // ST7565 configuration (128x64 monochrome LCD)
+    namespace st7565 {
+        constexpr int DC_PIN = 262;   // Data/Command GPIO line offset
+        constexpr int RST_PIN = 226;  // Reset GPIO line offset
+        constexpr int WIDTH = 128;
+        constexpr int HEIGHT = 64;
+        constexpr int SMALL_FONT_SIZE = 12;
+        constexpr int LARGE_FONT_SIZE = 28;
+    }
+    
+    // ILI9488 configuration (480x320 TFT display)
+    namespace ili9488 {
+        constexpr int DC_PIN = 262;   // Data/Command GPIO line offset
+        constexpr int RST_PIN = 226;  // Reset GPIO line offset
+        constexpr int WIDTH = 480;
+        constexpr int HEIGHT = 320;
+        constexpr int SMALL_FONT_SIZE = 40;
+        constexpr int LARGE_FONT_SIZE = 80;
+    }
+    
     constexpr const char* FONT_PATH = "/usr/share/fonts/truetype/ubuntu/UbuntuMono-B.ttf";
 }
 #endif
@@ -29,14 +48,14 @@ namespace nhd_defaults {
 namespace fuelflux::peripherals {
 
 #ifdef TARGET_REAL_DISPLAY
-// Real hardware display implementation using NHD-C12864A1Z-FSW-FBW-HTT
+// Real hardware display implementation using ST7565 or ILI9488
 class RealDisplay : public IDisplay {
 public:
-    RealDisplay(const std::string& spiDevice = nhd_defaults::SPI_DEVICE,
-                const std::string& gpioChip = nhd_defaults::GPIO_CHIP,
-                int dcPin = nhd_defaults::DC_PIN,
-                int rstPin = nhd_defaults::RST_PIN,
-                const std::string& fontPath = nhd_defaults::FONT_PATH);
+    RealDisplay(const std::string& spiDevice = display_defaults::SPI_DEVICE,
+                const std::string& gpioChip = display_defaults::GPIO_CHIP,
+                int dcPin = -1,  // Use -1 for auto-detect based on display type
+                int rstPin = -1,  // Use -1 for auto-detect based on display type
+                const std::string& fontPath = display_defaults::FONT_PATH);
     ~RealDisplay() override;
 
     // IPeripheral implementation
@@ -65,7 +84,7 @@ private:
     std::unique_ptr<SpiLinux> spi_;
     std::unique_ptr<GpioLine> dcLine_;
     std::unique_ptr<GpioLine> rstLine_;
-    std::unique_ptr<St7565> lcd_;
+    std::unique_ptr<ILcdDriver> lcd_;  // Polymorphic LCD driver (ST7565 or ILI9488)
     std::unique_ptr<FourLineDisplay> display_;
     
     void updateDisplay();

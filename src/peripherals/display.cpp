@@ -6,10 +6,19 @@
 #include "logger.h"
 
 #ifdef TARGET_REAL_DISPLAY
-#include "nhd/four_line_display.h"
-#include "nhd/st7565.h"
-#include "nhd/spi_linux.h"
+#include "display/four_line_display.h"
+#include "display/lcd_driver.h"
+#include "display/spi_linux.h"
 #include "hardware/gpio_line.h"
+
+#ifdef DISPLAY_ST7565
+#include "display/st7565.h"
+#endif
+
+#ifdef DISPLAY_ILI9488
+#include "display/ili9488.h"
+#endif
+
 #include <stdexcept>
 
 namespace fuelflux::peripherals {
@@ -27,6 +36,14 @@ RealDisplay::RealDisplay(const std::string& spiDevice,
     , rstPin_(rstPin)
     , fontPath_(fontPath)
 {
+    // Auto-detect pins based on display type if not specified
+#ifdef DISPLAY_ST7565
+    if (dcPin_ == -1) dcPin_ = display_defaults::st7565::DC_PIN;
+    if (rstPin_ == -1) rstPin_ = display_defaults::st7565::RST_PIN;
+#elif defined(DISPLAY_ILI9488)
+    if (dcPin_ == -1) dcPin_ = display_defaults::ili9488::DC_PIN;
+    if (rstPin_ == -1) rstPin_ = display_defaults::ili9488::RST_PIN;
+#endif
 }
 
 RealDisplay::~RealDisplay() {
@@ -37,22 +54,48 @@ bool RealDisplay::initialize() {
     try {
         LOG_INFO("Initializing RealDisplay with device: {}", spiDevice_);
         
+        // Determine display parameters based on build configuration
+        int width, height, smallFont, largeFont;
+        int spiSpeed;
+        
+#ifdef DISPLAY_ST7565
+        width = display_defaults::st7565::WIDTH;
+        height = display_defaults::st7565::HEIGHT;
+        smallFont = display_defaults::st7565::SMALL_FONT_SIZE;
+        largeFont = display_defaults::st7565::LARGE_FONT_SIZE;
+        spiSpeed = 8000000; // 8 MHz for ST7565
+        LOG_INFO("Display type: ST7565 ({}x{})", width, height);
+#elif defined(DISPLAY_ILI9488)
+        width = display_defaults::ili9488::WIDTH;
+        height = display_defaults::ili9488::HEIGHT;
+        smallFont = display_defaults::ili9488::SMALL_FONT_SIZE;
+        largeFont = display_defaults::ili9488::LARGE_FONT_SIZE;
+        spiSpeed = 32000000; // 32 MHz for ILI9488
+        LOG_INFO("Display type: ILI9488 ({}x{})", width, height);
+#else
+#error "No display type defined. Define DISPLAY_ST7565 or DISPLAY_ILI9488"
+#endif
+        
         // Initialize SPI
         spi_ = std::make_unique<SpiLinux>(spiDevice_);
-        spi_->open(8000000, 0);  // 8 MHz, mode 0
+        spi_->open(spiSpeed, 0);
         
         // Initialize GPIO lines
         dcLine_ = std::make_unique<GpioLine>(dcPin_, true, false, gpioChip_, "fuelflux-dc");
         rstLine_ = std::make_unique<GpioLine>(rstPin_, true, true, gpioChip_, "fuelflux-rst");
         
-        // Initialize LCD controller
-        lcd_ = std::make_unique<St7565>(*spi_, *dcLine_, *rstLine_);
+        // Initialize LCD controller based on display type
+#ifdef DISPLAY_ST7565
+        lcd_ = std::make_unique<St7565>(*spi_, *dcLine_, *rstLine_, width, height);
+#elif defined(DISPLAY_ILI9488)
+        lcd_ = std::make_unique<Ili9488>(*spi_, *dcLine_, *rstLine_, width, height);
+#endif
+        
         lcd_->reset();
         lcd_->init();
-        lcd_->display_on(true);
         
         // Initialize display library
-        display_ = std::make_unique<FourLineDisplay>(128, 64, 12, 28);
+        display_ = std::make_unique<FourLineDisplay>(width, height, smallFont, largeFont);
         if (!display_->initialize(fontPath_)) {
             LOG_ERROR("Failed to initialize FourLineDisplay with font: {}", fontPath_);
             return false;
@@ -76,11 +119,12 @@ void RealDisplay::shutdown() {
     if (isConnected_) {
         LOG_INFO("Shutting down RealDisplay");
         try {
-            if (lcd_) {
-                lcd_->display_on(false);
-            }
             if (display_) {
                 display_->uninitialize();
+            }
+            // Clear display on shutdown
+            if (lcd_) {
+                lcd_->clear();
             }
         } catch (const std::exception& e) {
             LOG_ERROR("Error during RealDisplay shutdown: {}", e.what());
@@ -126,7 +170,7 @@ void RealDisplay::setBacklight(bool enabled) {
     }
     
     try {
-        lcd_->display_on(enabled);
+        lcd_->set_backlight(enabled);
     } catch (const std::exception& e) {
         LOG_ERROR("Error setting backlight on RealDisplay: {}", e.what());
     }

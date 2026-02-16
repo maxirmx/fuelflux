@@ -2,7 +2,7 @@
 // All rights reserved.
 // This file is a part of fuelflux application
 
-#include "nhd/graphics.h"
+#include "display/graphics.h"
 #include <algorithm>
 #include <cstdint>
 
