@@ -1845,3 +1845,231 @@ TEST_F(ControllerTest, GetTankVolumeDirectTest) {
     Volume tankVolume = controller->getTankVolume(1);
     EXPECT_DOUBLE_EQ(tankVolume, 50.0) << "getTankVolume should return 50.0 for tank 1";
 }
+
+// =====================================================================
+// VolumeEntry Display Tests - Maximum Volume Shown
+// =====================================================================
+
+TEST_F(ControllerTest, VolumeEntryDisplayShowsAllowanceWhenLower) {
+    // Setup: Allowance (30L) < Tank capacity (100L)
+    mockBackend->roleId_ = static_cast<int>(UserRole::Customer);
+    mockBackend->allowance_ = 30.0;
+    mockBackend->price_ = 1.0;
+    
+    BackendTankInfo tank1;
+    tank1.idTank = 1;
+    tank1.nameTank = "Tank A";
+    tank1.volume = 100.0;
+    mockBackend->tanksStorage_ = { tank1 };
+
+    EXPECT_CALL(*mockBackend, Authorize("customer-card")).WillOnce([this]() {
+        mockBackend->authorized_ = true;
+        return true;
+    });
+
+    controller->initialize();
+
+    DisplayMessage lastMsg;
+    std::mutex msgMutex;
+    EXPECT_CALL(*mockDisplay, showMessage(_)).WillRepeatedly([&](const DisplayMessage& m) {
+        std::lock_guard<std::mutex> lk(msgMutex);
+        lastMsg = m;
+    });
+
+    std::thread controllerThread([this]() { controller->run(); });
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+
+    // Present card -> Authorization -> TankSelection
+    controller->handleCardPresented("customer-card");
+    ASSERT_TRUE(waitForState(SystemState::TankSelection));
+
+    // Select tank -> VolumeEntry
+    controller->selectTank(1);
+    ASSERT_TRUE(waitForState(SystemState::VolumeEntry));
+
+    // Wait for display to update
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+
+    // Check that display shows allowance (30L) as max since it's lower
+    {
+        std::lock_guard<std::mutex> lk(msgMutex);
+        EXPECT_EQ(lastMsg.line1, std::string("Введите объём и нажмите Старт (A)"));
+        EXPECT_TRUE(lastMsg.line3.find("30") != std::string::npos) 
+            << "Display should show allowance (30L) as max, got: " << lastMsg.line3;
+    }
+
+    shutdownControllerAndJoinThread(controllerThread);
+}
+
+TEST_F(ControllerTest, VolumeEntryDisplayShowsTankVolumeWhenLower) {
+    // Setup: Tank capacity (40L) < Allowance (100L)
+    mockBackend->roleId_ = static_cast<int>(UserRole::Customer);
+    mockBackend->allowance_ = 100.0;
+    mockBackend->price_ = 1.0;
+    
+    BackendTankInfo tank1;
+    tank1.idTank = 1;
+    tank1.nameTank = "Tank A";
+    tank1.volume = 40.0;
+    mockBackend->tanksStorage_ = { tank1 };
+
+    EXPECT_CALL(*mockBackend, Authorize("customer-card")).WillOnce([this]() {
+        mockBackend->authorized_ = true;
+        return true;
+    });
+
+    controller->initialize();
+
+    DisplayMessage lastMsg;
+    std::mutex msgMutex;
+    EXPECT_CALL(*mockDisplay, showMessage(_)).WillRepeatedly([&](const DisplayMessage& m) {
+        std::lock_guard<std::mutex> lk(msgMutex);
+        lastMsg = m;
+    });
+
+    std::thread controllerThread([this]() { controller->run(); });
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+
+    // Present card -> Authorization -> TankSelection
+    controller->handleCardPresented("customer-card");
+    ASSERT_TRUE(waitForState(SystemState::TankSelection));
+
+    // Select tank -> VolumeEntry
+    controller->selectTank(1);
+    ASSERT_TRUE(waitForState(SystemState::VolumeEntry));
+
+    // Wait for display to update
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+
+    // Check that display shows tank volume (40L) as max since it's lower
+    {
+        std::lock_guard<std::mutex> lk(msgMutex);
+        EXPECT_EQ(lastMsg.line1, std::string("Введите объём и нажмите Старт (A)"));
+        EXPECT_TRUE(lastMsg.line3.find("40") != std::string::npos) 
+            << "Display should show tank capacity (40L) as max, got: " << lastMsg.line3;
+    }
+
+    shutdownControllerAndJoinThread(controllerThread);
+}
+
+TEST_F(ControllerTest, VolumeEntryDisplayShowsAllowanceWhenNoTankVolume) {
+    // Setup: No tank volume specified (0.0), should show allowance
+    mockBackend->roleId_ = static_cast<int>(UserRole::Customer);
+    mockBackend->allowance_ = 50.0;
+    mockBackend->price_ = 1.0;
+    
+    BackendTankInfo tank1;
+    tank1.idTank = 1;
+    tank1.nameTank = "Tank A";
+    tank1.volume = 0.0;  // No volume specified
+    mockBackend->tanksStorage_ = { tank1 };
+
+    EXPECT_CALL(*mockBackend, Authorize("customer-card")).WillOnce([this]() {
+        mockBackend->authorized_ = true;
+        return true;
+    });
+
+    controller->initialize();
+
+    DisplayMessage lastMsg;
+    std::mutex msgMutex;
+    EXPECT_CALL(*mockDisplay, showMessage(_)).WillRepeatedly([&](const DisplayMessage& m) {
+        std::lock_guard<std::mutex> lk(msgMutex);
+        lastMsg = m;
+    });
+
+    std::thread controllerThread([this]() { controller->run(); });
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+
+    // Present card -> Authorization -> TankSelection
+    controller->handleCardPresented("customer-card");
+    ASSERT_TRUE(waitForState(SystemState::TankSelection));
+
+    // Select tank -> VolumeEntry
+    controller->selectTank(1);
+    ASSERT_TRUE(waitForState(SystemState::VolumeEntry));
+
+    // Wait for display to update
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+
+    // Check that display shows allowance (50L) when no tank volume
+    {
+        std::lock_guard<std::mutex> lk(msgMutex);
+        EXPECT_EQ(lastMsg.line1, std::string("Введите объём и нажмите Старт (A)"));
+        EXPECT_TRUE(lastMsg.line3.find("50") != std::string::npos) 
+            << "Display should show allowance (50L) when tank volume is 0, got: " << lastMsg.line3;
+    }
+
+    shutdownControllerAndJoinThread(controllerThread);
+}
+
+TEST_F(ControllerTest, VolumeEntryDisplayWithMultipleTanksDifferentVolumes) {
+    // Setup: Multiple tanks with different capacities
+    mockBackend->roleId_ = static_cast<int>(UserRole::Customer);
+    mockBackend->allowance_ = 100.0;
+    mockBackend->price_ = 1.0;
+    
+    BackendTankInfo tank1, tank2;
+    tank1.idTank = 1;
+    tank1.nameTank = "Tank A";
+    tank1.volume = 30.0;
+    tank2.idTank = 2;
+    tank2.nameTank = "Tank B";
+    tank2.volume = 70.0;
+    mockBackend->tanksStorage_ = { tank1, tank2 };
+
+    EXPECT_CALL(*mockBackend, Authorize("customer-card")).Times(2).WillRepeatedly([this]() {
+        mockBackend->authorized_ = true;
+        return true;
+    });
+
+    controller->initialize();
+
+    DisplayMessage lastMsg;
+    std::mutex msgMutex;
+    EXPECT_CALL(*mockDisplay, showMessage(_)).WillRepeatedly([&](const DisplayMessage& m) {
+        std::lock_guard<std::mutex> lk(msgMutex);
+        lastMsg = m;
+    });
+
+    std::thread controllerThread([this]() { controller->run(); });
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+
+    // Present card -> Authorization -> TankSelection
+    controller->handleCardPresented("customer-card");
+    ASSERT_TRUE(waitForState(SystemState::TankSelection));
+
+    // Select Tank 1 (30L capacity) -> VolumeEntry
+    controller->selectTank(1);
+    ASSERT_TRUE(waitForState(SystemState::VolumeEntry));
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+
+    // Check display shows 30L for Tank 1
+    {
+        std::lock_guard<std::mutex> lk(msgMutex);
+        EXPECT_TRUE(lastMsg.line3.find("30") != std::string::npos) 
+            << "Display should show 30L for Tank 1, got: " << lastMsg.line3;
+    }
+
+    // Cancel and go back to Waiting state (not TankSelection)
+    controller->postEvent(Event::CancelPressed);
+    ASSERT_TRUE(waitForState(SystemState::Waiting));
+
+    // Present card again to go to TankSelection
+    controller->handleCardPresented("customer-card");
+    ASSERT_TRUE(waitForState(SystemState::TankSelection));
+
+    // Select Tank 2 (70L capacity) -> VolumeEntry
+    controller->selectTank(2);
+    ASSERT_TRUE(waitForState(SystemState::VolumeEntry));
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+
+    // Check display shows 70L for Tank 2
+    {
+        std::lock_guard<std::mutex> lk(msgMutex);
+        EXPECT_TRUE(lastMsg.line3.find("70") != std::string::npos) 
+            << "Display should show 70L for Tank 2, got: " << lastMsg.line3;
+    }
+
+    shutdownControllerAndJoinThread(controllerThread);
+}
