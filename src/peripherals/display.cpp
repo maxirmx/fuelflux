@@ -6,17 +6,17 @@
 #include "logger.h"
 
 #ifdef TARGET_REAL_DISPLAY
-#include "nhd/four_line_display.h"
-#include "nhd/lcd_driver.h"
-#include "nhd/spi_linux.h"
+#include "display/four_line_display.h"
+#include "display/lcd_driver.h"
+#include "display/spi_linux.h"
 #include "hardware/gpio_line.h"
 
 #ifdef DISPLAY_ST7565
-#include "nhd/st7565.h"
+#include "display/st7565.h"
 #endif
 
 #ifdef DISPLAY_ILI9488
-#include "nhd/ili9488.h"
+#include "display/ili9488.h"
 #endif
 
 #include <stdexcept>
@@ -38,12 +38,12 @@ RealDisplay::RealDisplay(const std::string& spiDevice,
 {
     // Auto-detect pins based on display type if not specified
 #ifdef DISPLAY_ST7565
-    if (dcPin_ == -1) dcPin_ = nhd_defaults::st7565::DC_PIN;
-    if (rstPin_ == -1) rstPin_ = nhd_defaults::st7565::RST_PIN;
+    if (dcPin_ == -1) dcPin_ = display_defaults::st7565::DC_PIN;
+    if (rstPin_ == -1) rstPin_ = display_defaults::st7565::RST_PIN;
 #endif
 #ifdef DISPLAY_ILI9488
-    if (dcPin_ == -1) dcPin_ = nhd_defaults::ili9488::DC_PIN;
-    if (rstPin_ == -1) rstPin_ = nhd_defaults::ili9488::RST_PIN;
+    if (dcPin_ == -1) dcPin_ = display_defaults::ili9488::DC_PIN;
+    if (rstPin_ == -1) rstPin_ = display_defaults::ili9488::RST_PIN;
 #endif
 }
 
@@ -60,17 +60,17 @@ bool RealDisplay::initialize() {
         int spiSpeed;
         
 #ifdef DISPLAY_ST7565
-        width = nhd_defaults::st7565::WIDTH;
-        height = nhd_defaults::st7565::HEIGHT;
-        smallFont = nhd_defaults::st7565::SMALL_FONT_SIZE;
-        largeFont = nhd_defaults::st7565::LARGE_FONT_SIZE;
+        width = display_defaults::st7565::WIDTH;
+        height = display_defaults::st7565::HEIGHT;
+        smallFont = display_defaults::st7565::SMALL_FONT_SIZE;
+        largeFont = display_defaults::st7565::LARGE_FONT_SIZE;
         spiSpeed = 8000000; // 8 MHz for ST7565
         LOG_INFO("Display type: ST7565 ({}x{})", width, height);
 #elif defined(DISPLAY_ILI9488)
-        width = nhd_defaults::ili9488::WIDTH;
-        height = nhd_defaults::ili9488::HEIGHT;
-        smallFont = nhd_defaults::ili9488::SMALL_FONT_SIZE;
-        largeFont = nhd_defaults::ili9488::LARGE_FONT_SIZE;
+        width = display_defaults::ili9488::WIDTH;
+        height = display_defaults::ili9488::HEIGHT;
+        smallFont = display_defaults::ili9488::SMALL_FONT_SIZE;
+        largeFont = display_defaults::ili9488::LARGE_FONT_SIZE;
         spiSpeed = 32000000; // 32 MHz for ILI9488
         LOG_INFO("Display type: ILI9488 ({}x{})", width, height);
 #else

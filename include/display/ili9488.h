@@ -8,8 +8,8 @@
 #include <vector>
 
 #include "hardware/gpio_line.h"
-#include "nhd/spi_linux.h"
-#include "nhd/lcd_driver.h"
+#include "display/spi_linux.h"
+#include "display/lcd_driver.h"
 
 class Ili9488 : public ILcdDriver {
 public:

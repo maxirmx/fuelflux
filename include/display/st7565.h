@@ -5,8 +5,8 @@
 #pragma once
 #include <cstdint>
 #include <vector>
-#include "nhd/spi_linux.h"
-#include "nhd/lcd_driver.h"
+#include "display/spi_linux.h"
+#include "display/lcd_driver.h"
 #include "hardware/gpio_line.h"
 
 class St7565 : public ILcdDriver {

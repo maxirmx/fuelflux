@@ -10,14 +10,14 @@
 #include <memory>
 #include <string>
 
-// Forward declarations for NHD classes
+// Forward declarations for display classes
 class FourLineDisplay;
 class SpiLinux;
 class GpioLine;
 class ILcdDriver;
 
 // Default hardware configuration for displays on Orange Pi Zero 2W
-namespace nhd_defaults {
+namespace display_defaults {
     constexpr const char* SPI_DEVICE = "/dev/spidev1.0";
     constexpr const char* GPIO_CHIP = "/dev/gpiochip0";
     
@@ -51,11 +51,11 @@ namespace fuelflux::peripherals {
 // Real hardware display implementation using ST7565 or ILI9488
 class RealDisplay : public IDisplay {
 public:
-    RealDisplay(const std::string& spiDevice = nhd_defaults::SPI_DEVICE,
-                const std::string& gpioChip = nhd_defaults::GPIO_CHIP,
+    RealDisplay(const std::string& spiDevice = display_defaults::SPI_DEVICE,
+                const std::string& gpioChip = display_defaults::GPIO_CHIP,
                 int dcPin = -1,  // Use -1 for auto-detect based on display type
                 int rstPin = -1,  // Use -1 for auto-detect based on display type
-                const std::string& fontPath = nhd_defaults::FONT_PATH);
+                const std::string& fontPath = display_defaults::FONT_PATH);
     ~RealDisplay() override;
 
     // IPeripheral implementation

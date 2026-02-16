@@ -2,7 +2,7 @@
 // All rights reserved.
 // This file is a part of fuelflux application
 
-#include "nhd/ili9488.h"
+#include "display/ili9488.h"
 
 #include <chrono>
 #include <stdexcept>

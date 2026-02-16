@@ -2,9 +2,9 @@
 // All rights reserved.
 // This file is a part of fuelflux application
 
-#include "nhd/four_line_display.h"
-#include "nhd/ft_text.h"
-#include "nhd/graphics.h"
+#include "display/four_line_display.h"
+#include "display/ft_text.h"
+#include "display/graphics.h"
 #include <stdexcept>
 #include <algorithm>
 

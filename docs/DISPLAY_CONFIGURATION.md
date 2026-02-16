@@ -180,8 +180,8 @@ sudo apt-get install libgpiod-dev
 To add support for a new display:
 
 1. Create driver class implementing `ILcdDriver` interface
-2. Add driver header to `include/nhd/`
-3. Add driver implementation to `src/nhd/`
+2. Add driver header to `include/display/`
+3. Add driver implementation to `src/display/`
 4. Update `CMakeLists.txt` to include new display type
 5. Add configuration section in `include/peripherals/display.h`
 6. Update initialization in `src/peripherals/display.cpp`

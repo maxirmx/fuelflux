@@ -28,7 +28,6 @@ endif()
 # Real hardware peripheral flags: set by default on ARM, unset on Windows
 if(MSVC)
     option(TARGET_SIM800C "Enable PPP interface binding for HTTP backend" OFF) 
-    option(TARGET_REAL_DISPLAY "Use real NHD display hardware" OFF)
     set(DISPLAY_TYPE "CONSOLE" CACHE STRING "Display type: ST7565, ILI9488, or CONSOLE")
     option(TARGET_REAL_KEYBOARD "Use real keyboard hardware" OFF)
     option(TARGET_REAL_CARD_READER "Use real card reader hardware" OFF)
@@ -41,8 +40,7 @@ if(MSVC)
     option(UNIX_FOLDER_CONVENTION "Use Unix-style folder convention (e.g. /var/fuelflux) for logs and database" OFF) 
 else()
     option(TARGET_SIM800C "Use PPP interface binding for HTTP backend" ON) 
-    option(TARGET_REAL_DISPLAY "Use real NHD display hardware" OFF)   # OFF for now
-    set(DISPLAY_TYPE "CONSOLE" CACHE STRING "Display type: ST7565, ILI9488, or CONSOLE")
+    set(DISPLAY_TYPE "ILI9488" CACHE STRING "Display type: ST7565, ILI9488, or CONSOLE")
     option(TARGET_REAL_KEYBOARD "Use real keyboard hardware" ON)
     option(TARGET_REAL_CARD_READER "Use real card reader hardware" ON)
     option(TARGET_REAL_PUMP "Use real pump hardware" ON)
@@ -240,20 +238,20 @@ if(TARGET_REAL_KEYBOARD)
     list(APPEND LIB_SOURCES src/hardware/mcp23017.cpp)
 endif()
 
-# Add NHD library sources if TARGET_REAL_DISPLAY is enabled
+# Add display library sources if TARGET_REAL_DISPLAY is enabled
 if(TARGET_REAL_DISPLAY)
     list(APPEND LIB_SOURCES
-        src/nhd/four_line_display.cpp
-        src/nhd/graphics.cpp
-        src/nhd/ft_text.cpp
-        src/nhd/spi_linux.cpp
+        src/display/four_line_display.cpp
+        src/display/graphics.cpp
+        src/display/ft_text.cpp
+        src/display/spi_linux.cpp
     )
     
     # Add display-specific driver
     if(DISPLAY_TYPE STREQUAL "ST7565")
-        list(APPEND LIB_SOURCES src/nhd/st7565.cpp)
+        list(APPEND LIB_SOURCES src/display/st7565.cpp)
     elseif(DISPLAY_TYPE STREQUAL "ILI9488")
-        list(APPEND LIB_SOURCES src/nhd/ili9488.cpp)
+        list(APPEND LIB_SOURCES src/display/ili9488.cpp)
     endif()
 endif()
 
@@ -286,21 +284,21 @@ if(TARGET_REAL_KEYBOARD)
     list(APPEND HEADERS include/hardware/mcp23017.h)
 endif()
 
-# Add NHD library headers if TARGET_REAL_DISPLAY is enabled
+# Add display library headers if TARGET_REAL_DISPLAY is enabled
 if(TARGET_REAL_DISPLAY)
     list(APPEND HEADERS
-        include/nhd/lcd_driver.h
-        include/nhd/four_line_display.h
-        include/nhd/graphics.h
-        include/nhd/ft_text.h
-        include/nhd/spi_linux.h
+        include/display/lcd_driver.h
+        include/display/four_line_display.h
+        include/display/graphics.h
+        include/display/ft_text.h
+        include/display/spi_linux.h
     )
     
     # Add display-specific driver headers
     if(DISPLAY_TYPE STREQUAL "ST7565")
-        list(APPEND HEADERS include/nhd/st7565.h)
+        list(APPEND HEADERS include/display/st7565.h)
     elseif(DISPLAY_TYPE STREQUAL "ILI9488")
-        list(APPEND HEADERS include/nhd/ili9488.h)
+        list(APPEND HEADERS include/display/ili9488.h)
     endif()
 endif()
 
