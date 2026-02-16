@@ -312,6 +312,8 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
 #elif defined(DISPLAY_ILI9488)
             int dcPin = ::display_defaults::ili9488::DC_PIN;
             int rstPin = ::display_defaults::ili9488::RST_PIN;
+#else
+#error "No display type defined. Define DISPLAY_ST7565 or DISPLAY_ILI9488"
 #endif
             std::string fontPath = "/usr/share/fonts/truetype/ubuntu/UbuntuMono-B.ttf";
 
