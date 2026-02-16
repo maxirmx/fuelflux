@@ -44,6 +44,14 @@ public:
     virtual const std::vector<BackendTankInfo>& GetFuelTanks() const = 0;
     virtual const std::string& GetLastError() const = 0;
     virtual bool IsNetworkError() const = 0;
+    
+    // User cache population
+    struct UserCard {
+        std::string uid;
+        int roleId = 0;
+        double allowance = 0.0;
+    };
+    virtual std::vector<UserCard> GetCards(const std::string& controllerUid, int first, int number) = 0;
 };
 
 // Base backend class with shared logic for request/response handling
@@ -71,6 +79,7 @@ public:
     bool Intake(TankNumber tankNumber, Volume volume, IntakeDirection direction) override;
     bool RefuelPayload(const std::string& payload) override;
     bool IntakePayload(const std::string& payload) override;
+    std::vector<UserCard> GetCards(const std::string& controllerUid, int first, int number) override;
 
     bool IsAuthorized() const override { return session_.IsAuthorized(); }
     std::string GetToken() const override { return session_.GetToken(); }

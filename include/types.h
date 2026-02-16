@@ -93,6 +93,13 @@ struct UserInfo {
     Price price = 0.0;       // Price per liter (optional)
 };
 
+// User cache entry
+struct UserCacheEntry {
+    UserId uid;
+    Volume allowance = 0.0;
+    int roleId = 0;
+};
+
 // Tank information
 struct TankInfo {
     TankNumber number;

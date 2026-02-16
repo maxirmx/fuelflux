@@ -418,4 +418,63 @@ bool BackendBase::IntakePayload(const std::string& payload) {
     }
 }
 
+std::vector<IBackend::UserCard> BackendBase::GetCards(const std::string& controllerUid, int first, int number) {
+    std::vector<UserCard> cards;
+    try {
+        LOG_BCK_INFO("Fetching cards: first={}, number={}", first, number);
+
+        nlohmann::json requestBody;
+        requestBody["PumpControllerUid"] = controllerUid;
+
+        std::string endpoint = "/api/pump/cards?first=" + std::to_string(first) + 
+                              "&number=" + std::to_string(number);
+
+        nlohmann::json response = HttpRequestWrapper(endpoint, "GET", requestBody, false);
+
+        std::string responseError;
+        if (IsErrorResponse(response, &responseError)) {
+            LOG_BCK_ERROR("Failed to fetch cards: {}", responseError);
+            lastError_ = responseError;
+            return cards;
+        }
+
+        if (!response.is_array()) {
+            LOG_BCK_ERROR("Invalid response format: expected array");
+            lastError_ = "Invalid response format";
+            return cards;
+        }
+
+        for (const auto& item : response) {
+            if (!item.is_object()) {
+                continue;
+            }
+
+            UserCard card;
+            if (item.contains("Uid") && item["Uid"].is_string()) {
+                card.uid = item["Uid"].get<std::string>();
+            } else {
+                continue; // Skip entries without UID
+            }
+
+            if (item.contains("RoleId") && item["RoleId"].is_number_integer()) {
+                card.roleId = item["RoleId"].get<int>();
+            }
+
+            if (item.contains("Allowance") && item["Allowance"].is_number()) {
+                card.allowance = item["Allowance"].get<double>();
+            }
+
+            cards.push_back(card);
+        }
+
+        lastError_.clear();
+        LOG_BCK_INFO("Fetched {} cards", cards.size());
+        return cards;
+    } catch (const std::exception& e) {
+        LOG_BCK_ERROR("Failed to fetch cards: {}", e.what());
+        lastError_ = StdControllerError;
+        return cards;
+    }
+}
+
 } // namespace fuelflux

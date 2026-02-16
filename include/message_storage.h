@@ -25,6 +25,8 @@ struct StoredMessage {
     std::string data;
 };
 
+struct UserCacheEntry; // Forward declaration - defined in types.h
+
 class MessageStorage {
 public:
     explicit MessageStorage(const std::string& dbPath);
@@ -44,8 +46,17 @@ public:
     int BacklogCount() const;
     int DeadMessageCount() const;
 
+    // User cache management
+    bool AddCacheEntryStaging(const std::string& uid, double allowance, int roleId);
+    bool SwapCache();
+    bool ClearCacheStaging();
+    std::optional<UserCacheEntry> GetCacheEntry(const std::string& uid) const;
+    bool UpdateCacheEntry(const std::string& uid, double allowance, int roleId);
+    int CacheCount() const;
+
 private:
     bool Execute(const std::string& sql) const;
+    bool ExecuteUnlocked(const std::string& sql) const;
     std::string MethodToString(MessageMethod method) const;
     std::optional<MessageMethod> MethodFromString(const std::string& value) const;
 
