@@ -4,11 +4,11 @@ FuelFlux supports multiple display types through build-time configuration:
 
 ## Supported Display Types
 
-### 1. CONSOLE (Default)
+### 1. CONSOLE
 Console-based display emulation for development and testing without hardware.
 - No hardware required
 - Full feature testing in terminal
-- Default configuration for development builds
+- Default on Windows/MSVC builds
 
 ### 2. ST7565
 128x64 monochrome LCD display (NHD-C12864A1Z-FSW-FBW-HTT)
@@ -24,6 +24,7 @@ Console-based display emulation for development and testing without hardware.
 - 4-line text display layout
 - SPI interface with GPIO control
 - RGB666 color mode
+- Default on non-Windows/target hardware builds
 
 ## Build Configuration
 
@@ -32,15 +33,19 @@ Console-based display emulation for development and testing without hardware.
 Use the `DISPLAY_TYPE` CMake option to select the display:
 
 ```bash
-# Console emulation (default)
+# Console emulation (default on Windows/MSVC)
 cmake -B build -DDISPLAY_TYPE=CONSOLE
 
 # ST7565 128x64 LCD
 cmake -B build -DDISPLAY_TYPE=ST7565
 
-# ILI9488 480x320 TFT
+# ILI9488 480x320 TFT (default on Linux/target hardware)
 cmake -B build -DDISPLAY_TYPE=ILI9488
 ```
+
+**Platform-specific defaults:**
+- **Windows/MSVC builds**: CONSOLE (for development without hardware)
+- **Linux/ARM builds**: ILI9488 (for target hardware deployment)
 
 ### Build Examples
 

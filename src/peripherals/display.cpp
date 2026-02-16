@@ -40,8 +40,7 @@ RealDisplay::RealDisplay(const std::string& spiDevice,
 #ifdef DISPLAY_ST7565
     if (dcPin_ == -1) dcPin_ = display_defaults::st7565::DC_PIN;
     if (rstPin_ == -1) rstPin_ = display_defaults::st7565::RST_PIN;
-#endif
-#ifdef DISPLAY_ILI9488
+#elif defined(DISPLAY_ILI9488)
     if (dcPin_ == -1) dcPin_ = display_defaults::ili9488::DC_PIN;
     if (rstPin_ == -1) rstPin_ = display_defaults::ili9488::RST_PIN;
 #endif

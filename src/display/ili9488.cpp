@@ -18,7 +18,11 @@ bool mono_pixel_on(const std::vector<uint8_t>& mono_fb, int width, int x, int y)
 }
 
 Ili9488::Ili9488(SpiLinux& spi, GpioLine& dc, GpioLine& rst, int width, int height)
-    : spi_(spi), dc_(dc), rst_(rst), w_(width), h_(height) {}
+    : spi_(spi), dc_(dc), rst_(rst), w_(width), h_(height) {
+    if (width <= 0 || height <= 0 || (height % 8) != 0) {
+        throw std::invalid_argument("Invalid display dimensions");
+    }
+}
 
 void Ili9488::cmd(uint8_t b) {
     dc_.set(false);
@@ -38,18 +42,18 @@ void Ili9488::reset() {
 }
 
 void Ili9488::init() {
-// Basic ILI9488 initialization for 4-wire SPI, RGB666 pixel writes.
-cmd(0x01); // SWRESET
-std::this_thread::sleep_for(std::chrono::milliseconds(150));
+    // Basic ILI9488 initialization for 4-wire SPI, RGB666 pixel writes.
+    cmd(0x01); // SWRESET
+    std::this_thread::sleep_for(std::chrono::milliseconds(150));
 
-cmd(0x11); // Sleep out
-std::this_thread::sleep_for(std::chrono::milliseconds(120));
+    cmd(0x11); // Sleep out
+    std::this_thread::sleep_for(std::chrono::milliseconds(120));
 
-set_rotation(3); // 270 degrees
+    set_rotation(3); // 270 degrees
 
-cmd(0x3A); // COLMOD
-const uint8_t pixel_format = 0x66; // 18-bit/pixel (RGB666) - required for ILI9488 SPI
-data(&pixel_format, 1);
+    cmd(0x3A); // COLMOD
+    const uint8_t pixel_format = 0x66; // 18-bit/pixel (RGB666) - required for ILI9488 SPI
+    data(&pixel_format, 1);
 
     cmd(0x21); // Display inversion on (common for ILI9488 panels)
 
@@ -106,7 +110,12 @@ std::vector<uint8_t> Ili9488::mono_to_rgb666(const std::vector<uint8_t>& mono_fb
     }
 
     // RGB666: 3 bytes per pixel
-    std::vector<uint8_t> out(static_cast<size_t>(width * height * 3));
+    // Check for potential overflow before allocation
+    const size_t pixels = static_cast<size_t>(width) * static_cast<size_t>(height);
+    if (pixels > SIZE_MAX / 3) {
+        throw std::runtime_error("Display dimensions too large, would cause overflow");
+    }
+    std::vector<uint8_t> out(pixels * 3);
 
     for (int y = 0; y < height; ++y) {
         for (int x = 0; x < width; ++x) {
