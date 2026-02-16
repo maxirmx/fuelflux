@@ -418,18 +418,15 @@ bool BackendBase::IntakePayload(const std::string& payload) {
     }
 }
 
-std::vector<IBackend::UserCard> BackendBase::GetCards(const std::string& controllerUid, int first, int number) {
+std::vector<IBackend::UserCard> BackendBase::GetCards([[maybe_unused]] const std::string& controllerUid, int first, int number) {
     std::vector<UserCard> cards;
     try {
         LOG_BCK_INFO("Fetching cards: first={}, number={}", first, number);
 
-        nlohmann::json requestBody;
-        requestBody["PumpControllerUid"] = controllerUid;
-
         std::string endpoint = "/api/pump/cards?first=" + std::to_string(first) + 
                               "&number=" + std::to_string(number);
 
-        nlohmann::json response = HttpRequestWrapper(endpoint, "GET", requestBody, false);
+        nlohmann::json response = HttpRequestWrapper(endpoint, "GET", nlohmann::json(), false);
 
         std::string responseError;
         if (IsErrorResponse(response, &responseError)) {

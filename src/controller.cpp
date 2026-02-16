@@ -18,6 +18,9 @@
 
 namespace fuelflux {
 
+// Constants
+constexpr int CACHE_FETCH_BATCH_SIZE = 10;
+
 std::shared_ptr<IBackend> Controller::CreateDefaultBackend(std::shared_ptr<MessageStorage> storage) {
     return std::make_shared<Backend>(BACKEND_API_URL, CONTROLLER_UID, storage);
 }
@@ -543,19 +546,21 @@ void Controller::completeIntakeOperation() {
 
 // Transaction logging
 void Controller::logRefuelTransaction(const RefuelTransaction& transaction) {
-    if (backend_) {
-        (void)backend_->Refuel(transaction.tankNumber, transaction.volume);
-        
-        // Deduct allowance from cache for RoleId==1 (Customer) regardless of success
-        // Only do this for new refuels when authorized, not backlog processing
-        if (storage_ && currentUser_.role == UserRole::Customer && backend_->IsAuthorized()) {
-            double newAllowance = currentUser_.allowance - transaction.volume;
-            if (newAllowance < 0.0) {
-                newAllowance = 0.0;
-            }
-            storage_->UpdateCacheEntry(transaction.userId, newAllowance, static_cast<int>(currentUser_.role));
-            LOG_CTRL_INFO("Updated cache allowance for {}: {}", transaction.userId, newAllowance);
+    if (!backend_) {
+        return;
+    }
+    
+    (void)backend_->Refuel(transaction.tankNumber, transaction.volume);
+    
+    // Deduct allowance from cache for RoleId==1 (Customer) regardless of success
+    // Only do this for new refuels when authorized, not backlog processing
+    if (storage_ && currentUser_.role == UserRole::Customer && backend_->IsAuthorized()) {
+        double newAllowance = currentUser_.allowance - transaction.volume;
+        if (newAllowance < 0.0) {
+            newAllowance = 0.0;
         }
+        storage_->UpdateCacheEntry(transaction.userId, newAllowance, static_cast<int>(currentUser_.role));
+        LOG_CTRL_INFO("Updated cache allowance for {}: {}", transaction.userId, newAllowance);
     }
 }
 
@@ -786,14 +791,13 @@ void Controller::populateUserCache() {
         // Clear staging table
         storage_->ClearCacheStaging();
         
-        const int batchSize = 10;
         int first = 0;
         int fetchedCount = 0;
         int totalFetched = 0;
         
         // Fetch cards in batches until we get less than requested
         do {
-            auto cards = backend_->GetCards(controllerId_, first, batchSize);
+            auto cards = backend_->GetCards(controllerId_, first, CACHE_FETCH_BATCH_SIZE);
             fetchedCount = static_cast<int>(cards.size());
             
             // Add all fetched cards to staging
@@ -806,7 +810,7 @@ void Controller::populateUserCache() {
             totalFetched += fetchedCount;
             first += fetchedCount;
             
-        } while (fetchedCount == batchSize);
+        } while (fetchedCount == CACHE_FETCH_BATCH_SIZE);
         
         // Swap staging to active cache
         if (storage_->SwapCache()) {
