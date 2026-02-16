@@ -410,11 +410,33 @@ bool Controller::isTankValid(TankNumber tankNumber) const {
     return false;
 }
 
+Volume Controller::getTankVolume(TankNumber tankNumber) const {
+    if (backend_) {
+        const auto& tanks = backend_->GetFuelTanks();
+        for (const auto& tank : tanks) {
+            if (tank.idTank == tankNumber) {
+                return tank.volume;
+            }
+        }
+    }
+    return 0.0;
+}
+
 // Volume/Amount operations
 void Controller::enterVolume(Volume volume) {
     // Validate volume
     if (volume <= 0.0) {
         showError("Неправильный объём");
+        clearInput();
+        return;
+    }
+    
+    // Get tank volume for the selected tank
+    Volume tankVolume = getTankVolume(selectedTank_);
+    
+    // Validate volume against tank capacity
+    if (tankVolume > 0.0 && volume > tankVolume) {
+        showError("Превышение объёма бака");
         clearInput();
         return;
     }

@@ -492,7 +492,13 @@ DisplayMessage StateMachine::getDisplayMessage() const {
             message.line1 = "Введите объём и нажмите Старт (A)";
             message.line2 = controller_->getCurrentInput();
             if (controller_->getCurrentUser().role == UserRole::Customer) {
-                message.line3 = "Макс: " + controller_->formatVolume(controller_->getCurrentUser().allowance);
+                Volume maxVolume = controller_->getCurrentUser().allowance;
+                Volume tankVolume = controller_->getTankVolume(controller_->getSelectedTank());
+                // If tank volume is specified (> 0), use minimum of allowance and tank volume
+                if (tankVolume > 0.0) {
+                    maxVolume = std::min(maxVolume, tankVolume);
+                }
+                message.line3 = "Макс: " + controller_->formatVolume(maxVolume);
             } else {
                 message.line3 = "";
             }

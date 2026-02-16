@@ -173,7 +173,7 @@ Formats volume as `X.XX L` (e.g., "50.00 L", "0.25 L")
 - **0-9**: Input digits (volume, PIN, tank number)
 - **A (KeyStart)**: Confirm/Start current operation
 - **B (KeyStop)**: Cancel operation
-- **\* (KeyMax)**: Set maximum allowed volume (only in VolumeEntry state for customers)
+- **\* (KeyMax)**: Set maximum allowed volume (minimum of tank capacity and user allowance, only in VolumeEntry state for customers)
 - **# (KeyClear)**: Clear last digit
 
 ### Display Updates

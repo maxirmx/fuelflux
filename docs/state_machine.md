@@ -85,11 +85,14 @@ The FuelFlux controller uses a Mealy state machine to manage the fuel dispensing
 
 4. **Volume Entry**
    - Display shows: "Enter volume in liters"
-   - Display shows max allowance for customer
+   - Display shows maximum allowed volume (minimum of user allowance and tank capacity)
    - User enters volume (digits) or presses '*' for maximum
    - User presses 'A' (Start/Enter key)
-   - System validates: volume > 0 AND volume ≤ allowance
-   - If invalid: error displayed, input cleared
+   - System validates:
+     - volume > 0
+     - volume ≤ tank capacity (if tank capacity is specified)
+     - volume ≤ user allowance (for customers)
+   - If invalid: error displayed ("Превышение объёма бака" or "Превышение объёма"), input cleared
    - If valid: Event: `VolumeEntered` → State: `Refueling`
 
 5. **Refueling**
@@ -389,6 +392,15 @@ if (volume <= 0.0) {
     return; // Stay in VolumeEntry
 }
 
+// Check tank capacity first
+Volume tankVolume = getTankVolume(selectedTank);
+if (tankVolume > 0.0 && volume > tankVolume) {
+    showError("Volume exceeds tank capacity");
+    clearInput();
+    return; // Stay in VolumeEntry
+}
+
+// Then check user allowance for customers
 if (currentUser.role == Customer && volume > currentUser.allowance) {
     showError("Volume exceeds allowance");
     clearInput();
@@ -547,7 +559,7 @@ TankSelection (Cancel) ───────────────────
    ▼                                                     │
 VolumeEntry (Cancel) ────────────────────────────────────┘
    │
-   │ VolumeEntered (valid volume ≤ allowance)
+   │ VolumeEntered (valid volume ≤ min(tank capacity, allowance))
    ▼
 Refueling (automatic pump)
    │ (Target reached OR Cancel)
@@ -639,9 +651,9 @@ Example test scenarios:
    ... → VolumeEntry → CancelPressed → Waiting
    ```
 
-4. **Volume Exceeds Allowance**
+4. **Volume Exceeds Tank Capacity or Allowance**
    ```
-   ... → VolumeEntry → (enter 100L with 50L allowance) 
+   ... → VolumeEntry → (enter 100L with 50L tank capacity and 80L allowance) 
    → Error shown, stay in VolumeEntry
    ```
 
@@ -676,7 +688,7 @@ This ensures thread-safe event delivery from peripheral callbacks and the timeou
 | Key | Character | Function | Description |
 |-----|-----------|----------|-------------|
 | 0-9 | '0'-'9' | Digit input | Enter numbers for PIN, tank, volume |
-| * | '*' | Max | Set input to maximum allowance (VolumeEntry only) |
+| * | '*' | Max | Set input to maximum allowed volume (min of tank capacity and allowance, VolumeEntry only) |
 | # | '#' | Clear | Remove last digit (backspace) |
 | A | 'A' | **Start/Enter** | **Confirm input and proceed to next state** |
 | B | 'B' | **Stop/Cancel** | **Cancel current operation, return to Waiting** |
