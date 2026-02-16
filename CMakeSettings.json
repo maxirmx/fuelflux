@@ -58,6 +58,11 @@
           "name": "TARGET_REAL_PUMP",
           "value": "False",
           "type": "BOOL"
+        },
+        {
+          "name": "DISPLAY_TYPE",
+          "value": "CONSOLE",
+          "type": "STRING"
         }
       ]
     }

@@ -138,6 +138,7 @@ bool RealDisplay::isConnected() const {
 }
 
 void RealDisplay::showMessage(const DisplayMessage& message) {
+    std::lock_guard<std::mutex> lock(displayMutex_);
     if (!isConnected_ || !display_) {
         return;
     }
@@ -151,6 +152,7 @@ void RealDisplay::showMessage(const DisplayMessage& message) {
 }
 
 void RealDisplay::clear() {
+    std::lock_guard<std::mutex> lock(displayMutex_);
     if (!isConnected_ || !display_) {
         return;
     }
@@ -164,6 +166,7 @@ void RealDisplay::clear() {
 }
 
 void RealDisplay::setBacklight(bool enabled) {
+    std::lock_guard<std::mutex> lock(displayMutex_);
     backlightEnabled_ = enabled;
     if (!isConnected_ || !lcd_) {
         return;

@@ -9,6 +9,7 @@
 #ifdef TARGET_REAL_DISPLAY
 #include <memory>
 #include <string>
+#include <mutex>
 
 // Forward declarations for display classes
 class FourLineDisplay;
@@ -23,8 +24,8 @@ namespace display_defaults {
     
     // ST7565 configuration (128x64 monochrome LCD)
     namespace st7565 {
-        constexpr int DC_PIN = 262;   // Data/Command GPIO line offset
-        constexpr int RST_PIN = 226;  // Reset GPIO line offset
+        constexpr int DC_PIN = 271;   // Data/Command GPIO line offset
+        constexpr int RST_PIN = 256;  // Reset GPIO line offset
         constexpr int WIDTH = 128;
         constexpr int HEIGHT = 64;
         constexpr int SMALL_FONT_SIZE = 12;
@@ -33,8 +34,8 @@ namespace display_defaults {
     
     // ILI9488 configuration (480x320 TFT display)
     namespace ili9488 {
-        constexpr int DC_PIN = 262;   // Data/Command GPIO line offset
-        constexpr int RST_PIN = 226;  // Reset GPIO line offset
+        constexpr int DC_PIN = 271;   // Data/Command GPIO line offset
+        constexpr int RST_PIN = 256;  // Reset GPIO line offset
         constexpr int WIDTH = 480;
         constexpr int HEIGHT = 320;
         constexpr int SMALL_FONT_SIZE = 40;
@@ -72,7 +73,8 @@ private:
     bool isConnected_;
     bool backlightEnabled_;
     DisplayMessage currentMessage_;
-    
+    mutable std::mutex displayMutex_;
+
     // Hardware configuration
     std::string spiDevice_;
     std::string gpioChip_;

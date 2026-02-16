@@ -724,22 +724,15 @@ void ConsoleEmulator::dispatchKey(char c) {
 
 bool ConsoleEmulator::processKeyboardInput(char c, SystemState state) {
     std::lock_guard<std::mutex> lock(commandMutex_);
+    bool ret = false;
     if (state == SystemState::Waiting) {
         // command mode: build command buffer, accept backspace and enter
         if (c == '\r' || c == '\n') {
-            std::string cmd = commandBuffer_;
             // handle command
-            if (cmd == "exit") {
-                processCommand(cmd);
-                commandBuffer_.clear();
-                ConsoleUi::instance().setInputBuffer(commandBuffer_);
-                return true;
-            } else if (!cmd.empty()) {
-                processCommand(cmd);
-            }
+            ret = (commandBuffer_ == "exit");
+            processCommand(commandBuffer_);
             commandBuffer_.clear();
             ConsoleUi::instance().setInputBuffer(commandBuffer_);
-            return false;
         } else if (c == 127 || c == 8) {
             if (!commandBuffer_.empty()) {
                 // Remove the last full UTF-8 code point, not just the last byte
@@ -756,17 +749,15 @@ bool ConsoleEmulator::processKeyboardInput(char c, SystemState state) {
                 commandBuffer_.erase(i);
             }
             ConsoleUi::instance().setInputBuffer(commandBuffer_);
-            return false;
         } else {
             commandBuffer_.push_back(c);
             ConsoleUi::instance().setInputBuffer(commandBuffer_);
-            return false;
         }
     } else {
         // key mode: forward raw key to keyboard
         if (keyboard_) keyboard_->injectKey(c);
-        return false;
     }
+    return ret;
 }
 
 void ConsoleEmulator::printWelcome() const {
@@ -834,7 +825,7 @@ void ConsoleEmulator::processCommand(const std::string& command) {
     std::string cmd;
     iss >> cmd;
 
-    if (cmd == "key" || cmd == "keymode") {
+    if (cmd == "keymode") {
         requestKeyModeSwitch_.store(true);
         return;
     }
@@ -848,7 +839,11 @@ void ConsoleEmulator::processCommand(const std::string& command) {
         }
     } else if (cmd == "help") {
         printHelp();
-    } else if (!cmd.empty()) {
+    }
+    else if (cmd == "exit") {
+        logBlock("Shutting down ...");
+    }
+    else if (!cmd.empty()) {
         logLine(fmt::format("Unknown command: {}", cmd));
         printAvailableCommands();
     }
@@ -864,11 +859,10 @@ void ConsoleEmulator::simulateCard(const UserId& userId) {
 
 void ConsoleEmulator::printAvailableCommands() const {
 #ifndef TARGET_REAL_CARD_READER
-    logLine("Available commands: card, flow, keymode, help, exit");
+    logLine("Available commands: card, keymode, help, exit");
 #else
-    logLine("Available commands: flow, keymode, help, exit");
+    logLine("Available commands: keymode, help, exit");
 #endif
-    logLine("Type 'help' for detailed information");
 }
 
 void ConsoleEmulator::setInputMode(bool commandMode) {

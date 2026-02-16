@@ -85,8 +85,10 @@ class Controller {
 
     // Display management
     void updateDisplay();
+
     void showError(const std::string& message);
-    void showMessage(const std::string& line1, const std::string& line2 = "", 
+    void showMessage(DisplayMessage message);
+    void showMessage(const std::string& line1, const std::string& line2 = "",
                     const std::string& line3 = "", const std::string& line4 = "");
 
     // Session management

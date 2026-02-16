@@ -283,6 +283,12 @@ void Controller::updateDisplay() {
     display_->showMessage(message);
 }
 
+void Controller::showMessage(DisplayMessage message) {
+    if (!display_) return;
+    display_->showMessage(message);
+}
+
+
 void Controller::showError(const std::string& message) {
     lastErrorMessage_ = message;
     if (display_) {
@@ -291,7 +297,7 @@ void Controller::showError(const std::string& message) {
         errorMsg.line2 = message;
         errorMsg.line3 = "Нажмите ОТМЕНА (B)";
         errorMsg.line4 = getCurrentTimeString();
-        display_->showMessage(errorMsg);
+        showMessage(errorMsg);
     }
 }
 
@@ -303,7 +309,7 @@ void Controller::showMessage(const std::string& line1, const std::string& line2,
         message.line2 = line2;
         message.line3 = line3;
         message.line4 = line4;
-        display_->showMessage(message);
+        showMessage(message);
     }
 }
 
