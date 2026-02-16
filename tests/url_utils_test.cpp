@@ -6,8 +6,7 @@
 
 #include "url_utils.h"
 
-namespace fuelflux {
-namespace {
+using namespace fuelflux;
 
 TEST(UrlUtilsTest, ExtractsHostFromHttpUrl) {
     EXPECT_EQ(ExtractHostFromUrl("http://ttft.uxp.ru"), "ttft.uxp.ru");
@@ -32,6 +31,3 @@ TEST(UrlUtilsTest, ExtractsHostWithUserInfo) {
 TEST(UrlUtilsTest, ReturnsHostForPlainHostname) {
     EXPECT_EQ(ExtractHostFromUrl("localhost"), "localhost");
 }
-
-} // namespace
-} // namespace fuelflux

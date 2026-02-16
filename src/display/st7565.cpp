@@ -2,7 +2,7 @@
 // All rights reserved.
 // This file is a part of fuelflux application
 
-#include "nhd/st7565.h"
+#include "display/st7565.h"
 #include <thread>
 #include <chrono>
 #include <stdexcept>

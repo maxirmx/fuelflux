@@ -87,6 +87,18 @@ void Controller::shutdown() {
     if (isRunning_) {
         isRunning_ = false;
         eventCv_.notify_all();
+        
+        // Wait for the event loop thread to actually exit
+        // The thread checks isRunning_ at the top of the loop and the 
+        // condition variable wait has a 100ms timeout, so this waits up to 2 seconds
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(2000);
+        while (!threadExited_ && std::chrono::steady_clock::now() < deadline) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+        
+        if (!threadExited_) {
+            LOG_CTRL_ERROR("Thread shutdown timeout - thread did not exit within 2 seconds");
+        }
     
         // Shutdown peripherals
         shutdownPeripherals();
@@ -131,31 +143,38 @@ bool Controller::reinitializeDevice() {
 }
 
 void Controller::run() {
-    LOG_CTRL_INFO("Starting main loop");
+LOG_CTRL_INFO("Starting main loop");
     
-    while (isRunning_) {
-        bool haveEvent = false;
-        Event event = Event::Timeout; // initialize but treat as invalid until popped
-        {
-            std::unique_lock<std::mutex> lock(eventQueueMutex_);
-            if (eventQueue_.empty()) {
-                // wait for an event or timeout periodically to allow shutdown
-                eventCv_.wait_for(lock, std::chrono::milliseconds(100), [this] { return !eventQueue_.empty() || !isRunning_; });
-            }
-            if (!eventQueue_.empty()) {
-                event = eventQueue_.front();
-                eventQueue_.pop();
-                haveEvent = true;
-            }
+// Reset the flag at the start of the run loop
+threadExited_ = false;
+    
+while (isRunning_) {
+    bool haveEvent = false;
+    Event event = Event::Timeout; // initialize but treat as invalid until popped
+    {
+        std::unique_lock<std::mutex> lock(eventQueueMutex_);
+        if (eventQueue_.empty()) {
+            // wait for an event or timeout periodically to allow shutdown
+            eventCv_.wait_for(lock, std::chrono::milliseconds(100), [this] { return !eventQueue_.empty() || !isRunning_; });
         }
+        if (!eventQueue_.empty()) {
+            event = eventQueue_.front();
+            eventQueue_.pop();
+            haveEvent = true;
+        }
+    }
 
-        if (haveEvent) {
-            stateMachine_.processEvent(event);
+    if (haveEvent) {
+        stateMachine_.processEvent(event);
         } else {
             // Small sleep to avoid busy loop when no events are present
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
         }
     }
+    
+    // Signal that thread has exited the main loop
+    threadExited_ = true;
+    LOG_CTRL_INFO("Main loop stopped");
 }
 
 // Allow other threads to post events into controller's loop
@@ -209,9 +228,10 @@ void Controller::handleKeyPress(KeyCode key) {
         case KeyCode::Key8:
         case KeyCode::Key9:
             // Detect first digit in Waiting state -> transition to PinEntry
-            if (currentState == SystemState::Waiting || currentState == SystemState::RefuelingComplete) {
+            if (currentState == SystemState::Waiting || 
+                currentState == SystemState::RefuelingComplete ||
+                currentState == SystemState::IntakeComplete) {
                 currentInput_.clear();
-                postEvent(Event::PinEntryStarted);
             }
             addDigitToInput(static_cast<char>(key));
             break;
@@ -287,7 +307,7 @@ void Controller::handleFlowUpdate(Volume currentVolume) {
         }
     }
     
-    updateDisplay();
+    postEvent(Event::InputUpdated);
 }
 
 // Display management
@@ -298,6 +318,12 @@ void Controller::updateDisplay() {
     display_->showMessage(message);
 }
 
+void Controller::showMessage(DisplayMessage message) {
+    if (!display_) return;
+    display_->showMessage(message);
+}
+
+
 void Controller::showError(const std::string& message) {
     lastErrorMessage_ = message;
     if (display_) {
@@ -306,7 +332,7 @@ void Controller::showError(const std::string& message) {
         errorMsg.line2 = message;
         errorMsg.line3 = "Нажмите ОТМЕНА (B)";
         errorMsg.line4 = getCurrentTimeString();
-        display_->showMessage(errorMsg);
+        showMessage(errorMsg);
     }
 }
 
@@ -318,7 +344,7 @@ void Controller::showMessage(const std::string& line1, const std::string& line2,
         message.line2 = line2;
         message.line3 = line3;
         message.line4 = line4;
-        display_->showMessage(message);
+        showMessage(message);
     }
 }
 
@@ -326,12 +352,12 @@ void Controller::showMessage(const std::string& line1, const std::string& line2,
 void Controller::startNewSession() {
     resetSessionData();
     clearInput();
-    updateDisplay();
+    postEvent(Event::InputUpdated);
 }
 
 void Controller::endCurrentSession() {
     resetSessionData();
-    clearInput();
+    clearInputSilent();
     if (pump_ && pump_->isRunning()) {
         pump_->stop();
     }
@@ -341,12 +367,11 @@ void Controller::endCurrentSession() {
     if (backend_ && backend_->IsAuthorized()) {
         (void)backend_->Deauthorize();
     }
-    updateDisplay();
 }
 
 void Controller::clearInput() {
     currentInput_.clear();
-    updateDisplay();
+    postEvent(Event::InputUpdated);
 }
 
 void Controller::clearInputSilent() {
@@ -357,20 +382,20 @@ void Controller::clearInputSilent() {
 void Controller::addDigitToInput(char digit) {
     if (currentInput_.length() < 10) { // Limit input length
         currentInput_ += digit;
-        updateDisplay();
+        postEvent(Event::InputUpdated);
     }
 }
 
 void Controller::removeLastDigit() {
     if (!currentInput_.empty()) {
         currentInput_.pop_back();
-        updateDisplay();
+        postEvent(Event::InputUpdated);
     }
 }
 
 void Controller::setMaxValue() {
     currentInput_ = std::to_string(static_cast<int>(currentUser_.allowance));
-    updateDisplay();
+    postEvent(Event::InputUpdated);
 }
 
 // Authorization

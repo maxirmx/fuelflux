@@ -2,7 +2,7 @@
 // All rights reserved.
 // This file is a part of fuelflux application
 
-#include "nhd/ft_text.h"
+#include "display/ft_text.h"
 #include <stdexcept>
 #include <cstring>
 #include <cstdint>

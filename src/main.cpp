@@ -303,14 +303,11 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
             
             // Create display early so it can be used for failure message if needed
 #ifdef TARGET_REAL_DISPLAY
-            // Use real hardware display with configuration from environment variables
-            LOG_INFO("Using real hardware display (NHD-C12864A1Z-FSW-FBW-HTT)");
-
             // Get hardware configuration from environment or use defaults
             std::string spiDevice = "/dev/spidev1.0";
             std::string gpioChip = "/dev/gpiochip0";
-            int dcPin = 262;
-            int rstPin = 226;
+            int dcPin = 271;
+            int rstPin = 256;
             std::string fontPath = "/usr/share/fonts/truetype/ubuntu/UbuntuMono-B.ttf";
 
             if (const char* env = std::getenv("FUELFLUX_SPI_DEVICE")) spiDevice = env;
@@ -332,36 +329,59 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
 #else
             display = emulator.createDisplay();
 #endif
+
+            DisplayMessage msg;
+            msg.line1 = "Подготовка";
+            msg.line2 = "";
+            msg.line3 = "Дисплей";
+            msg.line4 = "";
+            display->showMessage(msg);
+
             
+            // ----- Backlog -----
+            msg.line3 = "Очередь";
+            display->showMessage(msg);
+
             auto storage = std::make_shared<MessageStorage>(STORAGE_DB_PATH);
             auto backend = Controller::CreateDefaultBackend(storage);
             auto backlogBackend = Controller::CreateDefaultBackendShared(controllerId, nullptr);
             BacklogWorker backlogWorker(storage, backlogBackend, std::chrono::seconds(30));
             backlogWorker.Start();
 
-            // Create controller with storage
-            Controller controller(controllerId, backend, storage);
-            
             // Setup display - move ownership to controller
+
+            // ----- Контроллер -----
+            msg.line3 = "Контроллер";
+            display->showMessage(msg);
+
+            Controller controller(controllerId, backend, storage);
             controller.setDisplay(std::move(display));
 
+
+            // ----- Клавиатура -----
+            msg.line3 = "Клавиатура";
+            controller.showMessage(msg);
 #ifdef TARGET_REAL_KEYBOARD
-            LOG_INFO("Using real hardware keyboard");
             controller.setKeyboard(std::make_unique<peripherals::HardwareKeyboard>());
 #else
             controller.setKeyboard(emulator.createKeyboard());
 #endif
 
+            // ----- Кардридер -----
+            msg.line3 = "Кардридер";
+            controller.showMessage(msg);
+
 #ifdef TARGET_REAL_CARD_READER
-            LOG_INFO("Using real NFC card reader (libnfc)");
             auto cardReader = std::make_unique<peripherals::HardwareCardReader>();
             controller.setCardReader(std::move(cardReader));
 #else
             controller.setCardReader(emulator.createCardReader());
 #endif
 
+            // ----- Насос/счётчик -----
+            msg.line3 = "Насос\\счётчик";
+            controller.showMessage(msg);
 #ifdef TARGET_REAL_PUMP
-            LOG_INFO("Using real pump relay control");
             std::string pumpChip = peripherals::pump_defaults::GPIO_CHIP;
             int pumpLine = peripherals::pump_defaults::RELAY_PIN;
             bool pumpActiveLow = peripherals::pump_defaults::ACTIVE_LOW;
@@ -414,20 +434,27 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
             controller.setFlowMeter(emulator.createFlowMeter());
             
             // Initialize controller
+            msg.line1 = "Запуск";
+            msg.line3 = "Контроллер";
+            controller.showMessage(msg);
+
             bool initOk = controller.initialize();
             if (!initOk) {
                 LOG_ERROR("Failed to initialize controller; entering error state");
                 LOG_WARN("Controller started in error state; awaiting reinitialization");
-                emulator.logLine("[Main] Controller failed to initialize; type 'help' for diagnostic commands");
+                emulator.logLine("[Main] Controller failed to initialize");
             } else {
                 LOG_INFO("Controller initialized successfully");
                 emulator.logLine("[Main] Type 'help' for available commands");
             }
             
             // Start input dispatcher thread (handles both command and key modes)
+            msg.line3 = "Ввод\\вывод";
+            controller.showMessage(msg);
             std::thread inputThread(inputDispatcher, std::ref(emulator));
             
             // Start controller main loop in a separate thread
+            controller.updateDisplay();
             std::thread controllerThread([&controller]() {
                 controller.run();
             });
@@ -443,7 +470,6 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
                 
                 // Shutdown controller
                 controller.shutdown();
-
                 backlogWorker.Stop();
             } catch (...) {
                 // Ensure controller is stopped even if exception occurs
