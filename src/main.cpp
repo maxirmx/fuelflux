@@ -306,8 +306,8 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
             // Get hardware configuration from environment or use defaults
             std::string spiDevice = "/dev/spidev1.0";
             std::string gpioChip = "/dev/gpiochip0";
-            int dcPin = 271;
-            int rstPin = 256;
+            int dcPin = peripherals::display_defaults::DC_PIN;
+            int rstPin = peripherals::display_defaults::RST_PIN;
             std::string fontPath = "/usr/share/fonts/truetype/ubuntu/UbuntuMono-B.ttf";
 
             if (const char* env = std::getenv("FUELFLUX_SPI_DEVICE")) spiDevice = env;
