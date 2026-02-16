@@ -4,6 +4,7 @@
 
 #pragma once
 
+#include <atomic>
 #include <memory>
 #include <string>
 #include <vector>
@@ -165,6 +166,7 @@ class Controller {
     
     // System state
     bool isRunning_;
+    std::atomic<bool> threadExited_{false};
     std::string lastErrorMessage_;
 
     // Event queue for cross-thread event posting

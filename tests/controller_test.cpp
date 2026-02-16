@@ -191,7 +191,10 @@ protected:
 
     // Helper to safely shutdown controller and join thread
     void shutdownControllerAndJoinThread(std::thread& controllerThread) {
+        // shutdown() now waits for thread to exit cleanly
         controller->shutdown();
+        
+        // Just ensure thread is joinable (should always be true after shutdown waits)
         if (controllerThread.joinable()) {
             controllerThread.join();
         }
@@ -548,7 +551,7 @@ TEST_F(ControllerTest, NotAuthorizedStateProcessesAllEvents) {
 
     const std::array<Event, 19> allEvents = {
         Event::CardPresented,
-        Event::PinEntryStarted,
+        Event::InputUpdated,
         Event::PinEntered,
         Event::AuthorizationSuccess,
         Event::AuthorizationFailed,

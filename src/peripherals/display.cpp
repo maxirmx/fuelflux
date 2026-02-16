@@ -180,7 +180,9 @@ void RealDisplay::updateDisplay() {
     if (!display_ || !lcd_) {
         return;
     }
-    
+
+    std::lock_guard<std::mutex> lock(displayMutex_);
+
     // Update all four lines
     display_->puts(0, currentMessage_.line1);
     display_->puts(1, currentMessage_.line2);

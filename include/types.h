@@ -55,8 +55,8 @@ enum class SystemState {
 // Events that trigger state transitions
 enum class Event {
     CardPresented,
-    PinEntryStarted,
     PinEntered,
+	InputUpdated,
     AuthorizationSuccess,
     AuthorizationFailed,
     TankSelected,
