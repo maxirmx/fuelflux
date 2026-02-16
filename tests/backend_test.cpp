@@ -38,6 +38,10 @@ public:
         server.Post("/api/pump/fuel-intake", [this](const httplib::Request& req, httplib::Response& res) {
             handleFuelIntake(req, res);
         });
+
+        server.Get("/api/pump/cards", [this](const httplib::Request& req, httplib::Response& res) {
+            handleGetCards(req, res);
+        });
     }
 
     void start() {
@@ -81,6 +85,7 @@ public:
     std::function<void(const httplib::Request&, httplib::Response&)> handleDeauthorize;
     std::function<void(const httplib::Request&, httplib::Response&)> handleRefuel;
     std::function<void(const httplib::Request&, httplib::Response&)> handleFuelIntake;
+    std::function<void(const httplib::Request&, httplib::Response&)> handleGetCards;
 };
 
 class BackendTest : public ::testing::Test {
@@ -565,4 +570,125 @@ TEST_F(BackendTest, IntakeJsonParseError) {
     
     EXPECT_FALSE(result);
     EXPECT_FALSE(backend.GetLastError().empty());
+}
+
+TEST_F(BackendTest, GetCardsSuccessfully) {
+    mockServer->handleGetCards = [](const httplib::Request& req, httplib::Response& res) {
+        // Check query parameters
+        EXPECT_TRUE(req.has_param("first"));
+        EXPECT_TRUE(req.has_param("number"));
+        
+        int first = std::stoi(req.get_param_value("first"));
+        int number = std::stoi(req.get_param_value("number"));
+        
+        EXPECT_EQ(first, 0);
+        EXPECT_EQ(number, 10);
+        
+        // Return array of user cards
+        nlohmann::json response = nlohmann::json::array();
+        response.push_back({
+            {"Uid", "1000000000"},
+            {"RoleId", 1},
+            {"Allowance", 200.0}
+        });
+        response.push_back({
+            {"Uid", "2000000000"},
+            {"RoleId", 2},
+            {"Allowance", 0.0}
+        });
+        response.push_back({
+            {"Uid", "3000"},
+            {"RoleId", 1},
+            {"Allowance", 200.0}
+        });
+        
+        res.status = 200;
+        res.set_content(response.dump(), "application/json");
+    };
+
+    auto backend = std::make_shared<Backend>(baseAPI, controllerUid);
+    auto cards = backend->GetCards(controllerUid, 0, 10);
+    
+    EXPECT_EQ(cards.size(), 3);
+    EXPECT_EQ(cards[0].uid, "1000000000");
+    EXPECT_EQ(cards[0].roleId, 1);
+    EXPECT_DOUBLE_EQ(cards[0].allowance, 200.0);
+    
+    EXPECT_EQ(cards[1].uid, "2000000000");
+    EXPECT_EQ(cards[1].roleId, 2);
+    EXPECT_DOUBLE_EQ(cards[1].allowance, 0.0);
+    
+    EXPECT_EQ(cards[2].uid, "3000");
+    EXPECT_EQ(cards[2].roleId, 1);
+    EXPECT_DOUBLE_EQ(cards[2].allowance, 200.0);
+}
+
+TEST_F(BackendTest, GetCardsEmptyResponse) {
+    mockServer->handleGetCards = [](const httplib::Request& req, httplib::Response& res) {
+        nlohmann::json response = nlohmann::json::array();
+        res.status = 200;
+        res.set_content(response.dump(), "application/json");
+    };
+
+    auto backend = std::make_shared<Backend>(baseAPI, controllerUid);
+    auto cards = backend->GetCards(controllerUid, 100, 10);
+    
+    EXPECT_EQ(cards.size(), 0);
+}
+
+TEST_F(BackendTest, GetCardsPagination) {
+    mockServer->handleGetCards = [](const httplib::Request& req, httplib::Response& res) {
+        int first = std::stoi(req.get_param_value("first"));
+        int number = std::stoi(req.get_param_value("number"));
+        
+        nlohmann::json response = nlohmann::json::array();
+        
+        // Return different data based on pagination
+        if (first == 0) {
+            for (int i = 0; i < number; i++) {
+                response.push_back({
+                    {"Uid", "user" + std::to_string(i)},
+                    {"RoleId", 1},
+                    {"Allowance", 100.0}
+                });
+            }
+        } else if (first == 10) {
+            // Return only 5 more records (simulating end of data)
+            for (int i = 0; i < 5; i++) {
+                response.push_back({
+                    {"Uid", "user" + std::to_string(first + i)},
+                    {"RoleId", 1},
+                    {"Allowance", 100.0}
+                });
+            }
+        }
+        
+        res.status = 200;
+        res.set_content(response.dump(), "application/json");
+    };
+
+    auto backend = std::make_shared<Backend>(baseAPI, controllerUid);
+    
+    // First page
+    auto cards1 = backend->GetCards(controllerUid, 0, 10);
+    EXPECT_EQ(cards1.size(), 10);
+    EXPECT_EQ(cards1[0].uid, "user0");
+    EXPECT_EQ(cards1[9].uid, "user9");
+    
+    // Second page (partial)
+    auto cards2 = backend->GetCards(controllerUid, 10, 10);
+    EXPECT_EQ(cards2.size(), 5);
+    EXPECT_EQ(cards2[0].uid, "user10");
+    EXPECT_EQ(cards2[4].uid, "user14");
+}
+
+TEST_F(BackendTest, GetCardsNetworkError) {
+    // Don't set up handler - server will return 404
+    mockServer->handleGetCards = nullptr;
+    
+    auto backend = std::make_shared<Backend>(baseAPI, controllerUid);
+    auto cards = backend->GetCards(controllerUid, 0, 10);
+    
+    EXPECT_EQ(cards.size(), 0);
+    EXPECT_FALSE(backend->GetLastError().empty());
 }
