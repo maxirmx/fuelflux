@@ -152,11 +152,14 @@ public:
     }
 
 private:
-    static constexpr int kDisplayHeight = 6;
-    static constexpr int kLogLines = 10;
-    static constexpr int kLogStartRow = kDisplayHeight + 1;
-    static constexpr int kInputRow = kLogStartRow + kLogLines + 1;
-    static constexpr size_t kMaxLogLines = static_cast<size_t>(kLogLines);
+#ifdef TARGET_REAL_DISPLAY
+    static constexpr size_t kDisplayHeight = 0;
+#else
+    static constexpr size_t kDisplayHeight = 6;
+#endif
+    static constexpr size_t kMaxLogLines = 12;
+    static constexpr size_t kLogStartRow = kDisplayHeight + 1;
+    static constexpr size_t kInputRow = kLogStartRow + kMaxLogLines + 1;
 
     std::mutex outputMutex_;
     std::deque<std::string> logLines_;
@@ -183,7 +186,8 @@ private:
     void appendLogLineLocked(const std::string& line) {
         if (line.empty()) {
             logLines_.push_back({});
-        } else {
+        }
+        else {
             logLines_.push_back(line);
         }
         while (logLines_.size() > kMaxLogLines) {
@@ -192,10 +196,10 @@ private:
     }
 
     void renderLogAreaLocked() {
-        for (int i = 0; i < kLogLines; ++i) {
-            const size_t index = logLines_.size() > static_cast<size_t>(kLogLines)
-                ? logLines_.size() - kLogLines + static_cast<size_t>(i)
-                : static_cast<size_t>(i);
+        for (size_t i = 0; i < kMaxLogLines; ++i) {
+            const size_t index = logLines_.size() > kMaxLogLines
+                ? logLines_.size() - kMaxLogLines + i
+                : i;
             std::string line;
             if (index < logLines_.size()) {
                 line = logLines_[index];
@@ -204,15 +208,19 @@ private:
         }
     }
 
+    std::string getPrompt() const {
+        return commandMode_ ? "CMD MODE ('keymode' to key) > " : "KEY MODE (Tab to command)";
+    }
+
     void renderInputLocked() {
-        std::string prompt = commandMode_ ? "CMD> " : "KEY MODE (Tab to command)";
+        std::string prompt = getPrompt();
         std::string line = commandMode_ ? prompt + inputBuffer_ : prompt;
         writeAt(kInputRow, 1, line);
         moveCursorToInputLocked();
     }
 
     void moveCursorToInputLocked() {
-        std::string prompt = commandMode_ ? "CMD> " : "KEY MODE (Tab to command)";
+        std::string prompt = getPrompt();
         const size_t cursorOffset = commandMode_
             ? utf8Length(prompt) + utf8Length(inputBuffer_)
             : utf8Length(prompt);
@@ -343,8 +351,6 @@ ConsoleKeyboard::~ConsoleKeyboard() {
 bool ConsoleKeyboard::initialize() {
     isConnected_ = true;
     shouldStop_ = false;
-    // Do not start an internal thread; dispatcher will inject keys
-    printKeyboardHelp();
     return true;
 }
 
@@ -375,21 +381,6 @@ void ConsoleKeyboard::injectKey(char c) {
     if (keyCode == static_cast<KeyCode>(0)) return;
     std::lock_guard<std::mutex> lock(callbackMutex_);
     if (keyPressCallback_) keyPressCallback_(keyCode);
-}
-
-void ConsoleKeyboard::printKeyboardHelp() const {
-    logBlock(
-        "=== KEYBOARD MAPPINGS ===\n"
-        "0-9: Number keys\n"
-        "*  : Max (maximum volume)\n"
-        "#  : Clear (delete last digit)\n"
-        "A  : Start/Enter (confirm input)\n"
-        "B  : Stop/Cancel (cancel operation)\n"
-        "\n=== IMPORTANT ===\n"
-        "In KEY mode: You must press 'A' (not Enter)\n"
-        "Press Tab to switch between command/key modes\n"
-        "========================="
-    );
 }
 
 // ConsoleCardReader implementation
@@ -779,9 +770,11 @@ void ConsoleEmulator::printHelp() const {
     help += "help            : Show this help\n";
     help += "exit            : Exit application\n";
     help += "========================\n";
-    help += "  Command mode  : Type full commands, press Enter\n";
-    help += "  Key mode      : Press individual keys (A, B, 0-9, *, #)\n";
-    help += "  Tab key       : Switch between command and key input modes\n";
+    help += "Command mode  : Type full commands, press Enter\n";
+    help += "Key mode      : Press individual keys (A, B, 0-9, *, #)\n";
+    help += "Tab key       : Switch between command and key input modes\n";
+	help += "   'A' stands for \"Начать\"\n";
+    help += "   'B' stands for \"Отменить\"\n";
     help += "========================\n";
     logBlock(help);
 }

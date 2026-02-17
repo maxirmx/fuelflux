@@ -90,17 +90,11 @@ static void inputDispatcher(ConsoleEmulator& emulator) {
         if (newMode != currentMode) {
             currentMode = newMode;
             if (currentMode == InputMode::Command) {
-                emulator.logLine("=== Switched to COMMAND mode ===");
 #ifndef _WIN32
                 setRawMode(false);
 #endif
                 emulator.setInputMode(true);
             } else {
-                emulator.logBlock(
-                    "=== Switched to KEY mode ===\n"
-                    "Press individual keys (0-9, A, B, *, #)\n"
-                    "Press Tab to return to command mode"
-                );
 #ifndef _WIN32
                 setRawMode(true);
 #endif
