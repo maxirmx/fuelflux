@@ -181,6 +181,4 @@ void Ili9488::set_mono_framebuffer(const std::vector<uint8_t>& fb,
 
         data(rgb.data() + offset, chunk_size);
     }
-    // std::this_thread::sleep_for(std::chrono::milliseconds(500));  // !!!
-
 }
