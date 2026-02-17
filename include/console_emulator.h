@@ -10,6 +10,10 @@
 #include <condition_variable>
 #include <queue>
 
+#ifndef _WIN32
+#include <termios.h>
+#endif
+
 #include "peripherals/peripheral_interface.h"
 
 namespace fuelflux {
@@ -66,8 +70,6 @@ private:
     std::thread inputThread_;
     std::atomic<bool> shouldStop_;
     mutable std::mutex callbackMutex_;
-
-    void printKeyboardHelp() const;
 };
 
 // Console-based card reader emulation
@@ -193,6 +195,10 @@ public:
     void logBlock(const std::string& message) const;
     bool consumeModeSwitchRequest();
 
+    // Start/stop input dispatcher loop (runs in internal thread)
+    void startInputDispatcher(std::atomic<bool>& runningFlag);
+    void stopInputDispatcher();
+
 private:
     // Keep weak references to created peripherals for command processing
     ConsoleCardReader* cardReader_;
@@ -203,6 +209,14 @@ private:
     std::string commandBuffer_;
     mutable std::mutex commandMutex_;
     std::atomic<bool> requestKeyModeSwitch_{false};
+
+    std::thread inputThread_;
+    std::atomic<bool>* runningFlag_{nullptr};
+
+#ifndef _WIN32
+    void restoreTerminal(const struct ::termios& origTerm, bool haveTerm);
+#endif
+    void inputDispatcherLoop();
     
     void printAvailableCommands() const;
 };

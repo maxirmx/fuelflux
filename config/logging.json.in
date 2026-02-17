@@ -1,12 +1,6 @@
 {
   "sinks": [
     {
-      "name": "console",
-      "type": "stdout_color",
-      "level": "warn",
-      "pattern": "[%Y-%m-%d %H:%M:%S.%e] [%n] [%l] %v"
-    },
-    {
       "name": "file",
       "type": "rotating_file",
       "filename": "@LOG_DIR@/fuelflux.log",
@@ -29,27 +23,27 @@
     {
       "name": "fuelflux",
       "level": "debug",
-      "sinks": [ "console", "file", "error_file" ]
+      "sinks": [ "file", "error_file" ]
     },
     {
       "name": "StateMachine",
       "level": "info",
-      "sinks": [ "console", "file", "error_file" ]
+      "sinks": [ "file", "error_file" ]
     },
     {
       "name": "Controller",
       "level": "info",
-      "sinks": [ "console", "file", "error_file" ]
+      "sinks": [ "file", "error_file" ]
     },
     {
       "name": "Peripherals",
       "level": "debug",
-      "sinks": [ "console", "file", "error_file" ]
+      "sinks": [ "file", "error_file" ]
     },
     {
       "name": "CloudService",
       "level": "info",
-      "sinks": [ "console", "file", "error_file" ]
+      "sinks": [ "file", "error_file" ]
     }
   ],
   "global_level": "debug",

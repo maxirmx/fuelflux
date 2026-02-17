@@ -20,8 +20,8 @@
 #ifdef _WIN32
 #include <conio.h>
 #else
-#include <unistd.h>
 #include <termios.h>
+#include <unistd.h>
 #include <sys/select.h>
 #endif
 
@@ -103,7 +103,7 @@ public:
         std::lock_guard<std::mutex> lock(outputMutex_);
         initializeLocked();
         for (size_t i = 0; i < lines.size(); ++i) {
-            writeAt(static_cast<int>(i + 1), 1, lines[i]);
+            writeAt(i + 1, 1, lines[i]);
         }
         renderLogAreaLocked();
         renderInputLocked();
@@ -227,7 +227,7 @@ private:
         std::cout << "\x1b[" << kInputRow << ";" << (cursorOffset + 1) << "H";
     }
 
-    void writeAt(int row, int col, const std::string& text) {
+    void writeAt(size_t row, size_t col, const std::string& text) {
         std::cout << "\x1b[" << row << ";" << col << "H\x1b[2K" << text;
     }
 };
@@ -422,7 +422,6 @@ void ConsoleCardReader::simulateCardPresented(const UserId& userId) {
         return;
     }
 
-    logLine(fmt::format("[CardReader] Card presented: {}", userId));
     std::lock_guard<std::mutex> lock(callbackMutex_);
     if (cardPresentedCallback_) {
         cardPresentedCallback_(userId);
@@ -677,10 +676,13 @@ ConsoleEmulator::ConsoleEmulator()
     , flowMeter_(nullptr)
     , keyboard_(nullptr)
     , commandBuffer_()
+    , runningFlag_(nullptr)
 {
 }
 
-ConsoleEmulator::~ConsoleEmulator() = default;
+ConsoleEmulator::~ConsoleEmulator() {
+    stopInputDispatcher();
+}
 
 std::unique_ptr<peripherals::IDisplay> ConsoleEmulator::createDisplay() {
 #ifdef TARGET_REAL_DISPLAY
@@ -713,10 +715,165 @@ std::unique_ptr<peripherals::IFlowMeter> ConsoleEmulator::createFlowMeter() {
     return meter;
 }
 
+void ConsoleEmulator::startInputDispatcher(std::atomic<bool>& runningFlag) {
+    if (inputThread_.joinable()) {
+        return;
+    }
+    runningFlag_ = &runningFlag;
+    inputThread_ = std::thread([this]() { inputDispatcherLoop(); });
+}
+
+void ConsoleEmulator::stopInputDispatcher() {
+    if (inputThread_.joinable()) {
+        inputThread_.join();
+    }
+    runningFlag_ = nullptr;
+}
+
 void ConsoleEmulator::dispatchKey(char c) {
     if (keyboard_) {
         keyboard_->injectKey(c);
     }
+}
+
+#ifndef _WIN32
+void ConsoleEmulator::restoreTerminal(const struct ::termios& origTerm, bool haveTerm) {
+    if (haveTerm) {
+        tcsetattr(STDIN_FILENO, TCSANOW, &origTerm);
+    }
+}
+#endif
+
+void ConsoleEmulator::inputDispatcherLoop() {
+#ifndef _WIN32
+    struct termios origTerm;
+    bool haveTerm = (tcgetattr(STDIN_FILENO, &origTerm) == 0);
+
+    auto setRawMode = [&](bool raw) {
+        if (!haveTerm) return;
+        struct termios t = origTerm;
+        if (raw) {
+            t.c_lflag &= ~(ICANON | ECHO);
+            t.c_cc[VMIN] = 0;
+            t.c_cc[VTIME] = 0;
+        } else {
+            t.c_lflag |= (ICANON | ECHO);
+        }
+        tcsetattr(STDIN_FILENO, TCSANOW, &t);
+    };
+#endif
+
+    enum class InputMode {
+        Command,
+        Key
+    };
+
+    auto running = [&]() -> bool {
+        return runningFlag_ && runningFlag_->load();
+    };
+
+    InputMode currentMode = InputMode::Command;
+
+    auto switchMode = [&](InputMode newMode) {
+        if (newMode != currentMode) {
+            currentMode = newMode;
+            if (currentMode == InputMode::Command) {
+#ifndef _WIN32
+                setRawMode(false);
+#endif
+                setInputMode(true);
+            } else {
+#ifndef _WIN32
+                setRawMode(true);
+#endif
+                setInputMode(false);
+            }
+        }
+    };
+
+    // Start in key mode
+    switchMode(InputMode::Key);
+
+    while (running()) {
+#ifndef _WIN32
+        fd_set readfds;
+        FD_ZERO(&readfds);
+        FD_SET(STDIN_FILENO, &readfds);
+        struct timeval tv;
+        tv.tv_sec = 0;
+        tv.tv_usec = 100000; // 100ms
+        int ret = select(STDIN_FILENO + 1, &readfds, nullptr, nullptr, &tv);
+        if (ret > 0 && FD_ISSET(STDIN_FILENO, &readfds)) {
+            char c = 0;
+            ssize_t r = read(STDIN_FILENO, &c, 1);
+            if (r > 0) {
+                if (c == '\t') {
+                    switchMode(InputMode::Command);
+                    continue;
+                }
+                if (currentMode == InputMode::Command) {
+                    bool shouldQuit = processKeyboardInput(c, SystemState::Waiting);
+                    if (shouldQuit) {
+                        runningFlag_->store(false);
+                        break;
+                    }
+                    if (consumeModeSwitchRequest()) {
+                        switchMode(InputMode::Key);
+                    }
+                } else {
+                    if (c == '\r' || c == '\n') {
+                        logLine("[Key mode: Press 'A' to confirm, not Enter]");
+                        continue;
+                    }
+                    dispatchKey(c);
+                }
+            } else if (r == 0) {
+                LOG_INFO("EOF on stdin, shutting down...");
+                runningFlag_->store(false);
+                break;
+            } else {
+                int err = errno;
+                LOG_ERROR("Error reading from stdin (errno: {}), shutting down...", err);
+                runningFlag_->store(false);
+                break;
+            }
+        }
+#else
+        if (_kbhit()) {
+            int ch = _getch();
+            if (ch == 0 || ch == 224) {
+                (void)_getch();
+            } else {
+                char c = static_cast<char>(ch);
+                if (c == '\t') {
+                    switchMode(InputMode::Command);
+                    continue;
+                }
+                if (currentMode == InputMode::Command) {
+                    bool shouldQuit = processKeyboardInput(c, SystemState::Waiting);
+                    if (shouldQuit) {
+                        runningFlag_->store(false);
+                        break;
+                    }
+                    if (consumeModeSwitchRequest()) {
+                        switchMode(InputMode::Key);
+                    }
+                } else {
+                    if (c == '\r' || c == '\n') {
+                        logLine("[Key mode: Press 'A' to confirm, not Enter]");
+                        continue;
+                    }
+                    dispatchKey(c);
+                }
+            }
+        }
+#endif
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+
+#ifndef _WIN32
+    restoreTerminal(origTerm, haveTerm);
+#endif
 }
 
 bool ConsoleEmulator::processKeyboardInput(char c, SystemState state) {

@@ -37,7 +37,6 @@
 #include <windows.h>
 #include <conio.h>
 #else
-#include <termios.h>
 #include <unistd.h>
 #include <sys/select.h>
 #endif
@@ -56,150 +55,6 @@ void signalHandler(int signal) {
         std::cerr << "Received signal " << signal << ", shutting down..." << std::endl;
     }
     g_running = false;
-}
-
-// Dispatcher: Explicit mode switching with Tab key
-static void inputDispatcher(ConsoleEmulator& emulator) {
-#ifndef _WIN32
-    struct termios origTerm{};
-    bool haveTerm = (tcgetattr(STDIN_FILENO, &origTerm) == 0);
-
-    auto setRawMode = [&](bool raw) {
-        if (!haveTerm) return;
-        struct termios t = origTerm;
-        if (raw) {
-            t.c_lflag &= ~(ICANON | ECHO);
-            t.c_cc[VMIN] = 0;
-            t.c_cc[VTIME] = 0;
-        } else {
-            // restore canonical with echo
-            t.c_lflag |= (ICANON | ECHO);
-        }
-        tcsetattr(STDIN_FILENO, TCSANOW, &t);
-    };
-#endif
-
-    enum class InputMode {
-        Command,
-        Key
-    };
-
-    InputMode currentMode = InputMode::Command;
-
-    auto switchMode = [&](InputMode newMode) {
-        if (newMode != currentMode) {
-            currentMode = newMode;
-            if (currentMode == InputMode::Command) {
-#ifndef _WIN32
-                setRawMode(false);
-#endif
-                emulator.setInputMode(true);
-            } else {
-#ifndef _WIN32
-                setRawMode(true);
-#endif
-                emulator.setInputMode(false);
-            }
-        }
-    };
-
-    // Start in key mode
-    switchMode(InputMode::Key);
-
-    while (g_running) {
-#ifndef _WIN32
-        fd_set readfds;
-        FD_ZERO(&readfds);
-        FD_SET(STDIN_FILENO, &readfds);
-        struct timeval tv;
-        tv.tv_sec = 0;
-        tv.tv_usec = 100000; // 100ms
-        int ret = select(STDIN_FILENO + 1, &readfds, nullptr, nullptr, &tv);
-        if (ret > 0 && FD_ISSET(STDIN_FILENO, &readfds)) {
-            char c = 0;
-            ssize_t r = read(STDIN_FILENO, &c, 1);
-            if (r > 0) {
-                // Tab key switches to command mode
-                if (c == '\t') {
-                    switchMode(InputMode::Command);
-                    continue;
-                }
-                if (currentMode == InputMode::Command) {
-                    bool shouldQuit = emulator.processKeyboardInput(c, SystemState::Waiting);
-                    if (shouldQuit) {
-                        g_running = false;
-                        break;
-                    }
-                    if (emulator.consumeModeSwitchRequest()) {
-                        switchMode(InputMode::Key);
-                    }
-                } else {
-                    // NO mapping of Enter to 'A' - user must press 'A' explicitly
-                    // Ignore Enter/Return in key mode
-                    if (c == '\r' || c == '\n') {
-                        emulator.logLine("[Key mode: Press 'A' to confirm, not Enter]");
-                        continue;
-                    }
-                    // Forward raw key directly to keyboard
-                    emulator.dispatchKey(c);
-                }
-            } else if (r == 0) {
-                // EOF on stdin - graceful shutdown
-                LOG_INFO("EOF on stdin, shutting down...");
-                g_running = false;
-                break;
-            } else {
-                // Read error - log and shutdown
-                int err = errno;  // Save errno before any other calls
-                LOG_ERROR("Error reading from stdin (errno: {}), shutting down...", err);
-                g_running = false;
-                break;
-            }
-        }
-#else
-        if (_kbhit()) {
-            int ch = _getch();
-            if (ch == 0 || ch == 224) {
-                // extended key: ignore second code
-                (void)_getch();
-            } else {
-                char c = static_cast<char>(ch);
-                // Tab key (ASCII 9) switches to command mode
-                if (c == '\t') {
-                    switchMode(InputMode::Command);
-                    continue;
-                }
-                if (currentMode == InputMode::Command) {
-                    bool shouldQuit = emulator.processKeyboardInput(c, SystemState::Waiting);
-                    if (shouldQuit) {
-                        g_running = false;
-                        break;
-                    }
-                    if (emulator.consumeModeSwitchRequest()) {
-                        switchMode(InputMode::Key);
-                    }
-                } else {
-                    // NO mapping of Enter to 'A' - user must press 'A' explicitly
-                    // Ignore Enter/Return in key mode
-                    if (c == '\r' || c == '\n') {
-                        emulator.logLine("[Key mode: Press 'A' to confirm, not Enter]");
-                        continue;
-                    }
-                    // Forward raw key directly to keyboard
-                    emulator.dispatchKey(c);
-                }
-            }
-        }
-#endif
-        // small sleep to avoid busy loop
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    }
-
-#ifndef _WIN32
-    if (haveTerm) {
-        tcsetattr(STDIN_FILENO, TCSANOW, &origTerm);
-    }
-#endif
 }
 
 // Display failure message on a display interface
@@ -410,16 +265,14 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
 
             bool initOk = controller.initialize();
             if (!initOk) {
-                LOG_ERROR("Failed to initialize controller; entering error state");
-                LOG_WARN("Controller started in error state; awaiting reinitialization");
+                LOG_ERROR("Failed to initialize controller; entering error state; awaiting reinitialization");
                 emulator.logLine("[Main] Controller failed to initialize");
             } else {
                 LOG_INFO("Controller initialized successfully");
-                emulator.logLine("[Main] Type 'help' for available commands");
             }
             
             // Start input dispatcher thread (handles both command and key modes)
-            std::thread inputThread(inputDispatcher, std::ref(emulator));
+            emulator.startInputDispatcher(g_running);
             
             // Start controller main loop in a separate thread
             controller.updateDisplay();
@@ -447,9 +300,7 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
             }
             
             // Wait for threads to finish
-            if (inputThread.joinable()) {
-                inputThread.join();
-            }
+            emulator.stopInputDispatcher();
             
             if (controllerThread.joinable()) {
                 controllerThread.join();

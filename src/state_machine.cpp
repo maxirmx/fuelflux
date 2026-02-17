@@ -453,45 +453,45 @@ DisplayMessage StateMachine::getDisplayMessage() const {
     
     switch (currentState_) {
         case SystemState::Waiting:
-            message.line1 = "Поднесите карту или введите PIN";
-            message.line2 = controller_->getCurrentTimeString();
+            message.line1 = "Поднесите карту";
+            message.line2 = ""; //  controller_->getCurrentTimeString();
             message.line3 = "";
-            message.line4 = controller_->getDeviceSerialNumber();
+            message.line4 = ""; // controller_->getDeviceSerialNumber();
             break;
 
         case SystemState::PinEntry:
-            message.line1 = "Введите PIN и нажмите Старт (A)";
+            message.line1 = "Введите PIN";
             message.line2 = std::string(controller_->getCurrentInput().length(), '*');
-            message.line3 = "";
-            message.line4 = controller_->getCurrentTimeString();
+            message.line3 = "Нажмите Старт (A)";
+            message.line4 = "";
             break;
 
         case SystemState::Authorization:
             message.line1 = "Авторизация...";
             message.line2 = "";
-            message.line3 = "Пожалуйста, подождите";
-            message.line4 = controller_->getDeviceSerialNumber();
+            message.line3 = "";
+            message.line4 = "";
             break;
 
         case SystemState::NotAuthorized:
             message.line1 = "Доступ запрещен";
             message.line2 = "";
             message.line3 = "Нажмите Отмена (B)";
-            message.line4 = "или подождите";
-            break;
-
-        case SystemState::TankSelection:
-            message.line1 = "Выберите цистерну и нажмите Старт (A)";
-            message.line2 = controller_->getCurrentInput();
-            message.line3 = "Доступные цистерны: ";
-            for (const auto& tank : controller_->getAvailableTanks()) {
-                message.line3 += std::to_string(tank.number) + " ";
-            }
             message.line4 = "";
             break;
 
+        case SystemState::TankSelection:
+            message.line1 = "Выберите цистерну";
+            message.line2 = controller_->getCurrentInput();
+            message.line3 = "";
+            for (const auto& tank : controller_->getAvailableTanks()) {
+                message.line3 += std::to_string(tank.number) + " ";
+            }
+            message.line4 = "Нажмите Старт(A)";
+            break;
+
         case SystemState::VolumeEntry:
-            message.line1 = "Введите объём и нажмите Старт (A)";
+            message.line1 = "Введите объём";
             message.line2 = controller_->getCurrentInput();
             if (controller_->getCurrentUser().role == UserRole::Customer) {
                 Volume maxVolume = controller_->getCurrentUser().allowance;
@@ -504,7 +504,7 @@ DisplayMessage StateMachine::getDisplayMessage() const {
             } else {
                 message.line3 = "";
             }
-            message.line4 = "Нажмите * для макс, # для очистки";
+            message.line4 = "* макс, # стереть";
             break;
 
         case SystemState::Refueling:
@@ -515,28 +515,28 @@ DisplayMessage StateMachine::getDisplayMessage() const {
             break;
 
         case SystemState::RefuelDataTransmission:
-            message.line1 = "Передача данных";
-            message.line2 = "Пожалуйста, подождите";
+            message.line1 = "Передача данных...";
+            message.line2 = "";
             message.line3 = "";
-            message.line4 = controller_->getDeviceSerialNumber();
+            message.line4 = "";
             break;
 
         case SystemState::RefuelingComplete:
             message.line1 = "Заправка завершена";
             message.line2 = controller_->formatVolume(controller_->getCurrentRefuelVolume());
             message.line3 = "";
-            message.line4 = "Поднесите карту или введите PIN";
+            message.line4 = "Поднесите карту";
             break;
 
         case SystemState::IntakeDirectionSelection:
-            message.line1 = "Выберите 1/2 и нажмите Старт (A)";
-            message.line2 = "";
-            message.line3 = "1 - Приём / 2 - Слив";
+            message.line1 = "1 - Приём / 2 - Слив";
+            message.line2 = controller_->getCurrentInput();;
+            message.line3 = "Нажмите Старт (A)";
             message.line4 = "Цистерна " + std::to_string(controller_->getSelectedTank());
             break;
 
         case SystemState::IntakeVolumeEntry:
-            message.line1 = "Введите объём и нажмите Старт (A)";
+            message.line1 = "Введите объём";
             message.line2 = controller_->getCurrentInput();
             message.line3 = "Цистерна " + std::to_string(controller_->getSelectedTank());
             message.line4 = (controller_->getSelectedIntakeDirection() == IntakeDirection::In)
@@ -545,10 +545,10 @@ DisplayMessage StateMachine::getDisplayMessage() const {
             break;
 
         case SystemState::IntakeDataTransmission:
-            message.line1 = "Передача данных";
-            message.line2 = "Пожалуйста, подождите";
+            message.line1 = "Передача данных...";
+            message.line2 = "";
             message.line3 = "";
-            message.line4 = controller_->getDeviceSerialNumber();
+            message.line4 = "";
             break;
 
         case SystemState::IntakeComplete:
@@ -557,20 +557,20 @@ DisplayMessage StateMachine::getDisplayMessage() const {
                 : "Слив завершён";
             message.line2 = controller_->formatVolume(controller_->getEnteredVolume());
             message.line3 = "";
-            message.line4 = "Поднесите карту или введите PIN";
+            message.line4 = "Поднесите карту";
             break;
 
         case SystemState::Error:
             message.line1 = "ОШИБКА";
-            message.line2 = controller_->getLastErrorMessage();
-            message.line3 = "Нажмите Отмена (B) для продолжения";
-            message.line4 = controller_->getCurrentTimeString();
+            message.line2 = "";
+            message.line3 = controller_->getLastErrorMessage();
+            message.line4 = "Нажмите Отмена (B)";
             break;
             
         default:
             // Unexpected state - show error
             message.line1 = "ОШИБКА СИСТЕМЫ";
-            message.line2 = "Неизвестное состояние";
+            message.line2 = "";
             message.line3 = "";
             message.line4 = "";
             break;
@@ -584,8 +584,7 @@ DisplayMessage StateMachine::getDisplayMessage() const {
 void StateMachine::doAuthorization() {
     std::string inputCopy = controller_->getCurrentInput();
     controller_->requestAuthorization(inputCopy);
-    // Clear sensitive input (PIN/card UID) silently to avoid overwriting
-    // error messages displayed by requestAuthorization() (e.g., from showError())
+    // Clear sensitive input (PIN/card UID) silently 
     controller_->clearInputSilent();
     // requestAuthorization will post AuthorizationSuccess or AuthorizationFailed event
 }

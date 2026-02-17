@@ -81,10 +81,6 @@ bool Logger::initializeDefault() {
         spdlog::init_thread_pool(8192, 1);
         
         // Create sinks
-        auto console_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
-        console_sink->set_level(spdlog::level::info);
-        console_sink->set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%n] [%^%l%$] %v");
-        
         auto file_sink = std::make_shared<spdlog::sinks::rotating_file_sink_mt>(
             LOG_DIR + "/fuelflux.log", 1024 * 1024 * 10, 5);
         file_sink->set_level(spdlog::level::debug);
@@ -95,7 +91,7 @@ bool Logger::initializeDefault() {
         error_sink->set_level(spdlog::level::warn);
         error_sink->set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%t] [%n] [%l] [%s:%#] %v");
         
-        std::vector<spdlog::sink_ptr> sinks{console_sink, file_sink, error_sink};
+        std::vector<spdlog::sink_ptr> sinks{file_sink, error_sink};
         
         // Create loggers
         auto main_logger = std::make_shared<spdlog::async_logger>(

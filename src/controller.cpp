@@ -407,7 +407,6 @@ void Controller::requestAuthorization(const UserId& userId) {
         // Post event instead of processing it directly to maintain sequential event processing
         postEvent(Event::AuthorizationSuccess);
     } else {
-        showError(backend_->GetLastError());
         // Post event instead of processing it directly to maintain sequential event processing
         postEvent(Event::AuthorizationFailed);
     }
@@ -451,7 +450,6 @@ Volume Controller::getTankVolume(TankNumber tankNumber) const {
 void Controller::enterVolume(Volume volume) {
     // Validate volume
     if (volume <= 0.0) {
-        showError("Неправильный объём");
         clearInput();
         return;
     }
@@ -461,7 +459,6 @@ void Controller::enterVolume(Volume volume) {
     
     // Validate volume against tank capacity
     if (tankVolume > 0.0 && volume > tankVolume) {
-        showError("Превышение объёма бака");
         clearInput();
         return;
     }
@@ -469,7 +466,6 @@ void Controller::enterVolume(Volume volume) {
     // Validate volume against allowance for customers
     if (currentUser_.role == UserRole::Customer) {
         if (volume > currentUser_.allowance) {
-            showError("Превышение объёма");
             clearInput();
             return;
         }
@@ -521,7 +517,6 @@ void Controller::startFuelIntake() {
 
 void Controller::enterIntakeVolume(Volume volume) {
     if (volume <= 0.0) {
-        showError("Неправильный объём");
         clearInput();
         return;
     }
@@ -565,7 +560,7 @@ void Controller::logIntakeTransaction(const IntakeTransaction& transaction) {
 // Utility functions
 std::string Controller::formatVolume(Volume volume) const {
     std::ostringstream oss;
-    oss << std::fixed << std::setprecision(2) << volume << " L";
+    oss << std::fixed << std::setprecision(2) << volume << " л";
     return oss.str();
 }
 
@@ -638,11 +633,9 @@ void Controller::processNumericInput() {
                     if (isTankValid(tank)) {
                         selectTank(tank);
                     } else {
-                        showError("Неправильная цистерна");
                         clearInput();
                     }
                 } else {
-                    showError("Неправильная цистерна");
                     clearInput();
                 }
             }
@@ -654,7 +647,6 @@ void Controller::processNumericInput() {
             } else if (currentInput_ == "2") {
                 selectIntakeDirection(IntakeDirection::Out);
             } else {
-                showError("Неправильная операция");
                 clearInput();
             }
             break;
@@ -664,7 +656,6 @@ void Controller::processNumericInput() {
             if (volume > 0.0) {
                 enterVolume(volume);
             } else {
-                showError("Неправильный объём");
                 clearInput();
             }
             break;
@@ -675,7 +666,6 @@ void Controller::processNumericInput() {
             if (volume > 0.0) {
                 enterIntakeVolume(volume);
             } else {
-                showError("Неправильный объём");
                 clearInput();
             }
             break;

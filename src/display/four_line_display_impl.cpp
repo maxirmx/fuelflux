@@ -136,12 +136,7 @@ void FourLineDisplayImpl::puts(unsigned int line_id, const std::string& text) {
         return;
     }
     
-    unsigned int max_length = length(line_id);
-    if (text.length() > max_length) {
-        lines_[line_id] = text.substr(0, max_length);
-    } else {
-        lines_[line_id] = text;
-    }
+    lines_[line_id] = text;
 }
 
 std::string FourLineDisplayImpl::get_text(unsigned int line_id) const {
