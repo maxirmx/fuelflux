@@ -3,6 +3,7 @@
 // This file is a part of fuelflux application
 
 #include "console_emulator.h"
+#include "peripherals/display.h"
 #include "peripherals/keyboard_utils.h"
 #include "logger.h"
 #include "version.h"
@@ -691,7 +692,7 @@ ConsoleEmulator::ConsoleEmulator()
 ConsoleEmulator::~ConsoleEmulator() = default;
 
 std::unique_ptr<peripherals::IDisplay> ConsoleEmulator::createDisplay() {
-    return std::make_unique<ConsoleDisplay>();
+    return std::make_unique<peripherals::Display>();
 }
 
 std::unique_ptr<peripherals::IKeyboard> ConsoleEmulator::createKeyboard() {

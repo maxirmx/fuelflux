@@ -302,40 +302,8 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
             emulator.printWelcome();
             
             // Create display early so it can be used for failure message if needed
-#ifdef TARGET_REAL_DISPLAY
-            // Get hardware configuration from environment or use defaults
-            std::string spiDevice = "/dev/spidev1.0";
-            std::string gpioChip = "/dev/gpiochip0";
-#ifdef DISPLAY_ST7565
-            int dcPin = ::display_defaults::st7565::DC_PIN;
-            int rstPin = ::display_defaults::st7565::RST_PIN;
-#elif defined(DISPLAY_ILI9488)
-            int dcPin = ::display_defaults::ili9488::DC_PIN;
-            int rstPin = ::display_defaults::ili9488::RST_PIN;
-#else
-#error "No display type defined. Define DISPLAY_ST7565 or DISPLAY_ILI9488"
-#endif
-            std::string fontPath = "/usr/share/fonts/truetype/ubuntu/UbuntuMono-B.ttf";
-
-            if (const char* env = std::getenv("FUELFLUX_SPI_DEVICE")) spiDevice = env;
-            if (const char* env = std::getenv("FUELFLUX_GPIO_CHIP")) gpioChip = env;
-            if (const char* env = std::getenv("FUELFLUX_DC_PIN")) dcPin = std::atoi(env);
-            if (const char* env = std::getenv("FUELFLUX_RST_PIN")) rstPin = std::atoi(env);
-            if (const char* env = std::getenv("FUELFLUX_FONT_PATH")) fontPath = env;
-
-            LOG_INFO("Display hardware configuration:");
-            LOG_INFO("  SPI Device: {}", spiDevice);
-            LOG_INFO("  GPIO Chip: {}", gpioChip);
-            LOG_INFO("  D/C Pin: {}", dcPin);
-            LOG_INFO("  RST Pin: {}", rstPin);
-            LOG_INFO("  Font Path: {}", fontPath);
-
-            display = std::make_unique<peripherals::RealDisplay>(
-                spiDevice, gpioChip, dcPin, rstPin, fontPath
-            );
-#else
-            display = emulator.createDisplay();
-#endif
+            // Display configuration is now handled internally via display_config.h
+            display = std::make_unique<peripherals::Display>();
 
             DisplayMessage msg;
             msg.line1 = "Подготовка";
