@@ -171,6 +171,15 @@ void Controller::postEvent(Event event) {
     eventCv_.notify_one();
 }
 
+// Remove any consecutive InputUpdated events at the front of the queue,
+// leaving the first non-InputUpdated event (if any) untouched.
+void Controller::discardPendingInputUpdatedEvents() {
+    std::lock_guard<std::mutex> lock(eventQueueMutex_);
+    while (!eventQueue_.empty() && eventQueue_.front() == Event::InputUpdated) {
+        eventQueue_.pop();
+    }
+}
+
 // Peripheral setters
 void Controller::setDisplay(std::unique_ptr<peripherals::IDisplay> display) {
     display_ = std::move(display);

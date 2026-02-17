@@ -50,6 +50,11 @@ bool StateMachine::processEvent(Event event) {
         return false;
     }
 
+    // Coalesce consecutive InputUpdated events to avoid redundant processing/display refreshes.
+    if (event == Event::InputUpdated) {
+        controller_->discardPendingInputUpdatedEvents();
+    }
+
     // Do not call checkTimeout() here - timeout is handled asynchronously by the timeout thread.
 
     // Lookup transition under lock and extract action and target state, then invoke without holding lock

@@ -74,7 +74,7 @@ public:
     void setKeyPressCallback(KeyPressCallback callback) override {
         storedCallback = callback;
     }
-    
+
     void simulateKeyPress(KeyCode key) {
         if (storedCallback) {
             storedCallback(key);
@@ -2076,3 +2076,31 @@ TEST_F(ControllerTest, VolumeEntryDisplayWithMultipleTanksDifferentVolumes) {
 
     shutdownControllerAndJoinThread(controllerThread);
 }
+
+// Coalesce consecutive InputUpdated events and keep following non-InputUpdated event
+TEST_F(ControllerTest, CoalesceInputUpdatedEvents) {
+    controller->initialize();
+
+    std::thread controllerThread([this]() {
+        controller->run();
+        });
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+
+    // Clear prior expectations (initialization may have called showMessage)
+    ::testing::Mock::VerifyAndClearExpectations(mockDisplay);
+
+    // We expect one display update: for the first InputUpdated
+     // (second InputUpdated is coalesced, CancelPressed in Waiting doesn't change state)
+    EXPECT_CALL(*mockDisplay, showMessage(::testing::_)).Times(1);
+
+    controller->postEvent(Event::InputUpdated);
+    controller->postEvent(Event::InputUpdated); // This will be coalesced/discarded
+    controller->postEvent(Event::CancelPressed);
+
+    // Wait for processing
+    ASSERT_TRUE(waitForState(SystemState::Waiting, std::chrono::milliseconds(500)));
+
+    shutdownControllerAndJoinThread(controllerThread);
+}
+
