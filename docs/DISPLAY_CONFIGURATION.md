@@ -73,8 +73,8 @@ make -j$(nproc)
 Both ST7565 and ILI9488 use the same default GPIO pins:
 - **SPI Device**: `/dev/spidev1.0`
 - **GPIO Chip**: `/dev/gpiochip0`
-- **DC Pin**: 262 (Data/Command)
-- **RST Pin**: 226 (Reset)
+- **DC Pin**: 271 (Data/Command)
+- **RST Pin**: 256 (Reset)
 
 ### ST7565 Specific Settings
 - **SPI Speed**: 8 MHz

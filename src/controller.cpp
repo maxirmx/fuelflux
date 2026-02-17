@@ -128,29 +128,29 @@ bool Controller::reinitializeDevice() {
 }
 
 void Controller::run() {
-LOG_CTRL_INFO("Starting main loop");
+    LOG_CTRL_INFO("Starting main loop");
     
-// Reset the flag at the start of the run loop
-threadExited_ = false;
+    // Reset the flag at the start of the run loop
+    threadExited_ = false;
     
-while (isRunning_) {
-    bool haveEvent = false;
-    Event event = Event::Timeout; // initialize but treat as invalid until popped
-    {
-        std::unique_lock<std::mutex> lock(eventQueueMutex_);
-        if (eventQueue_.empty()) {
-            // wait for an event or timeout periodically to allow shutdown
-            eventCv_.wait_for(lock, std::chrono::milliseconds(100), [this] { return !eventQueue_.empty() || !isRunning_; });
+    while (isRunning_) {
+        bool haveEvent = false;
+        Event event = Event::Timeout; // initialize but treat as invalid until popped
+        {
+            std::unique_lock<std::mutex> lock(eventQueueMutex_);
+            if (eventQueue_.empty()) {
+                // wait for an event or timeout periodically to allow shutdown
+                eventCv_.wait_for(lock, std::chrono::milliseconds(100), [this] { return !eventQueue_.empty() || !isRunning_; });
+            }
+            if (!eventQueue_.empty()) {
+                event = eventQueue_.front();
+                eventQueue_.pop();
+                haveEvent = true;
+            }
         }
-        if (!eventQueue_.empty()) {
-            event = eventQueue_.front();
-            eventQueue_.pop();
-            haveEvent = true;
-        }
-    }
 
-    if (haveEvent) {
-        stateMachine_.processEvent(event);
+        if (haveEvent) {
+            stateMachine_.processEvent(event);
         } else {
             // Small sleep to avoid busy loop when no events are present
             std::this_thread::sleep_for(std::chrono::milliseconds(10));

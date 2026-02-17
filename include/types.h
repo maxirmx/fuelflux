@@ -56,7 +56,7 @@ enum class SystemState {
 enum class Event {
     CardPresented,
     PinEntered,
-	InputUpdated,
+    InputUpdated,
     AuthorizationSuccess,
     AuthorizationFailed,
     TankSelected,
