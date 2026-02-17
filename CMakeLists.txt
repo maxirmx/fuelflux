@@ -242,6 +242,8 @@ endif()
 if(TARGET_REAL_DISPLAY)
     list(APPEND LIB_SOURCES
         src/display/four_line_display.cpp
+        src/display/four_line_display_impl.cpp
+        src/display/hardware_display.cpp
         src/display/ft_text.cpp
         src/display/graphics.cpp
         src/display/spi_linux.cpp
@@ -249,10 +251,22 @@ if(TARGET_REAL_DISPLAY)
     
     # Add display-specific driver
     if(DISPLAY_TYPE STREQUAL "ST7565")
-        list(APPEND LIB_SOURCES src/display/st7565.cpp)
+        list(APPEND LIB_SOURCES 
+            src/display/st7565.cpp
+            src/display/st7565_display.cpp
+        )
     elseif(DISPLAY_TYPE STREQUAL "ILI9488")
-        list(APPEND LIB_SOURCES src/display/ili9488.cpp)
+        list(APPEND LIB_SOURCES 
+            src/display/ili9488.cpp
+            src/display/ili9488_display.cpp
+        )
     endif()
+else()
+    # Console display for non-hardware builds
+    list(APPEND LIB_SOURCES
+        src/display/four_line_display.cpp
+        src/display/console_display.cpp
+    )
 endif()
 
 # Headers

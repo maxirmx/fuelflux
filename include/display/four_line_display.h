@@ -6,146 +6,120 @@
 
 #include <string>
 #include <vector>
-#include <memory>
+#include <mutex>
+#include <cstdint>
+
+namespace fuelflux::display {
 
 /**
- * Four Line Display Library
+ * Abstract Base Class for Four Line Display
  * 
- * Manages a display view with 4 lines:
+ * This class defines the interface for all display implementations.
+ * All public methods are thread-safe and protected by mutex.
+ * 
+ * Display Layout:
  * - Line 0: Small font
- * - Line 1: Large font
+ * - Line 1: Large font (centered content)
  * - Line 2: Small font
  * - Line 3: Small font
- * 
- * Designed for 128x64 monochrome displays
  */
 class FourLineDisplay {
 public:
-    /**
-     * Constructor
-     * @param width Display width in pixels (default: 128); must be > 0
-     * @param height Display height in pixels (default: 64); must be > 0 and divisible by 8
-     * @param small_font_size Small font size in pixels (default: 12)
-     * @param large_font_size Large font size in pixels (default: 28)
-     * @param left_margin Left margin in pixels (default: 0); non-drawable columns on the left edge.
-     *                    Negative values are clamped to 0. If left_margin + right_margin >= width,
-     *                    both margins are reset to 0.
-     * @param right_margin Right margin in pixels (default: 0); non-drawable columns on the right edge.
-     *                     Negative values are clamped to 0. If left_margin + right_margin >= width,
-     *                     both margins are reset to 0.
-     * @throws std::invalid_argument if width <= 0, height <= 0, or height is not divisible by 8
-     */
-    FourLineDisplay(int width = 128,
-                    int height = 64,
-                    int small_font_size = 12,
-                    int large_font_size = 28,
-                    int left_margin = 0,
-                    int right_margin = 0);
-    ~FourLineDisplay();
-
-    FourLineDisplay(const FourLineDisplay&) = delete;
-    FourLineDisplay& operator=(const FourLineDisplay&) = delete;
+    virtual ~FourLineDisplay() = default;
 
     /**
-     * Initialize the display library
-     * @param font_path Path to TTF/OTF font file
+     * Initialize the display
      * @return true on success, false on failure
      */
-    bool initialize(const std::string& font_path);
+    virtual bool initialize() = 0;
 
     /**
-     * Uninitialize and cleanup resources
+     * Shutdown and cleanup resources
      */
-    void uninitialize();
+    virtual void shutdown() = 0;
 
     /**
-     * Check if the library is initialized
+     * Check if display is initialized and connected
      */
-    bool is_initialized() const;
+    virtual bool isConnected() const = 0;
 
     /**
-     * Get the maximum number of characters that can be printed on a given line
-     * @param line_id Line identifier (0-3)
-     * @return Number of characters, or 0 if line_id is invalid
-     */
-    unsigned int length(unsigned int line_id) const;
-
-    /**
-     * Set text for a specific line
+     * Set text for a specific line (thread-safe)
      * @param line_id Line identifier (0-3)
      * @param text UTF-8 encoded text to display
      */
-    void puts(unsigned int line_id, const std::string& text);
+    void setLine(unsigned int line_id, const std::string& text);
 
     /**
-     * Get current text for a specific line
+     * Get current text for a specific line (thread-safe)
      * @param line_id Line identifier (0-3)
      * @return Current text or empty string if line_id is invalid
      */
-    std::string get_text(unsigned int line_id) const;
+    std::string getLine(unsigned int line_id) const;
 
     /**
-     * Clear all lines
+     * Clear all lines (thread-safe)
      */
-    void clear_all();
+    void clearAll();
 
     /**
-     * Clear a specific line
+     * Clear a specific line (thread-safe)
      * @param line_id Line identifier (0-3)
      */
-    void clear_line(unsigned int line_id);
+    void clearLine(unsigned int line_id);
 
     /**
-     * Render all lines to the framebuffer
-     * @return Reference to the framebuffer (page-packed 1bpp format)
+     * Update the physical display with current content (thread-safe)
+     * This renders the framebuffer and updates the display hardware
      */
-    const std::vector<unsigned char>& render();
+    void update();
 
     /**
-     * Get the framebuffer without re-rendering
-     * @return Reference to the current framebuffer
+     * Control display backlight/power (thread-safe)
+     * @param enabled true to enable, false to disable
      */
-    const std::vector<unsigned char>& get_framebuffer() const;
+    void setBacklight(bool enabled);
 
     /**
      * Get display dimensions
      */
-    int get_width() const { return width_; }
-    int get_height() const { return height_; }
+    virtual int getWidth() const = 0;
+    virtual int getHeight() const = 0;
 
     /**
-     * Get font sizes
+     * Get the maximum number of characters that can be displayed on a line
+     * @param line_id Line identifier (0-3)
+     * @return Number of characters, or 0 if line_id is invalid
      */
-    int get_small_font_size() const { return small_font_size_; }
-    int get_large_font_size() const { return large_font_size_; }
+    virtual unsigned int getMaxLineLength(unsigned int line_id) const = 0;
 
-private:
-    struct Impl;
-    std::unique_ptr<Impl> impl_;
+protected:
+    /**
+     * Internal method to set line text (not thread-safe, must be called with lock held)
+     */
+    virtual void setLineInternal(unsigned int line_id, const std::string& text) = 0;
 
-    int width_;
-    int height_;
-    int small_font_size_;
-    int large_font_size_;
-    int left_margin_;
-    int right_margin_;
+    /**
+     * Internal method to get line text (not thread-safe, must be called with lock held)
+     */
+    virtual std::string getLineInternal(unsigned int line_id) const = 0;
 
-    bool initialized_;
-    std::string lines_[4];
-    std::vector<unsigned char> framebuffer_;
+    /**
+     * Internal method to clear all lines (not thread-safe, must be called with lock held)
+     */
+    virtual void clearAllInternal() = 0;
 
-    // Calculate Y position for each line
-    int get_line_y_position(unsigned int line_id) const;
-    
-    // Get font size for a line
-    int get_line_font_size(unsigned int line_id) const;
-    
-    // Estimate character width for a given font size
-    int estimate_char_width(int font_size) const;
+    /**
+     * Internal method to update display (not thread-safe, must be called with lock held)
+     */
+    virtual void updateInternal() = 0;
 
-    // Available width for text content after margins are applied
-    int content_width() const;
+    /**
+     * Internal method to set backlight (not thread-safe, must be called with lock held)
+     */
+    virtual void setBacklightInternal(bool enabled) = 0;
 
-    // Clear horizontal margin columns in a page-packed framebuffer
-    void clear_horizontal_margins(std::vector<unsigned char>& fb) const;
+    mutable std::mutex mutex_;
 };
+
+} // namespace fuelflux::display
