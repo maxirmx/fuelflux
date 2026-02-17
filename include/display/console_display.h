@@ -12,8 +12,9 @@ namespace fuelflux::display {
 /**
  * Console Display Implementation
  * 
- * A stub implementation for testing and development without hardware.
- * Simply stores the display state without rendering to actual hardware.
+ * Renders a bounded rectangle display to the console using ANSI escape codes.
+ * The display is rendered at fixed screen positions and updates in place
+ * without scrolling, matching the original console emulator behavior.
  */
 class ConsoleDisplay : public FourLineDisplay {
 public:
@@ -38,6 +39,7 @@ protected:
 private:
     bool isConnected_;
     bool backlightEnabled_;
+    bool initialized_;
     std::array<std::string, 4> lines_;
 };
 

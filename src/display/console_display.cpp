@@ -5,12 +5,14 @@
 #include "display/console_display.h"
 #include "logger.h"
 #include <iostream>
+#include <fmt/format.h>
 
 namespace fuelflux::display {
 
 ConsoleDisplay::ConsoleDisplay()
     : isConnected_(false)
     , backlightEnabled_(true)
+    , initialized_(false)
 {
 }
 
@@ -19,9 +21,18 @@ ConsoleDisplay::~ConsoleDisplay() {
 }
 
 bool ConsoleDisplay::initialize() {
-    LOG_INFO("Initializing ConsoleDisplay (stub implementation)");
+    LOG_INFO("Initializing ConsoleDisplay");
     isConnected_ = true;
     clearAllInternal();
+    
+    // Initialize the console display area using ANSI escape codes
+    // Clear screen and move to home position
+    std::cout << "\x1b[2J\x1b[H" << std::flush;
+    initialized_ = true;
+    
+    // Render initial empty display
+    updateInternal();
+    
     return true;
 }
 
@@ -29,6 +40,7 @@ void ConsoleDisplay::shutdown() {
     if (isConnected_) {
         LOG_INFO("Shutting down ConsoleDisplay");
         isConnected_ = false;
+        initialized_ = false;
     }
 }
 
@@ -65,7 +77,11 @@ void ConsoleDisplay::clearAllInternal() {
 }
 
 void ConsoleDisplay::updateInternal() {
-    // Print a bounded rectangle with the display content
+    if (!initialized_) {
+        return;
+    }
+    
+    // Display configuration
     const size_t displayWidth = 40;
     
     // Helper lambda to calculate UTF-8 character count
@@ -115,25 +131,40 @@ void ConsoleDisplay::updateInternal() {
         return std::string(leftPad, ' ') + trimmed + std::string(rightPad, ' ');
     };
     
-    // Build and print the bordered display
+    // Build borders
 #ifdef _WIN32
     // Unicode box drawing characters
-    std::string topBorder = "┌" + std::string(displayWidth, '─') + "┐";
-    std::string bottomBorder = "└" + std::string(displayWidth, '─') + "┘";
+    std::string line;
+    line.reserve(displayWidth * 3);
+    for (size_t i = 0; i < displayWidth; ++i) {
+        line += "─";
+    }
+    std::string topBorder = fmt::format("┌{}┐", line);
+    std::string bottomBorder = fmt::format("└{}┘", line);
     std::string vertBorder = "│";
 #else
     // ASCII borders
-    std::string topBorder = "+" + std::string(displayWidth, '-') + "+";
-    std::string bottomBorder = "+" + std::string(displayWidth, '-') + "+";
+    std::string topBorder = fmt::format("+{}+", std::string(displayWidth, '-'));
+    std::string bottomBorder = fmt::format("+{}+", std::string(displayWidth, '-'));
     std::string vertBorder = "|";
 #endif
     
-    std::cout << "\n" << topBorder << "\n";
-    std::cout << vertBorder << padLine(lines_[0]) << vertBorder << "\n";
-    std::cout << vertBorder << padLine(lines_[1]) << vertBorder << "\n";
-    std::cout << vertBorder << padLine(lines_[2]) << vertBorder << "\n";
-    std::cout << vertBorder << padLine(lines_[3]) << vertBorder << "\n";
-    std::cout << bottomBorder << "\n" << std::flush;
+    // Helper to write at specific row using ANSI escape codes
+    auto writeAt = [](int row, int col, const std::string& text) {
+        // Move to position (row, col) and clear the line, then write text
+        std::cout << "\x1b[" << row << ";" << col << "H\x1b[2K" << text;
+    };
+    
+    // Render the display at fixed positions (rows 1-6)
+    // This overwrites the previous display without scrolling
+    writeAt(1, 1, topBorder);
+    writeAt(2, 1, fmt::format("{}{}{}", vertBorder, padLine(lines_[0]), vertBorder));
+    writeAt(3, 1, fmt::format("{}{}{}", vertBorder, padLine(lines_[1]), vertBorder));
+    writeAt(4, 1, fmt::format("{}{}{}", vertBorder, padLine(lines_[2]), vertBorder));
+    writeAt(5, 1, fmt::format("{}{}{}", vertBorder, padLine(lines_[3]), vertBorder));
+    writeAt(6, 1, bottomBorder);
+    
+    std::cout << std::flush;
 }
 
 void ConsoleDisplay::setBacklightInternal(bool enabled) {
