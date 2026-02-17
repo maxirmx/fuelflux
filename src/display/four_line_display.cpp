@@ -29,6 +29,16 @@ FourLineDisplay::FourLineDisplay(int width,
     , right_margin_(std::max(0, right_margin))
     , initialized_(false)
 {
+    if (width_ <= 0) {
+        throw std::invalid_argument("FourLineDisplay: width must be > 0");
+    }
+    if (height_ <= 0) {
+        throw std::invalid_argument("FourLineDisplay: height must be > 0");
+    }
+    if ((height_ % 8) != 0) {
+        throw std::invalid_argument("FourLineDisplay: height must be divisible by 8 (page-packed framebuffer requirement)");
+    }
+    
     if (left_margin_ + right_margin_ >= width_) {
         left_margin_ = 0;
         right_margin_ = 0;
