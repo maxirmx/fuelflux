@@ -297,17 +297,21 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
             LOG_INFO("Starting FuelFlux Controller v{}...", FUELFLUX_VERSION);
             // Create console emulator
             ConsoleEmulator emulator;
-            emulator.printWelcome();
             
             // Create display early so it can be used for failure message if needed
-            // Display configuration is now handled internally via display_config.h
+#ifdef TARGET_REAL_DISPLAY
             display = std::make_unique<peripherals::Display>();
+#else
+            display = emulator.createDisplay();
+#endif
+            display->initialize();
+            emulator.printWelcome();
 
             DisplayMessage msg;
             msg.line1 = "Подготовка";
             msg.line2 = "";
             msg.line3 = "Дисплей";
-            msg.line4 = "";
+            msg.line4 = "FuelFlux вер. " + std::string(FUELFLUX_VERSION);
             display->showMessage(msg);
 
             

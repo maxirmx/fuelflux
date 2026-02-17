@@ -7,6 +7,10 @@
 #include <iostream>
 #include <fmt/format.h>
 
+#ifdef _WIN32
+#include <windows.h>
+#endif
+
 namespace fuelflux::display {
 
 ConsoleDisplay::ConsoleDisplay()
@@ -25,6 +29,12 @@ bool ConsoleDisplay::initialize() {
     isConnected_ = true;
     clearAllInternal();
     
+#ifdef _WIN32
+    // Ensure UTF-8 output on Windows consoles
+    SetConsoleOutputCP(CP_UTF8);
+    SetConsoleCP(CP_UTF8);
+#endif
+
     // Initialize the console display area using ANSI escape codes
     // Clear screen and move to home position
     std::cout << "\x1b[2J\x1b[H" << std::flush;
@@ -148,23 +158,23 @@ void ConsoleDisplay::updateInternal() {
     std::string bottomBorder = fmt::format("+{}+", std::string(displayWidth, '-'));
     std::string vertBorder = "|";
 #endif
-    
-    // Helper to write at specific row using ANSI escape codes
-    auto writeAt = [](int row, int col, const std::string& text) {
-        // Move to position (row, col) and clear the line, then write text
-        std::cout << "\x1b[" << row << ";" << col << "H\x1b[2K" << text;
+
+    // Build the entire frame and write once to avoid interleaving
+    std::string frame;
+    frame.reserve((displayWidth + 10) * 6); // rough estimate
+
+    auto appendAt = [&frame](int row, int col, const std::string& text) {
+        frame += fmt::format("\x1b[{};{}H\x1b[2K{}", row, col, text);
     };
-    
-    // Render the display at fixed positions (rows 1-6)
-    // This overwrites the previous display without scrolling
-    writeAt(1, 1, topBorder);
-    writeAt(2, 1, fmt::format("{}{}{}", vertBorder, padLine(lines_[0]), vertBorder));
-    writeAt(3, 1, fmt::format("{}{}{}", vertBorder, padLine(lines_[1]), vertBorder));
-    writeAt(4, 1, fmt::format("{}{}{}", vertBorder, padLine(lines_[2]), vertBorder));
-    writeAt(5, 1, fmt::format("{}{}{}", vertBorder, padLine(lines_[3]), vertBorder));
-    writeAt(6, 1, bottomBorder);
-    
-    std::cout << std::flush;
+
+    appendAt(1, 1, topBorder);
+    appendAt(2, 1, fmt::format("{}{}{}", vertBorder, padLine(lines_[0]), vertBorder));
+    appendAt(3, 1, fmt::format("{}{}{}", vertBorder, padLine(lines_[1]), vertBorder));
+    appendAt(4, 1, fmt::format("{}{}{}", vertBorder, padLine(lines_[2]), vertBorder));
+    appendAt(5, 1, fmt::format("{}{}{}", vertBorder, padLine(lines_[3]), vertBorder));
+    appendAt(6, 1, bottomBorder);
+
+    std::cout << frame << std::flush;
 }
 
 void ConsoleDisplay::setBacklightInternal(bool enabled) {
