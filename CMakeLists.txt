@@ -434,7 +434,14 @@ if(ENABLE_TESTING)
         tests/bounded_executor_test.cpp
         tests/cares_resolver_test.cpp
         tests/url_utils_test.cpp
+        tests/console_emulator_test.cpp
+        tests/four_line_display_test.cpp
     )
+    
+    # Add four_line_display_impl tests only for real display builds
+    if(TARGET_REAL_DISPLAY)
+        list(APPEND TEST_SOURCES tests/four_line_display_impl_test.cpp)
+    endif()
 
     # Create test executable
     add_executable(fuelflux_tests ${TEST_SOURCES})
