@@ -453,7 +453,7 @@ DisplayMessage StateMachine::getDisplayMessage() const {
     
     switch (currentState_) {
         case SystemState::Waiting:
-            message.line1 = "Поднесите карту";
+            message.line1 = "Приложите карту";
             message.line2 = ""; //  controller_->getCurrentTimeString();
             message.line3 = "";
             message.line4 = ""; // controller_->getDeviceSerialNumber();
@@ -525,7 +525,7 @@ DisplayMessage StateMachine::getDisplayMessage() const {
             message.line1 = "Заправка завершена";
             message.line2 = controller_->formatVolume(controller_->getCurrentRefuelVolume());
             message.line3 = "";
-            message.line4 = "Поднесите карту";
+            message.line4 = "Приложите карту";
             break;
 
         case SystemState::IntakeDirectionSelection:
@@ -557,7 +557,7 @@ DisplayMessage StateMachine::getDisplayMessage() const {
                 : "Слив завершён";
             message.line2 = controller_->formatVolume(controller_->getEnteredVolume());
             message.line3 = "";
-            message.line4 = "Поднесите карту";
+            message.line4 = "Приложите карту";
             break;
 
         case SystemState::Error:
