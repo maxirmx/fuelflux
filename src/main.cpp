@@ -448,8 +448,6 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
             }
             
             // Start input dispatcher thread (handles both command and key modes)
-            msg.line3 = "Ввод\\вывод";
-            controller.showMessage(msg);
             std::thread inputThread(inputDispatcher, std::ref(emulator));
             
             // Start controller main loop in a separate thread
