@@ -535,7 +535,7 @@ DisplayMessage StateMachine::getDisplayMessage() const {
 
         case SystemState::IntakeDirectionSelection:
             message.line1 = "1 - Приём / 2 - Слив";
-            message.line2 = controller_->getCurrentInput();;
+            message.line2 = controller_->getCurrentInput();
             message.line3 = "Нажмите Старт (A)";
             message.line4 = "Цистерна " + std::to_string(controller_->getSelectedTank());
             break;
