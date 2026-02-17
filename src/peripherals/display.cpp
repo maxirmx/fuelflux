@@ -55,12 +55,14 @@ bool RealDisplay::initialize() {
         LOG_INFO("Initializing RealDisplay with device: {}", spiDevice_);
         
         // Determine display parameters based on build configuration
-        int width, height, smallFont, largeFont;
+        int width, height, smallFont, largeFont, leftMargin, rightMargin;
         int spiSpeed;
         
 #ifdef DISPLAY_ST7565
         width = display_defaults::st7565::WIDTH;
         height = display_defaults::st7565::HEIGHT;
+        leftMargin = display_defaults::st7565::LEFT_MARGIN;
+        rightMargin = display_defaults::st7565::RIGHT_MARGIN;
         smallFont = display_defaults::st7565::SMALL_FONT_SIZE;
         largeFont = display_defaults::st7565::LARGE_FONT_SIZE;
         spiSpeed = 8000000; // 8 MHz for ST7565
@@ -68,6 +70,8 @@ bool RealDisplay::initialize() {
 #elif defined(DISPLAY_ILI9488)
         width = display_defaults::ili9488::WIDTH;
         height = display_defaults::ili9488::HEIGHT;
+        leftMargin = display_defaults::ili9488::LEFT_MARGIN;
+        rightMargin = display_defaults::ili9488::RIGHT_MARGIN;
         smallFont = display_defaults::ili9488::SMALL_FONT_SIZE;
         largeFont = display_defaults::ili9488::LARGE_FONT_SIZE;
         spiSpeed = 32000000; // 32 MHz for ILI9488
@@ -95,7 +99,13 @@ bool RealDisplay::initialize() {
         lcd_->init();
         
         // Initialize display library
-        display_ = std::make_unique<FourLineDisplay>(width, height, smallFont, largeFont);
+        display_ = std::make_unique<FourLineDisplay>(
+            width,
+            height,
+            smallFont,
+            largeFont,
+            leftMargin,
+            rightMargin);
         if (!display_->initialize(fontPath_)) {
             LOG_ERROR("Failed to initialize FourLineDisplay with font: {}", fontPath_);
             return false;

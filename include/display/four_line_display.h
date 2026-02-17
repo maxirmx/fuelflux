@@ -28,8 +28,12 @@ public:
      * @param small_font_size Small font size in pixels (default: 12)
      * @param large_font_size Large font size in pixels (default: 28)
      */
-    FourLineDisplay(int width = 128, int height = 64, 
-                   int small_font_size = 12, int large_font_size = 28);
+    FourLineDisplay(int width = 128,
+                    int height = 64,
+                    int small_font_size = 12,
+                    int large_font_size = 28,
+                    int left_margin = 0,
+                    int right_margin = 0);
     ~FourLineDisplay();
 
     FourLineDisplay(const FourLineDisplay&) = delete;
@@ -116,6 +120,8 @@ private:
     int height_;
     int small_font_size_;
     int large_font_size_;
+    int left_margin_;
+    int right_margin_;
 
     bool initialized_;
     std::string lines_[4];
@@ -129,4 +135,10 @@ private:
     
     // Estimate character width for a given font size
     int estimate_char_width(int font_size) const;
+
+    // Available width for text content after margins are applied
+    int content_width() const;
+
+    // Clear horizontal margin columns in a page-packed framebuffer
+    void clear_horizontal_margins(std::vector<unsigned char>& fb) const;
 };
