@@ -212,6 +212,7 @@ private:
 
     std::thread inputThread_;
     std::atomic<bool>* runningFlag_{nullptr};
+    std::atomic<bool> shouldStop_{false};
 
 #ifndef _WIN32
     void restoreTerminal(const struct ::termios& origTerm, bool haveTerm);

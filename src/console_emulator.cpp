@@ -724,10 +724,14 @@ void ConsoleEmulator::startInputDispatcher(std::atomic<bool>& runningFlag) {
 }
 
 void ConsoleEmulator::stopInputDispatcher() {
+    // Signal the thread to stop
+    shouldStop_ = true;
+    
     if (inputThread_.joinable()) {
         inputThread_.join();
     }
     runningFlag_ = nullptr;
+    shouldStop_ = false;  // Reset for potential restart
 }
 
 void ConsoleEmulator::dispatchKey(char c) {
@@ -769,7 +773,7 @@ void ConsoleEmulator::inputDispatcherLoop() {
     };
 
     auto running = [&]() -> bool {
-        return runningFlag_ && runningFlag_->load();
+        return !shouldStop_.load() && runningFlag_ && runningFlag_->load();
     };
 
     InputMode currentMode = InputMode::Command;
