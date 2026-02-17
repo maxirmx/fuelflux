@@ -45,7 +45,7 @@ bool Display::initialize() {
         LOG_ERROR("Display instance not created");
         return false;
     }
-	if (isConnected()) {
+    if (isConnected()) {
         return true;
     }
     return display_->initialize();
