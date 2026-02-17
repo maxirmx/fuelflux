@@ -134,7 +134,7 @@ Display hardware configuration is centralized in `include/display/display_config
 **ILI9488 Settings:**
 - DC Pin: 271, RST Pin: 256
 - Resolution: 480×320
-- SPI Speed: 32 MHz
+- SPI Speed: 8 MHz
 - Font Sizes: 40pt (small), 80pt (large)
 - Margins: 5px left/right
 
