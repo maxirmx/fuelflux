@@ -4,6 +4,7 @@
 
 #include "display/console_display.h"
 #include "logger.h"
+#include <iostream>
 
 namespace fuelflux::display {
 
@@ -64,13 +65,75 @@ void ConsoleDisplay::clearAllInternal() {
 }
 
 void ConsoleDisplay::updateInternal() {
-    // Console display doesn't actually render anything
-    // In a real implementation, this could print to console
-    LOG_DEBUG("ConsoleDisplay update:");
-    LOG_DEBUG("  Line 0: {}", lines_[0]);
-    LOG_DEBUG("  Line 1: {}", lines_[1]);
-    LOG_DEBUG("  Line 2: {}", lines_[2]);
-    LOG_DEBUG("  Line 3: {}", lines_[3]);
+    // Print a bounded rectangle with the display content
+    const size_t displayWidth = 40;
+    
+    // Helper lambda to calculate UTF-8 character count
+    auto utf8Length = [](const std::string& text) -> size_t {
+        size_t length = 0;
+        for (size_t i = 0; i < text.size();) {
+            unsigned char c = text[i];
+            size_t charLen = 1;
+            if ((c & 0x80) == 0) charLen = 1;
+            else if ((c & 0xE0) == 0xC0) charLen = 2;
+            else if ((c & 0xF0) == 0xE0) charLen = 3;
+            else if ((c & 0xF8) == 0xF0) charLen = 4;
+            i += charLen;
+            ++length;
+        }
+        return length;
+    };
+    
+    // Helper lambda to truncate UTF-8 string to maxChars
+    auto utf8Truncate = [](const std::string& text, size_t maxChars) -> std::string {
+        if (maxChars == 0) return {};
+        size_t bytePos = 0;
+        size_t chars = 0;
+        while (bytePos < text.size() && chars < maxChars) {
+            unsigned char c = text[bytePos];
+            size_t charLen = 1;
+            if ((c & 0x80) == 0) charLen = 1;
+            else if ((c & 0xE0) == 0xC0) charLen = 2;
+            else if ((c & 0xF0) == 0xE0) charLen = 3;
+            else if ((c & 0xF8) == 0xF0) charLen = 4;
+            if (bytePos + charLen > text.size()) break;
+            bytePos += charLen;
+            ++chars;
+        }
+        return text.substr(0, bytePos);
+    };
+    
+    // Helper lambda to pad and center text
+    auto padLine = [&utf8Length, &utf8Truncate, displayWidth](const std::string& line) -> std::string {
+        if (displayWidth == 0) return {};
+        const std::string trimmed = utf8Truncate(line, displayWidth);
+        const size_t charCount = utf8Length(trimmed);
+        if (charCount >= displayWidth) return trimmed;
+        const size_t padding = displayWidth - charCount;
+        const size_t leftPad = padding / 2;
+        const size_t rightPad = padding - leftPad;
+        return std::string(leftPad, ' ') + trimmed + std::string(rightPad, ' ');
+    };
+    
+    // Build and print the bordered display
+#ifdef _WIN32
+    // Unicode box drawing characters
+    std::string topBorder = "┌" + std::string(displayWidth, '─') + "┐";
+    std::string bottomBorder = "└" + std::string(displayWidth, '─') + "┘";
+    std::string vertBorder = "│";
+#else
+    // ASCII borders
+    std::string topBorder = "+" + std::string(displayWidth, '-') + "+";
+    std::string bottomBorder = "+" + std::string(displayWidth, '-') + "+";
+    std::string vertBorder = "|";
+#endif
+    
+    std::cout << "\n" << topBorder << "\n";
+    std::cout << vertBorder << padLine(lines_[0]) << vertBorder << "\n";
+    std::cout << vertBorder << padLine(lines_[1]) << vertBorder << "\n";
+    std::cout << vertBorder << padLine(lines_[2]) << vertBorder << "\n";
+    std::cout << vertBorder << padLine(lines_[3]) << vertBorder << "\n";
+    std::cout << bottomBorder << "\n" << std::flush;
 }
 
 void ConsoleDisplay::setBacklightInternal(bool enabled) {
