@@ -14,9 +14,7 @@
 #endif
 #include "version.h"
 #include "peripherals/peripheral_interface.h"
-#ifdef TARGET_REAL_DISPLAY
 #include "peripherals/display.h"
-#endif
 #ifdef TARGET_REAL_CARD_READER
 #include "peripherals/card_reader.h"
 #endif
