@@ -435,7 +435,9 @@ if(ENABLE_TESTING)
     # Test source files
     set(TEST_SOURCES
         tests/backend_test.cpp
+        tests/backend_base_test.cpp
         tests/backend_bounded_test.cpp
+        tests/cache_manager_test.cpp
         tests/controller_test.cpp
         tests/message_storage_test.cpp
         tests/user_cache_test.cpp
