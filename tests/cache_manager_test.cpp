@@ -99,7 +99,6 @@ TEST_F(CacheManagerTest, StartPerformsInitialPaginatedPopulation) {
     };
 
     std::string controllerUid = "test-controller-uid";
-    std::string emptyError;
     
     {
         InSequence seq;
@@ -142,7 +141,6 @@ TEST_F(CacheManagerTest, TriggerPopulationReplacesActiveTableWithFreshData) {
     std::vector<UserCard> refreshed = {{"uid-refreshed", 2, 42.5}};
 
     std::string controllerUid = "test-controller-uid";
-    std::string emptyError;
     
     {
         InSequence seq;
@@ -189,7 +187,6 @@ TEST_F(CacheManagerTest, PopulationFailureKeepsExistingDataAndSetsFailureStatus)
     auto backend = std::make_shared<MockBackend>();
     
     std::string controllerUid = "test-controller-uid";
-    std::string emptyError;
     
     EXPECT_CALL(*backend, GetControllerUid()).WillOnce(testing::ReturnRef(controllerUid));
     EXPECT_CALL(*backend, Authorize(controllerUid)).WillOnce(Return(true));
@@ -222,7 +219,6 @@ TEST_F(CacheManagerTest, SynchronizationSessionWithInvalidRoleIdFails) {
     auto backend = std::make_shared<MockBackend>();
     
     std::string controllerUid = "test-controller-uid";
-    std::string emptyError;
     
     // Authorization succeeds but returns wrong RoleId
     EXPECT_CALL(*backend, GetControllerUid()).WillOnce(testing::ReturnRef(controllerUid));

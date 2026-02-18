@@ -45,7 +45,6 @@ public:
     std::string tokenStorage_;
     std::vector<BackendTankInfo> tanksStorage_;
     std::string lastErrorStorage_;
-    std::string controllerUidStorage_;
     int roleId_ = static_cast<int>(UserRole::Unknown);
     double allowance_ = 0.0;
     double price_ = 0.0;
