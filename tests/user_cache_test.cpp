@@ -363,3 +363,41 @@ TEST_F(UserCacheTest, VariousRoleIDs) {
     ASSERT_TRUE(entryNeg.has_value());
     EXPECT_EQ(entryNeg->roleId, -1);
 }
+
+// Test that updates during population are preserved after flip
+TEST_F(UserCacheTest, UpdatesDuringPopulationArePreserved) {
+    UserCache cache(dbPath_);
+    
+    // Add initial data to active table
+    cache.UpdateEntry("uid-1", 100.0, 1);
+    cache.UpdateEntry("uid-2", 200.0, 2);
+    EXPECT_EQ(cache.GetCount(), 2);
+    
+    // Begin population (prepares standby table)
+    EXPECT_TRUE(cache.BeginPopulation());
+    
+    // Add new data to standby table
+    EXPECT_TRUE(cache.AddPopulationEntry("uid-3", 300.0, 1));
+    EXPECT_TRUE(cache.AddPopulationEntry("uid-4", 400.0, 2));
+    
+    // Simulate a refuel update during population - this should update BOTH tables
+    EXPECT_TRUE(cache.UpdateEntry("uid-1", 50.0, 1));  // Deduct 50 from uid-1
+    
+    // Commit population (swap tables)
+    EXPECT_TRUE(cache.CommitPopulation());
+    
+    // Verify the update to uid-1 is preserved after the flip
+    auto entry1 = cache.GetEntry("uid-1");
+    ASSERT_TRUE(entry1.has_value());
+    EXPECT_DOUBLE_EQ(entry1->allowance, 50.0);  // Should have the updated value, not original 100.0
+    EXPECT_EQ(entry1->roleId, 1);
+    
+    // Verify new entries are present
+    auto entry3 = cache.GetEntry("uid-3");
+    ASSERT_TRUE(entry3.has_value());
+    EXPECT_DOUBLE_EQ(entry3->allowance, 300.0);
+    
+    auto entry4 = cache.GetEntry("uid-4");
+    ASSERT_TRUE(entry4.has_value());
+    EXPECT_DOUBLE_EQ(entry4->allowance, 400.0);
+}

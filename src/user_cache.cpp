@@ -126,19 +126,38 @@ bool UserCache::UpdateEntry(const std::string& uid, double allowance, int roleId
         return false;
     }
 
-    std::string sql = "INSERT OR REPLACE INTO " + GetActiveTableName() + " (uid, allowance, role_id) VALUES (?, ?, ?);";
-    sqlite3_stmt* stmt = nullptr;
-    if (sqlite3_prepare_v2(db_, sql.c_str(), -1, &stmt, nullptr) != SQLITE_OK) {
-        return false;
+    // If population is in progress, update BOTH tables to prevent data loss during flip
+    // Otherwise, only update the active table
+    std::vector<std::string> tablesToUpdate;
+    if (populationInProgress_) {
+        // Update both active and standby tables
+        tablesToUpdate.push_back(GetActiveTableName());
+        tablesToUpdate.push_back(GetStandbyTableName());
+    } else {
+        // Only update active table
+        tablesToUpdate.push_back(GetActiveTableName());
     }
 
-    sqlite3_bind_text(stmt, 1, uid.c_str(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_double(stmt, 2, allowance);
-    sqlite3_bind_int(stmt, 3, roleId);
+    for (const auto& tableName : tablesToUpdate) {
+        std::string sql = "INSERT OR REPLACE INTO " + tableName + " (uid, allowance, role_id) VALUES (?, ?, ?);";
+        sqlite3_stmt* stmt = nullptr;
+        if (sqlite3_prepare_v2(db_, sql.c_str(), -1, &stmt, nullptr) != SQLITE_OK) {
+            return false;
+        }
 
-    const bool ok = (sqlite3_step(stmt) == SQLITE_DONE);
-    sqlite3_finalize(stmt);
-    return ok;
+        sqlite3_bind_text(stmt, 1, uid.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_double(stmt, 2, allowance);
+        sqlite3_bind_int(stmt, 3, roleId);
+
+        const bool ok = (sqlite3_step(stmt) == SQLITE_DONE);
+        sqlite3_finalize(stmt);
+        
+        if (!ok) {
+            return false;
+        }
+    }
+
+    return true;
 }
 
 int UserCache::GetCount() const {
