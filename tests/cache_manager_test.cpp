@@ -38,6 +38,7 @@ public:
     MOCK_METHOD((const std::string&), GetLastError, (), (const, override));
     MOCK_METHOD(bool, IsNetworkError, (), (const, override));
     MOCK_METHOD(std::vector<UserCard>, FetchUserCards, (int first, int number), (override));
+    MOCK_METHOD((const std::string&), GetControllerUid, (), (const, override));
 };
 
 std::string MakeTempDbPath() {
@@ -97,10 +98,22 @@ TEST_F(CacheManagerTest, StartPerformsInitialPaginatedPopulation) {
         {"uid-101", 2, 777.0},
     };
 
+    std::string controllerUid = "test-controller-uid";
+    std::string emptyError;
+    
     {
         InSequence seq;
+        // Synchronization session setup
+        EXPECT_CALL(*backend, GetControllerUid()).WillOnce(testing::ReturnRef(controllerUid));
+        EXPECT_CALL(*backend, Authorize(controllerUid)).WillOnce(Return(true));
+        EXPECT_CALL(*backend, GetRoleId()).WillOnce(Return(3));
+        
+        // Data fetching
         EXPECT_CALL(*backend, FetchUserCards(0, 100)).WillOnce(Return(firstBatch));
         EXPECT_CALL(*backend, FetchUserCards(100, 100)).WillOnce(Return(secondBatch));
+        
+        // Synchronization session cleanup
+        EXPECT_CALL(*backend, Deauthorize()).WillOnce(Return(true));
     }
 
     CacheManager manager(cache, backend);
@@ -128,10 +141,24 @@ TEST_F(CacheManagerTest, TriggerPopulationReplacesActiveTableWithFreshData) {
     std::vector<UserCard> initial = {{"uid-initial", 1, 100.0}};
     std::vector<UserCard> refreshed = {{"uid-refreshed", 2, 42.5}};
 
+    std::string controllerUid = "test-controller-uid";
+    std::string emptyError;
+    
     {
         InSequence seq;
+        // First population
+        EXPECT_CALL(*backend, GetControllerUid()).WillOnce(testing::ReturnRef(controllerUid));
+        EXPECT_CALL(*backend, Authorize(controllerUid)).WillOnce(Return(true));
+        EXPECT_CALL(*backend, GetRoleId()).WillOnce(Return(3));
         EXPECT_CALL(*backend, FetchUserCards(0, 100)).WillOnce(Return(initial));
+        EXPECT_CALL(*backend, Deauthorize()).WillOnce(Return(true));
+        
+        // Second population
+        EXPECT_CALL(*backend, GetControllerUid()).WillOnce(testing::ReturnRef(controllerUid));
+        EXPECT_CALL(*backend, Authorize(controllerUid)).WillOnce(Return(true));
+        EXPECT_CALL(*backend, GetRoleId()).WillOnce(Return(3));
         EXPECT_CALL(*backend, FetchUserCards(0, 100)).WillOnce(Return(refreshed));
+        EXPECT_CALL(*backend, Deauthorize()).WillOnce(Return(true));
     }
 
     CacheManager manager(cache, backend);
@@ -160,10 +187,19 @@ TEST_F(CacheManagerTest, PopulationFailureKeepsExistingDataAndSetsFailureStatus)
     ASSERT_TRUE(cache->UpdateEntry("uid-existing", 321.0, 1));
 
     auto backend = std::make_shared<MockBackend>();
+    
+    std::string controllerUid = "test-controller-uid";
+    std::string emptyError;
+    
+    EXPECT_CALL(*backend, GetControllerUid()).WillOnce(testing::ReturnRef(controllerUid));
+    EXPECT_CALL(*backend, Authorize(controllerUid)).WillOnce(Return(true));
+    EXPECT_CALL(*backend, GetRoleId()).WillOnce(Return(3));
     EXPECT_CALL(*backend, FetchUserCards(_, _))
         .WillOnce(Invoke([](int, int) -> std::vector<UserCard> {
             throw std::runtime_error("backend boom");
         }));
+    EXPECT_CALL(*backend, IsAuthorized()).WillOnce(Return(true));
+    EXPECT_CALL(*backend, Deauthorize()).WillOnce(Return(true));
 
     CacheManager manager(cache, backend);
     auto before = manager.GetLastPopulationTime();
@@ -178,6 +214,53 @@ TEST_F(CacheManagerTest, PopulationFailureKeepsExistingDataAndSetsFailureStatus)
     ASSERT_TRUE(preserved.has_value());
     EXPECT_DOUBLE_EQ(preserved->allowance, 321.0);
 
+    manager.Stop();
+}
+
+TEST_F(CacheManagerTest, SynchronizationSessionWithInvalidRoleIdFails) {
+    auto cache = std::make_shared<UserCache>(dbPath_);
+    auto backend = std::make_shared<MockBackend>();
+    
+    std::string controllerUid = "test-controller-uid";
+    std::string emptyError;
+    
+    // Authorization succeeds but returns wrong RoleId
+    EXPECT_CALL(*backend, GetControllerUid()).WillOnce(testing::ReturnRef(controllerUid));
+    EXPECT_CALL(*backend, Authorize(controllerUid)).WillOnce(Return(true));
+    EXPECT_CALL(*backend, GetRoleId()).WillOnce(Return(1)); // Wrong role (should be 3)
+    EXPECT_CALL(*backend, Deauthorize()).WillOnce(Return(true));
+    
+    CacheManager manager(cache, backend);
+    auto before = manager.GetLastPopulationTime();
+    
+    EXPECT_TRUE(manager.Start());
+    ASSERT_TRUE(WaitForPopulation(manager, before));
+    
+    EXPECT_FALSE(manager.GetLastPopulationSuccess());
+    
+    manager.Stop();
+}
+
+TEST_F(CacheManagerTest, SynchronizationSessionAuthorizationFailure) {
+    auto cache = std::make_shared<UserCache>(dbPath_);
+    auto backend = std::make_shared<MockBackend>();
+    
+    std::string controllerUid = "test-controller-uid";
+    std::string emptyError;
+    
+    // Authorization fails
+    EXPECT_CALL(*backend, GetControllerUid()).WillOnce(testing::ReturnRef(controllerUid));
+    EXPECT_CALL(*backend, Authorize(controllerUid)).WillOnce(Return(false));
+    EXPECT_CALL(*backend, GetLastError()).WillOnce(testing::ReturnRef(emptyError));
+    
+    CacheManager manager(cache, backend);
+    auto before = manager.GetLastPopulationTime();
+    
+    EXPECT_TRUE(manager.Start());
+    ASSERT_TRUE(WaitForPopulation(manager, before));
+    
+    EXPECT_FALSE(manager.GetLastPopulationSuccess());
+    
     manager.Stop();
 }
 

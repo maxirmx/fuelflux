@@ -177,15 +177,42 @@ bool CacheManager::PopulateCache() {
     }
     
     try {
+        // Get controller UID to use for synchronization session
+        // For synchronization, we authorize using ControllerUID as both CardUID and ControllerUID
+        std::string controllerUid = backend_->GetControllerUid();
+        if (controllerUid.empty()) {
+            LOG_ERROR("Controller UID not available");
+            return false;
+        }
+        
+        // Open synchronization session
+        LOG_INFO("Opening synchronization session with ControllerUID: {}", controllerUid);
+        if (!backend_->Authorize(controllerUid)) {
+            LOG_ERROR("Failed to open synchronization session: {}", backend_->GetLastError());
+            return false;
+        }
+        
+        // Verify RoleId = 3 (synchronization role)
+        int roleId = backend_->GetRoleId();
+        if (roleId != 3) {
+            LOG_ERROR("Synchronization session returned invalid RoleId: {} (expected 3)", roleId);
+            backend_->Deauthorize();
+            return false;
+        }
+        
+        LOG_INFO("Synchronization session authorized with RoleId=3, token obtained");
+        
         // Begin population (prepares standby table)
         if (!cache_->BeginPopulation()) {
             LOG_ERROR("Failed to begin cache population");
+            backend_->Deauthorize();
             return false;
         }
         
         int totalFetched = 0;
         int first = 0;
         bool moreData = true;
+        bool success = true;
         
         while (moreData && running_) {
             // Fetch batch of user cards
@@ -203,8 +230,13 @@ bool CacheManager::PopulateCache() {
                 if (!cache_->AddPopulationEntry(card.uid, card.allowance, card.roleId)) {
                     LOG_ERROR("Failed to add cache entry for UID: {}", card.uid);
                     cache_->AbortPopulation();
-                    return false;
+                    success = false;
+                    break;
                 }
+            }
+            
+            if (!success) {
+                break;
             }
             
             totalFetched += static_cast<int>(cards.size());
@@ -220,21 +252,41 @@ bool CacheManager::PopulateCache() {
         if (!running_) {
             LOG_WARN("Cache population interrupted by shutdown");
             cache_->AbortPopulation();
+            backend_->Deauthorize();
+            return false;
+        }
+        
+        if (!success) {
+            LOG_ERROR("Cache population failed during data fetch");
+            backend_->Deauthorize();
             return false;
         }
         
         // Commit population (swap tables)
         if (!cache_->CommitPopulation()) {
             LOG_ERROR("Failed to commit cache population");
+            backend_->Deauthorize();
             return false;
         }
         
         LOG_INFO("Cache population completed: {} entries loaded", totalFetched);
+        
+        // Close synchronization session
+        if (!backend_->Deauthorize()) {
+            LOG_WARN("Failed to deauthorize synchronization session (data was still loaded successfully)");
+        } else {
+            LOG_INFO("Synchronization session deauthorized successfully");
+        }
+        
         return true;
         
     } catch (const std::exception& e) {
         LOG_ERROR("Exception during cache population: {}", e.what());
         cache_->AbortPopulation();
+        // Try to deauthorize if authorized
+        if (backend_->IsAuthorized()) {
+            backend_->Deauthorize();
+        }
         return false;
     }
 }
