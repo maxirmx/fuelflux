@@ -3,7 +3,7 @@
 # This file is a part of fuelflux application
 
 cmake_minimum_required(VERSION 3.16)
-project(FuelFlux VERSION 0.0.6 LANGUAGES CXX)
+project(FuelFlux VERSION 0.0.7 LANGUAGES CXX)
 
 # Generate version header from template
 configure_file(
@@ -212,6 +212,8 @@ set(LIB_SOURCES
     src/controller.cpp
     src/logger.cpp
     src/message_storage.cpp
+    src/user_cache.cpp
+    src/cache_manager.cpp
     src/backlog_worker.cpp
     src/bounded_executor.cpp
     src/peripherals/display.cpp
@@ -280,6 +282,8 @@ set(HEADERS
     include/controller.h
     include/logger.h
     include/message_storage.h
+    include/user_cache.h
+    include/cache_manager.h
     include/backlog_worker.h
     include/peripherals/display.h
     include/peripherals/keyboard.h
@@ -431,9 +435,12 @@ if(ENABLE_TESTING)
     # Test source files
     set(TEST_SOURCES
         tests/backend_test.cpp
+        tests/backend_base_test.cpp
         tests/backend_bounded_test.cpp
+        tests/cache_manager_test.cpp
         tests/controller_test.cpp
         tests/message_storage_test.cpp
+        tests/user_cache_test.cpp
         tests/backlog_worker_test.cpp
         tests/bounded_executor_test.cpp
         tests/cares_resolver_test.cpp
