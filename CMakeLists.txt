@@ -213,6 +213,7 @@ set(LIB_SOURCES
     src/logger.cpp
     src/message_storage.cpp
     src/user_cache.cpp
+    src/cache_manager.cpp
     src/backlog_worker.cpp
     src/bounded_executor.cpp
     src/peripherals/display.cpp
@@ -282,6 +283,7 @@ set(HEADERS
     include/logger.h
     include/message_storage.h
     include/user_cache.h
+    include/cache_manager.h
     include/backlog_worker.h
     include/peripherals/display.h
     include/peripherals/keyboard.h

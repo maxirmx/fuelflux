@@ -9,6 +9,7 @@
 #include <mutex>
 #include <condition_variable>
 #include <queue>
+#include <memory>
 
 #ifndef _WIN32
 #include <termios.h>
@@ -17,6 +18,9 @@
 #include "peripherals/peripheral_interface.h"
 
 namespace fuelflux {
+
+// Forward declarations
+class CacheManager;
 
 // Forward declaration - ConsoleDisplay is now defined in display/console_display.h
 namespace display {
@@ -160,6 +164,9 @@ public:
 
     // Test card simulation
     void simulateCard(const UserId& userId);
+    
+    // Set cache manager for cache commands
+    void setCacheManager(std::shared_ptr<CacheManager> cacheManager);
 
     // Dispatcher helper: forward a raw character to the keyboard (if available)
     void dispatchKey(char c);
@@ -182,6 +189,9 @@ private:
     ConsoleCardReader* cardReader_;
     ConsoleFlowMeter* flowMeter_;
     ConsoleKeyboard* keyboard_;
+    
+    // Cache manager for cache commands
+    std::shared_ptr<CacheManager> cacheManager_;
 
     // command assembly in command mode
     std::string commandBuffer_;
