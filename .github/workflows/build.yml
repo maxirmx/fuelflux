@@ -43,7 +43,7 @@ jobs:
                libcurl4-openssl-dev libfmt-dev nlohmann-json3-dev libc-ares-dev
 
       - name: Configure CMake
-        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DENABLE_TESTING=ON -DCODE_COVERAGE=ON
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DENABLE_TESTING=ON -DCODE_COVERAGE=ON -DDISPLAY_TYPE=CONSOLE
 
       - name: Build
         run: cmake --build build --config Release -j$(nproc)
@@ -113,7 +113,7 @@ jobs:
               git config --global --add safe.directory /work/build-arm64/_deps/googletest-src
               mkdir -p build-arm64
               cd build-arm64
-              cmake .. -G Ninja -DCMAKE_BUILD_TYPE=Release
+              cmake .. -G Ninja -DCMAKE_BUILD_TYPE=Release -DDISPLAY_TYPE=ILI9488
               cmake --build . --config Release -j\$(nproc)
               ctest --output-on-failure -C Release
             "
