@@ -6,6 +6,8 @@
 #include "backend.h"
 #include "config.h"
 #include "console_emulator.h"
+#include "user_cache.h"
+#include "cache_manager.h"
 #include "logger.h"
 #include <sstream>
 #include <iomanip>
@@ -38,6 +40,16 @@ Controller::Controller(ControllerId controllerId, std::shared_ptr<IBackend> back
     , isRunning_(false)
 {
     resetSessionData();
+    
+    // Initialize user cache and cache manager
+    try {
+        userCache_ = std::make_shared<UserCache>(CACHE_DB_PATH);
+        cacheManager_ = std::make_shared<CacheManager>(userCache_, backend_);
+        LOG_CTRL_INFO("User cache initialized at: {}", CACHE_DB_PATH);
+    } catch (const std::exception& e) {
+        LOG_CTRL_ERROR("Failed to initialize user cache: {}", e.what());
+        // Continue without cache - non-blocking
+    }
 }
 
 Controller::~Controller() {
@@ -56,6 +68,15 @@ bool Controller::initialize() {
     // Initialize state machine
     stateMachine_.initialize();
     
+    // Start cache manager (non-blocking)
+    if (cacheManager_) {
+        if (cacheManager_->Start()) {
+            LOG_CTRL_INFO("Cache manager started successfully");
+        } else {
+            LOG_CTRL_WARN("Failed to start cache manager");
+        }
+    }
+    
     // Set isRunning_ to true even if initialization failed to allow
     // the controller to run in Error state and wait for reinitialization.
     // All peripheral operations check for null/connected status before use.
@@ -71,6 +92,12 @@ bool Controller::initialize() {
 
 void Controller::shutdown() {
     LOG_CTRL_INFO("Shutting down...");
+    
+    // Stop cache manager first
+    if (cacheManager_) {
+        cacheManager_->Stop();
+        LOG_CTRL_INFO("Cache manager stopped");
+    }
     
     if (isRunning_) {
         isRunning_ = false;
@@ -413,6 +440,13 @@ void Controller::requestAuthorization(const UserId& userId) {
             info.number = tank.idTank;
             availableTanks_.push_back(info);
         }
+        
+        // Update cache with authorization data
+        if (cacheManager_) {
+            cacheManager_->UpdateCacheEntry(userId, currentUser_.allowance, 
+                                           static_cast<int>(currentUser_.role));
+        }
+        
         // Post event instead of processing it directly to maintain sequential event processing
         postEvent(Event::AuthorizationSuccess);
     } else {
@@ -557,6 +591,12 @@ void Controller::completeIntakeOperation() {
 void Controller::logRefuelTransaction(const RefuelTransaction& transaction) {
     if (backend_) {
         (void)backend_->Refuel(transaction.tankNumber, transaction.volume);
+        
+        // Deduct allowance from cache for customers (RoleId==1)
+        // Do this even if refuel fails, but check we're not processing backlog
+        if (cacheManager_ && currentUser_.role == UserRole::Customer) {
+            cacheManager_->DeductAllowance(transaction.userId, transaction.volume);
+        }
     }
 }
 
