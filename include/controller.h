@@ -4,6 +4,7 @@
 
 #pragma once
 
+#include <atomic>
 #include <memory>
 #include <string>
 #include <vector>
@@ -63,6 +64,10 @@ class Controller {
     // Allow external threads to post events to the controller's event loop
     void postEvent(Event event);
 
+    // Coalesce consecutive InputUpdated events. Used by StateMachine to avoid
+    // redundant display refreshes while leaving other events in the queue.
+    void discardPendingInputUpdatedEvents();
+
     // State machine interface
     StateMachine& getStateMachine() { return stateMachine_; }
     const StateMachine& getStateMachine() const { return stateMachine_; }
@@ -85,8 +90,10 @@ class Controller {
 
     // Display management
     void updateDisplay();
+
     void showError(const std::string& message);
-    void showMessage(const std::string& line1, const std::string& line2 = "", 
+    void showMessage(DisplayMessage message);
+    void showMessage(const std::string& line1, const std::string& line2 = "",
                     const std::string& line3 = "", const std::string& line4 = "");
 
     // Session management
@@ -104,6 +111,7 @@ class Controller {
     // Tank operations
     void selectTank(TankNumber tankNumber);
     bool isTankValid(TankNumber tankNumber) const;
+    Volume getTankVolume(TankNumber tankNumber) const;
 
     // Volume/Amount operations
     void enterVolume(Volume volume);
@@ -162,6 +170,7 @@ class Controller {
     
     // System state
     bool isRunning_;
+    std::atomic<bool> threadExited_{false};
     std::string lastErrorMessage_;
 
     // Event queue for cross-thread event posting

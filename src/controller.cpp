@@ -75,6 +75,18 @@ void Controller::shutdown() {
     if (isRunning_) {
         isRunning_ = false;
         eventCv_.notify_all();
+        
+        // Wait for the event loop thread to actually exit
+        // The thread checks isRunning_ at the top of the loop and the 
+        // condition variable wait has a 100ms timeout, so this waits up to 2 seconds
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(2000);
+        while (!threadExited_ && std::chrono::steady_clock::now() < deadline) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+        
+        if (!threadExited_) {
+            LOG_CTRL_ERROR("Thread shutdown timeout - thread did not exit within 2 seconds");
+        }
     
         // Shutdown peripherals
         shutdownPeripherals();
@@ -118,6 +130,9 @@ bool Controller::reinitializeDevice() {
 void Controller::run() {
     LOG_CTRL_INFO("Starting main loop");
     
+    // Reset the flag at the start of the run loop
+    threadExited_ = false;
+    
     while (isRunning_) {
         bool haveEvent = false;
         Event event = Event::Timeout; // initialize but treat as invalid until popped
@@ -141,6 +156,10 @@ void Controller::run() {
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
         }
     }
+    
+    // Signal that thread has exited the main loop
+    threadExited_ = true;
+    LOG_CTRL_INFO("Main loop stopped");
 }
 
 // Allow other threads to post events into controller's loop
@@ -150,6 +169,15 @@ void Controller::postEvent(Event event) {
         eventQueue_.push(event);
     }
     eventCv_.notify_one();
+}
+
+// Remove any consecutive InputUpdated events at the front of the queue,
+// leaving the first non-InputUpdated event (if any) untouched.
+void Controller::discardPendingInputUpdatedEvents() {
+    std::lock_guard<std::mutex> lock(eventQueueMutex_);
+    while (!eventQueue_.empty() && eventQueue_.front() == Event::InputUpdated) {
+        eventQueue_.pop();
+    }
 }
 
 // Peripheral setters
@@ -194,9 +222,10 @@ void Controller::handleKeyPress(KeyCode key) {
         case KeyCode::Key8:
         case KeyCode::Key9:
             // Detect first digit in Waiting state -> transition to PinEntry
-            if (currentState == SystemState::Waiting || currentState == SystemState::RefuelingComplete) {
+            if (currentState == SystemState::Waiting || 
+                currentState == SystemState::RefuelingComplete ||
+                currentState == SystemState::IntakeComplete) {
                 currentInput_.clear();
-                postEvent(Event::PinEntryStarted);
             }
             addDigitToInput(static_cast<char>(key));
             break;
@@ -272,7 +301,7 @@ void Controller::handleFlowUpdate(Volume currentVolume) {
         }
     }
     
-    updateDisplay();
+    postEvent(Event::InputUpdated);
 }
 
 // Display management
@@ -283,6 +312,12 @@ void Controller::updateDisplay() {
     display_->showMessage(message);
 }
 
+void Controller::showMessage(DisplayMessage message) {
+    if (!display_) return;
+    display_->showMessage(message);
+}
+
+
 void Controller::showError(const std::string& message) {
     lastErrorMessage_ = message;
     if (display_) {
@@ -291,7 +326,7 @@ void Controller::showError(const std::string& message) {
         errorMsg.line2 = message;
         errorMsg.line3 = "Нажмите ОТМЕНА (B)";
         errorMsg.line4 = getCurrentTimeString();
-        display_->showMessage(errorMsg);
+        showMessage(errorMsg);
     }
 }
 
@@ -303,7 +338,7 @@ void Controller::showMessage(const std::string& line1, const std::string& line2,
         message.line2 = line2;
         message.line3 = line3;
         message.line4 = line4;
-        display_->showMessage(message);
+        showMessage(message);
     }
 }
 
@@ -311,12 +346,12 @@ void Controller::showMessage(const std::string& line1, const std::string& line2,
 void Controller::startNewSession() {
     resetSessionData();
     clearInput();
-    updateDisplay();
+    postEvent(Event::InputUpdated);
 }
 
 void Controller::endCurrentSession() {
     resetSessionData();
-    clearInput();
+    clearInputSilent();
     if (pump_ && pump_->isRunning()) {
         pump_->stop();
     }
@@ -326,12 +361,11 @@ void Controller::endCurrentSession() {
     if (backend_ && backend_->IsAuthorized()) {
         (void)backend_->Deauthorize();
     }
-    updateDisplay();
 }
 
 void Controller::clearInput() {
     currentInput_.clear();
-    updateDisplay();
+    postEvent(Event::InputUpdated);
 }
 
 void Controller::clearInputSilent() {
@@ -342,20 +376,20 @@ void Controller::clearInputSilent() {
 void Controller::addDigitToInput(char digit) {
     if (currentInput_.length() < 10) { // Limit input length
         currentInput_ += digit;
-        updateDisplay();
+        postEvent(Event::InputUpdated);
     }
 }
 
 void Controller::removeLastDigit() {
     if (!currentInput_.empty()) {
         currentInput_.pop_back();
-        updateDisplay();
+        postEvent(Event::InputUpdated);
     }
 }
 
 void Controller::setMaxValue() {
     currentInput_ = std::to_string(static_cast<int>(currentUser_.allowance));
-    updateDisplay();
+    postEvent(Event::InputUpdated);
 }
 
 // Authorization
@@ -382,7 +416,6 @@ void Controller::requestAuthorization(const UserId& userId) {
         // Post event instead of processing it directly to maintain sequential event processing
         postEvent(Event::AuthorizationSuccess);
     } else {
-        showError(backend_->GetLastError());
         // Post event instead of processing it directly to maintain sequential event processing
         postEvent(Event::AuthorizationFailed);
     }
@@ -410,11 +443,31 @@ bool Controller::isTankValid(TankNumber tankNumber) const {
     return false;
 }
 
+Volume Controller::getTankVolume(TankNumber tankNumber) const {
+    if (backend_) {
+        const auto& tanks = backend_->GetFuelTanks();
+        for (const auto& tank : tanks) {
+            if (tank.idTank == tankNumber) {
+                return tank.volume;
+            }
+        }
+    }
+    return 0.0;
+}
+
 // Volume/Amount operations
 void Controller::enterVolume(Volume volume) {
     // Validate volume
     if (volume <= 0.0) {
-        showError("Неправильный объём");
+        clearInput();
+        return;
+    }
+    
+    // Get tank volume for the selected tank
+    Volume tankVolume = getTankVolume(selectedTank_);
+    
+    // Validate volume against tank capacity
+    if (tankVolume > 0.0 && volume > tankVolume) {
         clearInput();
         return;
     }
@@ -422,7 +475,6 @@ void Controller::enterVolume(Volume volume) {
     // Validate volume against allowance for customers
     if (currentUser_.role == UserRole::Customer) {
         if (volume > currentUser_.allowance) {
-            showError("Превышение объёма");
             clearInput();
             return;
         }
@@ -474,7 +526,6 @@ void Controller::startFuelIntake() {
 
 void Controller::enterIntakeVolume(Volume volume) {
     if (volume <= 0.0) {
-        showError("Неправильный объём");
         clearInput();
         return;
     }
@@ -518,7 +569,7 @@ void Controller::logIntakeTransaction(const IntakeTransaction& transaction) {
 // Utility functions
 std::string Controller::formatVolume(Volume volume) const {
     std::ostringstream oss;
-    oss << std::fixed << std::setprecision(2) << volume << " L";
+    oss << std::fixed << std::setprecision(2) << volume << " л";
     return oss.str();
 }
 
@@ -591,11 +642,9 @@ void Controller::processNumericInput() {
                     if (isTankValid(tank)) {
                         selectTank(tank);
                     } else {
-                        showError("Неправильная цистерна");
                         clearInput();
                     }
                 } else {
-                    showError("Неправильная цистерна");
                     clearInput();
                 }
             }
@@ -607,7 +656,6 @@ void Controller::processNumericInput() {
             } else if (currentInput_ == "2") {
                 selectIntakeDirection(IntakeDirection::Out);
             } else {
-                showError("Неправильная операция");
                 clearInput();
             }
             break;
@@ -617,7 +665,6 @@ void Controller::processNumericInput() {
             if (volume > 0.0) {
                 enterVolume(volume);
             } else {
-                showError("Неправильный объём");
                 clearInput();
             }
             break;
@@ -628,7 +675,6 @@ void Controller::processNumericInput() {
             if (volume > 0.0) {
                 enterIntakeVolume(volume);
             } else {
-                showError("Неправильный объём");
                 clearInput();
             }
             break;

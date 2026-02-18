@@ -94,6 +94,7 @@ bool BackendBase::Authorize(const std::string& uid) {
                 BackendTankInfo tankInfo;
                 tankInfo.idTank = tank.value("idTank", 0);
                 tankInfo.nameTank = tank.value("nameTank", "");
+                tankInfo.volume = tank.value("volume", 0.0);
                 fuelTanks.push_back(tankInfo);
             }
         }

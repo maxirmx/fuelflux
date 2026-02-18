@@ -5,7 +5,8 @@
 
 - **State Machine Architecture**: Robust state management for fuel station operations
 - **Peripheral Management**: Support for displays, keyboards, card readers, pumps, and flow meters
-- **Hardware Display Support**: Native integration with NHD-C12864A1Z-FSW-FBW-HTT LCD display on ARM platforms
+- **Multiple Display Support**: ST7565 (128×64 LCD), ILI9488 (480×320 TFT), or Console emulation
+- **Hardware Display Support**: Native integration with ST7565 and ILI9488 displays on ARM platforms
 - **Backend Integration**: Real API integration for user authentication and transaction reporting
 - **Advanced Logging**: Multi-level, multi-sink logging with JSON configuration
 - **Console Emulation**: Full console-based testing and simulation environment
@@ -25,6 +26,21 @@ cmake --build build --config Debug
 
 # run the executable
 .\build\bin\fuelflux.exe
+```
+
+### Display Configuration
+
+FuelFlux supports multiple display types. See [DISPLAY_CONFIGURATION.md](docs/DISPLAY_CONFIGURATION.md) for details.
+
+```bash
+# Build with console emulation (default)
+cmake -B build -DDISPLAY_TYPE=CONSOLE
+
+# Build with ST7565 128x64 LCD
+cmake -B build -DDISPLAY_TYPE=ST7565
+
+# Build with ILI9488 480x320 TFT
+cmake -B build -DDISPLAY_TYPE=ILI9488
 ```
 
 ### Installation (Production)

@@ -2,7 +2,7 @@
 // All rights reserved.
 // This file is a part of fuelflux application
 
-#include "nhd/ft_text.h"
+#include "display/ft_text.h"
 #include <stdexcept>
 #include <cstring>
 #include <cstdint>
@@ -53,6 +53,7 @@ static inline void fb_set(std::vector<unsigned char>& fb, int w, int h, int x, i
     int page = y / 8;
     int bit = y % 8;
     size_t idx = (size_t)page * (size_t)w + (size_t)x;
+    if (idx >= fb.size()) return;  // Safety check against actual buffer size
     unsigned char mask = (unsigned char)(1u << bit);
     if (on) fb[idx] |= mask;
     else fb[idx] &= (unsigned char)~mask;
@@ -132,5 +133,6 @@ void FtText::draw_utf8(std::vector<unsigned char>& fb, int width, int height,
 
         // simple clipping/stop
         if (pen_x >= width) break;
+        if (pen_y >= height) break;  // Stop if we've gone past the bottom
     }
 }

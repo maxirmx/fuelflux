@@ -14,9 +14,7 @@
 #endif
 #include "version.h"
 #include "peripherals/peripheral_interface.h"
-#ifdef TARGET_REAL_DISPLAY
 #include "peripherals/display.h"
-#endif
 #ifdef TARGET_REAL_CARD_READER
 #include "peripherals/card_reader.h"
 #endif
@@ -39,7 +37,6 @@
 #include <windows.h>
 #include <conio.h>
 #else
-#include <termios.h>
 #include <unistd.h>
 #include <sys/select.h>
 #endif
@@ -58,156 +55,6 @@ void signalHandler(int signal) {
         std::cerr << "Received signal " << signal << ", shutting down..." << std::endl;
     }
     g_running = false;
-}
-
-// Dispatcher: Explicit mode switching with Tab key
-static void inputDispatcher(ConsoleEmulator& emulator) {
-#ifndef _WIN32
-    struct termios origTerm{};
-    bool haveTerm = (tcgetattr(STDIN_FILENO, &origTerm) == 0);
-
-    auto setRawMode = [&](bool raw) {
-        if (!haveTerm) return;
-        struct termios t = origTerm;
-        if (raw) {
-            t.c_lflag &= ~(ICANON | ECHO);
-            t.c_cc[VMIN] = 0;
-            t.c_cc[VTIME] = 0;
-        } else {
-            // restore canonical with echo
-            t.c_lflag |= (ICANON | ECHO);
-        }
-        tcsetattr(STDIN_FILENO, TCSANOW, &t);
-    };
-#endif
-
-    enum class InputMode {
-        Command,
-        Key
-    };
-
-    InputMode currentMode = InputMode::Command;
-
-    auto switchMode = [&](InputMode newMode) {
-        if (newMode != currentMode) {
-            currentMode = newMode;
-            if (currentMode == InputMode::Command) {
-                emulator.logLine("=== Switched to COMMAND mode ===");
-#ifndef _WIN32
-                setRawMode(false);
-#endif
-                emulator.setInputMode(true);
-            } else {
-                emulator.logBlock(
-                    "=== Switched to KEY mode ===\n"
-                    "Press individual keys (0-9, A, B, *, #)\n"
-                    "Press Tab to return to command mode"
-                );
-#ifndef _WIN32
-                setRawMode(true);
-#endif
-                emulator.setInputMode(false);
-            }
-        }
-    };
-
-    // Start in key mode
-    switchMode(InputMode::Key);
-
-    while (g_running) {
-#ifndef _WIN32
-        fd_set readfds;
-        FD_ZERO(&readfds);
-        FD_SET(STDIN_FILENO, &readfds);
-        struct timeval tv;
-        tv.tv_sec = 0;
-        tv.tv_usec = 100000; // 100ms
-        int ret = select(STDIN_FILENO + 1, &readfds, nullptr, nullptr, &tv);
-        if (ret > 0 && FD_ISSET(STDIN_FILENO, &readfds)) {
-            char c = 0;
-            ssize_t r = read(STDIN_FILENO, &c, 1);
-            if (r > 0) {
-                // Tab key switches to command mode
-                if (c == '\t') {
-                    switchMode(InputMode::Command);
-                    continue;
-                }
-                if (currentMode == InputMode::Command) {
-                    bool shouldQuit = emulator.processKeyboardInput(c, SystemState::Waiting);
-                    if (shouldQuit) {
-                        g_running = false;
-                        break;
-                    }
-                    if (emulator.consumeModeSwitchRequest()) {
-                        switchMode(InputMode::Key);
-                    }
-                } else {
-                    // NO mapping of Enter to 'A' - user must press 'A' explicitly
-                    // Ignore Enter/Return in key mode
-                    if (c == '\r' || c == '\n') {
-                        emulator.logLine("[Key mode: Press 'A' to confirm, not Enter]");
-                        continue;
-                    }
-                    // Forward raw key directly to keyboard
-                    emulator.dispatchKey(c);
-                }
-            } else if (r == 0) {
-                // EOF on stdin - graceful shutdown
-                LOG_INFO("EOF on stdin, shutting down...");
-                g_running = false;
-                break;
-            } else {
-                // Read error - log and shutdown
-                int err = errno;  // Save errno before any other calls
-                LOG_ERROR("Error reading from stdin (errno: {}), shutting down...", err);
-                g_running = false;
-                break;
-            }
-        }
-#else
-        if (_kbhit()) {
-            int ch = _getch();
-            if (ch == 0 || ch == 224) {
-                // extended key: ignore second code
-                (void)_getch();
-            } else {
-                char c = static_cast<char>(ch);
-                // Tab key (ASCII 9) switches to command mode
-                if (c == '\t') {
-                    switchMode(InputMode::Command);
-                    continue;
-                }
-                if (currentMode == InputMode::Command) {
-                    bool shouldQuit = emulator.processKeyboardInput(c, SystemState::Waiting);
-                    if (shouldQuit) {
-                        g_running = false;
-                        break;
-                    }
-                    if (emulator.consumeModeSwitchRequest()) {
-                        switchMode(InputMode::Key);
-                    }
-                } else {
-                    // NO mapping of Enter to 'A' - user must press 'A' explicitly
-                    // Ignore Enter/Return in key mode
-                    if (c == '\r' || c == '\n') {
-                        emulator.logLine("[Key mode: Press 'A' to confirm, not Enter]");
-                        continue;
-                    }
-                    // Forward raw key directly to keyboard
-                    emulator.dispatchKey(c);
-                }
-            }
-        }
-#endif
-        // small sleep to avoid busy loop
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    }
-
-#ifndef _WIN32
-    if (haveTerm) {
-        tcsetattr(STDIN_FILENO, TCSANOW, &origTerm);
-    }
-#endif
 }
 
 // Display failure message on a display interface
@@ -299,69 +146,67 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
             LOG_INFO("Starting FuelFlux Controller v{}...", FUELFLUX_VERSION);
             // Create console emulator
             ConsoleEmulator emulator;
-            emulator.printWelcome();
             
             // Create display early so it can be used for failure message if needed
 #ifdef TARGET_REAL_DISPLAY
-            // Use real hardware display with configuration from environment variables
-            LOG_INFO("Using real hardware display (NHD-C12864A1Z-FSW-FBW-HTT)");
-
-            // Get hardware configuration from environment or use defaults
-            std::string spiDevice = "/dev/spidev1.0";
-            std::string gpioChip = "/dev/gpiochip0";
-            int dcPin = 262;
-            int rstPin = 226;
-            std::string fontPath = "/usr/share/fonts/truetype/ubuntu/UbuntuMono-B.ttf";
-
-            if (const char* env = std::getenv("FUELFLUX_SPI_DEVICE")) spiDevice = env;
-            if (const char* env = std::getenv("FUELFLUX_GPIO_CHIP")) gpioChip = env;
-            if (const char* env = std::getenv("FUELFLUX_DC_PIN")) dcPin = std::atoi(env);
-            if (const char* env = std::getenv("FUELFLUX_RST_PIN")) rstPin = std::atoi(env);
-            if (const char* env = std::getenv("FUELFLUX_FONT_PATH")) fontPath = env;
-
-            LOG_INFO("Display hardware configuration:");
-            LOG_INFO("  SPI Device: {}", spiDevice);
-            LOG_INFO("  GPIO Chip: {}", gpioChip);
-            LOG_INFO("  D/C Pin: {}", dcPin);
-            LOG_INFO("  RST Pin: {}", rstPin);
-            LOG_INFO("  Font Path: {}", fontPath);
-
-            display = std::make_unique<peripherals::RealDisplay>(
-                spiDevice, gpioChip, dcPin, rstPin, fontPath
-            );
+            display = std::make_unique<peripherals::Display>();
 #else
             display = emulator.createDisplay();
 #endif
+            display->initialize();
+            emulator.printWelcome();
+
+            DisplayMessage msg;
+            msg.line1 = "Подготовка";
+            msg.line2 = "";
+            msg.line3 = "Дисплей";
+            msg.line4 = "FuelFlux вер. " + std::string(FUELFLUX_VERSION);
+            display->showMessage(msg);
+
             
+            // ----- Backlog -----
+            msg.line3 = "Очередь";
+            display->showMessage(msg);
+
             auto storage = std::make_shared<MessageStorage>(STORAGE_DB_PATH);
             auto backend = Controller::CreateDefaultBackend(storage);
             auto backlogBackend = Controller::CreateDefaultBackendShared(controllerId, nullptr);
             BacklogWorker backlogWorker(storage, backlogBackend, std::chrono::seconds(30));
             backlogWorker.Start();
 
-            // Create controller
+
+            // ----- Контроллер -----
+            msg.line3 = "Контроллер";
+            display->showMessage(msg);
+
             Controller controller(controllerId, backend);
-            
-            // Setup display - move ownership to controller
             controller.setDisplay(std::move(display));
 
+
+            // ----- Клавиатура -----
+            msg.line3 = "Клавиатура";
+            controller.showMessage(msg);
 #ifdef TARGET_REAL_KEYBOARD
-            LOG_INFO("Using real hardware keyboard");
             controller.setKeyboard(std::make_unique<peripherals::HardwareKeyboard>());
 #else
             controller.setKeyboard(emulator.createKeyboard());
 #endif
 
+            // ----- Кардридер -----
+            msg.line3 = "Кардридер";
+            controller.showMessage(msg);
+
 #ifdef TARGET_REAL_CARD_READER
-            LOG_INFO("Using real NFC card reader (libnfc)");
             auto cardReader = std::make_unique<peripherals::HardwareCardReader>();
             controller.setCardReader(std::move(cardReader));
 #else
             controller.setCardReader(emulator.createCardReader());
 #endif
 
+            // ----- Насос/счётчик -----
+            msg.line3 = "Насос\\счётчик";
+            controller.showMessage(msg);
 #ifdef TARGET_REAL_PUMP
-            LOG_INFO("Using real pump relay control");
             std::string pumpChip = peripherals::pump_defaults::GPIO_CHIP;
             int pumpLine = peripherals::pump_defaults::RELAY_PIN;
             bool pumpActiveLow = peripherals::pump_defaults::ACTIVE_LOW;
@@ -414,20 +259,23 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
             controller.setFlowMeter(emulator.createFlowMeter());
             
             // Initialize controller
+            msg.line1 = "Запуск";
+            msg.line3 = "Контроллер";
+            controller.showMessage(msg);
+
             bool initOk = controller.initialize();
             if (!initOk) {
-                LOG_ERROR("Failed to initialize controller; entering error state");
-                LOG_WARN("Controller started in error state; awaiting reinitialization");
-                emulator.logLine("[Main] Controller failed to initialize; type 'help' for diagnostic commands");
+                LOG_ERROR("Failed to initialize controller; entering error state; awaiting reinitialization");
+                emulator.logLine("[Main] Controller failed to initialize");
             } else {
                 LOG_INFO("Controller initialized successfully");
-                emulator.logLine("[Main] Type 'help' for available commands");
             }
             
             // Start input dispatcher thread (handles both command and key modes)
-            std::thread inputThread(inputDispatcher, std::ref(emulator));
+            emulator.startInputDispatcher(g_running);
             
             // Start controller main loop in a separate thread
+            controller.updateDisplay();
             std::thread controllerThread([&controller]() {
                 controller.run();
             });
@@ -443,7 +291,6 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
                 
                 // Shutdown controller
                 controller.shutdown();
-
                 backlogWorker.Stop();
             } catch (...) {
                 // Ensure controller is stopped even if exception occurs
@@ -453,9 +300,7 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
             }
             
             // Wait for threads to finish
-            if (inputThread.joinable()) {
-                inputThread.join();
-            }
+            emulator.stopInputDispatcher();
             
             if (controllerThread.joinable()) {
                 controllerThread.join();

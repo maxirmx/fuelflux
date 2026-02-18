@@ -51,13 +51,18 @@
         },
         {
           "name": "TARGET_SIM800C",
-          "value": "False",
+          "value": "True",
           "type": "BOOL"
         },
         {
           "name": "TARGET_REAL_PUMP",
-          "value": "False",
+          "value": "True",
           "type": "BOOL"
+        },
+        {
+          "name": "DISPLAY_TYPE",
+          "value": "CONSOLE",
+          "type": "STRING"
         }
       ]
     }

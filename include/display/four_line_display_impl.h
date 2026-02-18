@@ -9,7 +9,10 @@
 #include <memory>
 
 /**
- * Four Line Display Library
+ * Four Line Display Implementation
+ * 
+ * Internal implementation class for rendering text to framebuffer.
+ * This class is used by the concrete display implementations.
  * 
  * Manages a display view with 4 lines:
  * - Line 0: Small font
@@ -19,21 +22,32 @@
  * 
  * Designed for 128x64 monochrome displays
  */
-class FourLineDisplay {
+class FourLineDisplayImpl {
 public:
     /**
      * Constructor
-     * @param width Display width in pixels (default: 128)
-     * @param height Display height in pixels (default: 64)
+     * @param width Display width in pixels (default: 128); must be > 0
+     * @param height Display height in pixels (default: 64); must be > 0 and divisible by 8
      * @param small_font_size Small font size in pixels (default: 12)
      * @param large_font_size Large font size in pixels (default: 28)
+     * @param left_margin Left margin in pixels (default: 0); non-drawable columns on the left edge.
+     *                    Negative values are clamped to 0. If left_margin + right_margin >= width,
+     *                    both margins are reset to 0.
+     * @param right_margin Right margin in pixels (default: 0); non-drawable columns on the right edge.
+     *                     Negative values are clamped to 0. If left_margin + right_margin >= width,
+     *                     both margins are reset to 0.
+     * @throws std::invalid_argument if width <= 0, height <= 0, or height is not divisible by 8
      */
-    FourLineDisplay(int width = 128, int height = 64, 
-                   int small_font_size = 12, int large_font_size = 28);
-    ~FourLineDisplay();
+    FourLineDisplayImpl(int width = 128,
+                        int height = 64,
+                        int small_font_size = 12,
+                        int large_font_size = 28,
+                        int left_margin = 0,
+                        int right_margin = 0);
+    ~FourLineDisplayImpl();
 
-    FourLineDisplay(const FourLineDisplay&) = delete;
-    FourLineDisplay& operator=(const FourLineDisplay&) = delete;
+    FourLineDisplayImpl(const FourLineDisplayImpl&) = delete;
+    FourLineDisplayImpl& operator=(const FourLineDisplayImpl&) = delete;
 
     /**
      * Initialize the display library
@@ -116,6 +130,8 @@ private:
     int height_;
     int small_font_size_;
     int large_font_size_;
+    int left_margin_;
+    int right_margin_;
 
     bool initialized_;
     std::string lines_[4];
@@ -129,4 +145,10 @@ private:
     
     // Estimate character width for a given font size
     int estimate_char_width(int font_size) const;
+
+    // Available width for text content after margins are applied
+    int content_width() const;
+
+    // Clear horizontal margin columns in a page-packed framebuffer
+    void clear_horizontal_margins(std::vector<unsigned char>& fb) const;
 };

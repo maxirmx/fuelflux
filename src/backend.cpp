@@ -286,7 +286,7 @@ CaresResolver& GetCaresResolver() {
 void SetupDnsResolution(CURL* curl, CurlSlist& resolveList, 
                         const std::string& host, const std::string& url,
                         const std::string& logPrefix = "") {
-    std::string resolvedIp = GetCaresResolver().Resolve(host, kPppInterface);
+    std::string resolvedIp  = GetCaresResolver().Resolve(host, kPppInterface);
     if (resolvedIp.empty()) {
         // c-ares failed; fall back to letting libcurl do DNS, but force it to use
         // the PPP interface so that queries do not go via the default route.

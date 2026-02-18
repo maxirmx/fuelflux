@@ -3,7 +3,7 @@
 # This file is a part of fuelflux application
 
 cmake_minimum_required(VERSION 3.16)
-project(FuelFlux VERSION 0.0.5 LANGUAGES CXX)
+project(FuelFlux VERSION 0.0.6 LANGUAGES CXX)
 
 # Generate version header from template
 configure_file(
@@ -28,7 +28,7 @@ endif()
 # Real hardware peripheral flags: set by default on ARM, unset on Windows
 if(MSVC)
     option(TARGET_SIM800C "Enable PPP interface binding for HTTP backend" OFF) 
-    option(TARGET_REAL_DISPLAY "Use real NHD display hardware" OFF)
+    set(DISPLAY_TYPE "CONSOLE" CACHE STRING "Display type: ST7565, ILI9488, or CONSOLE")
     option(TARGET_REAL_KEYBOARD "Use real keyboard hardware" OFF)
     option(TARGET_REAL_CARD_READER "Use real card reader hardware" OFF)
     option(TARGET_REAL_PUMP "Use real pump hardware" OFF)
@@ -40,7 +40,7 @@ if(MSVC)
     option(UNIX_FOLDER_CONVENTION "Use Unix-style folder convention (e.g. /var/fuelflux) for logs and database" OFF) 
 else()
     option(TARGET_SIM800C "Use PPP interface binding for HTTP backend" ON) 
-    option(TARGET_REAL_DISPLAY "Use real NHD display hardware" OFF)   # OFF for now
+    set(DISPLAY_TYPE "ILI9488" CACHE STRING "Display type: ST7565, ILI9488, or CONSOLE")
     option(TARGET_REAL_KEYBOARD "Use real keyboard hardware" ON)
     option(TARGET_REAL_CARD_READER "Use real card reader hardware" ON)
     option(TARGET_REAL_PUMP "Use real pump hardware" ON)
@@ -51,6 +51,12 @@ else()
     option(UNIX_FOLDER_CONVENTION "Use Unix-style folder convention (e.g. /var/fuelflux) for logs and database" ON) 
 endif()
 
+# Validate DISPLAY_TYPE
+set_property(CACHE DISPLAY_TYPE PROPERTY STRINGS "ST7565" "ILI9488" "CONSOLE")
+if(NOT DISPLAY_TYPE MATCHES "^(ST7565|ILI9488|CONSOLE)$")
+    message(FATAL_ERROR "Invalid DISPLAY_TYPE: ${DISPLAY_TYPE}. Must be ST7565, ILI9488, or CONSOLE")
+endif()
+
 if(TARGET_SIM800C)
     message(STATUS "TARGET_SIM800C enabled - HTTP backend will bind to ppp0")
     add_compile_definitions(TARGET_SIM800C USE_IF2IP)
@@ -58,11 +64,18 @@ else()
     message(STATUS "TARGET_SIM800C disabled - HTTP backend will bind to default interface")
 endif()
 
-if(TARGET_REAL_DISPLAY)
-    message(STATUS "TARGET_REAL_DISPLAY enabled - using real display hardware")
-    add_compile_definitions(TARGET_REAL_DISPLAY)
+# Configure display based on DISPLAY_TYPE
+if(DISPLAY_TYPE STREQUAL "ST7565")
+    message(STATUS "DISPLAY_TYPE: ST7565 - 128x64 monochrome LCD")
+    set(TARGET_REAL_DISPLAY ON)
+    add_compile_definitions(TARGET_REAL_DISPLAY DISPLAY_ST7565)
+elseif(DISPLAY_TYPE STREQUAL "ILI9488")
+    message(STATUS "DISPLAY_TYPE: ILI9488 - 480x320 TFT display")
+    set(TARGET_REAL_DISPLAY ON)
+    add_compile_definitions(TARGET_REAL_DISPLAY DISPLAY_ILI9488)
 else()
-    message(STATUS "TARGET_REAL_DISPLAY disabled - using console display emulation")
+    message(STATUS "DISPLAY_TYPE: CONSOLE - console display emulation")
+    set(TARGET_REAL_DISPLAY OFF)
 endif()
 
 if(TARGET_REAL_KEYBOARD)
@@ -225,16 +238,40 @@ if(TARGET_REAL_KEYBOARD)
     list(APPEND LIB_SOURCES src/hardware/mcp23017.cpp)
 endif()
 
-# Add NHD library sources if TARGET_REAL_DISPLAY is enabled
+# Add display library sources
+# Four-line display base is always compiled
+list(APPEND LIB_SOURCES
+    src/display/four_line_display.cpp
+)
+
 if(TARGET_REAL_DISPLAY)
+    # Hardware display implementation
     list(APPEND LIB_SOURCES
-        src/nhd/st7565.cpp
-        src/nhd/four_line_display.cpp
-        src/nhd/graphics.cpp
-        src/nhd/ft_text.cpp
-        src/nhd/spi_linux.cpp
+        src/display/four_line_display_impl.cpp
+        src/display/hardware_display.cpp
+        src/display/ft_text.cpp
+        src/display/graphics.cpp
+        src/display/spi_linux.cpp
     )
+    
+    # Add display-specific driver
+    if(DISPLAY_TYPE STREQUAL "ST7565")
+        list(APPEND LIB_SOURCES 
+            src/display/st7565.cpp
+            src/display/st7565_display.cpp
+        )
+    elseif(DISPLAY_TYPE STREQUAL "ILI9488")
+        list(APPEND LIB_SOURCES 
+            src/display/ili9488.cpp
+            src/display/ili9488_display.cpp
+        )
+    endif()
 endif()
+
+# Console display is always compiled (used for non-hardware builds and potentially for testing)
+list(APPEND LIB_SOURCES
+    src/display/console_display.cpp
+)
 
 # Headers
 set(HEADERS
@@ -265,15 +302,22 @@ if(TARGET_REAL_KEYBOARD)
     list(APPEND HEADERS include/hardware/mcp23017.h)
 endif()
 
-# Add NHD library headers if TARGET_REAL_DISPLAY is enabled
+# Add display library headers if TARGET_REAL_DISPLAY is enabled
 if(TARGET_REAL_DISPLAY)
     list(APPEND HEADERS
-        include/nhd/st7565.h
-        include/nhd/four_line_display.h
-        include/nhd/graphics.h
-        include/nhd/ft_text.h
-        include/nhd/spi_linux.h
+        include/display/lcd_driver.h
+        include/display/four_line_display.h
+        include/display/graphics.h
+        include/display/ft_text.h
+        include/display/spi_linux.h
     )
+    
+    # Add display-specific driver headers
+    if(DISPLAY_TYPE STREQUAL "ST7565")
+        list(APPEND HEADERS include/display/st7565.h)
+    elseif(DISPLAY_TYPE STREQUAL "ILI9488")
+        list(APPEND HEADERS include/display/ili9488.h)
+    endif()
 endif()
 
 # Create static library from library sources
@@ -394,7 +438,14 @@ if(ENABLE_TESTING)
         tests/bounded_executor_test.cpp
         tests/cares_resolver_test.cpp
         tests/url_utils_test.cpp
+        tests/console_emulator_test.cpp
+        tests/four_line_display_test.cpp
     )
+    
+    # Add four_line_display_impl tests only for real display builds
+    if(TARGET_REAL_DISPLAY)
+        list(APPEND TEST_SOURCES tests/four_line_display_impl_test.cpp)
+    endif()
 
     # Create test executable
     add_executable(fuelflux_tests ${TEST_SOURCES})

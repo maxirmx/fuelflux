@@ -56,4 +56,5 @@ logs/
 #
 .vs/
 coverage.info
+coverage_filtered.info
 Testing/

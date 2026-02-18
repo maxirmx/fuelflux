@@ -5,195 +5,107 @@
 #include "peripherals/display.h"
 #include "logger.h"
 
+// Include appropriate display implementation based on build configuration
 #ifdef TARGET_REAL_DISPLAY
-#include "nhd/four_line_display.h"
-#include "nhd/st7565.h"
-#include "nhd/spi_linux.h"
-#include "hardware/gpio_line.h"
-#include <stdexcept>
+    #ifdef DISPLAY_ST7565
+        #include "display/st7565_display.h"
+    #elif defined(DISPLAY_ILI9488)
+        #include "display/ili9488_display.h"
+    #else
+        #error "No display type defined. Define DISPLAY_ST7565 or DISPLAY_ILI9488"
+    #endif
+#else
+    #include "display/console_display.h"
+#endif
 
 namespace fuelflux::peripherals {
 
-RealDisplay::RealDisplay(const std::string& spiDevice,
-                         const std::string& gpioChip,
-                         int dcPin,
-                         int rstPin,
-                         const std::string& fontPath)
-    : isConnected_(false)
-    , backlightEnabled_(true)
-    , spiDevice_(spiDevice)
-    , gpioChip_(gpioChip)
-    , dcPin_(dcPin)
-    , rstPin_(rstPin)
-    , fontPath_(fontPath)
-{
+Display::Display() {
+    // Create appropriate display implementation based on build configuration
+#ifdef TARGET_REAL_DISPLAY
+    #ifdef DISPLAY_ST7565
+        LOG_INFO("Creating ST7565 hardware display");
+        display_ = std::make_unique<fuelflux::display::St7565Display>();
+    #elif defined(DISPLAY_ILI9488)
+        LOG_INFO("Creating ILI9488 hardware display");
+        display_ = std::make_unique<fuelflux::display::Ili9488Display>();
+    #endif
+#else
+    LOG_INFO("Creating console display (stub implementation)");
+    display_ = std::make_unique<fuelflux::display::ConsoleDisplay>();
+#endif
 }
 
-RealDisplay::~RealDisplay() {
+Display::~Display() {
     shutdown();
 }
 
-bool RealDisplay::initialize() {
-    try {
-        LOG_INFO("Initializing RealDisplay with device: {}", spiDevice_);
-        
-        // Initialize SPI
-        spi_ = std::make_unique<SpiLinux>(spiDevice_);
-        spi_->open(8000000, 0);  // 8 MHz, mode 0
-        
-        // Initialize GPIO lines
-        dcLine_ = std::make_unique<GpioLine>(dcPin_, true, false, gpioChip_, "fuelflux-dc");
-        rstLine_ = std::make_unique<GpioLine>(rstPin_, true, true, gpioChip_, "fuelflux-rst");
-        
-        // Initialize LCD controller
-        lcd_ = std::make_unique<St7565>(*spi_, *dcLine_, *rstLine_);
-        lcd_->reset();
-        lcd_->init();
-        lcd_->display_on(true);
-        
-        // Initialize display library
-        display_ = std::make_unique<FourLineDisplay>(128, 64, 12, 28);
-        if (!display_->initialize(fontPath_)) {
-            LOG_ERROR("Failed to initialize FourLineDisplay with font: {}", fontPath_);
-            return false;
-        }
-        
-        isConnected_ = true;
-        LOG_INFO("RealDisplay initialized successfully");
-        
-        // Show initial message
-        clear();
-        return true;
-        
-    } catch (const std::exception& e) {
-        LOG_ERROR("Failed to initialize RealDisplay: {}", e.what());
-        isConnected_ = false;
+bool Display::initialize() {
+    if (!display_) {
+        LOG_ERROR("Display instance not created");
         return false;
     }
+    if (isConnected()) {
+        return true;
+    }
+    return display_->initialize();
 }
 
-void RealDisplay::shutdown() {
-    if (isConnected_) {
-        LOG_INFO("Shutting down RealDisplay");
-        try {
-            if (lcd_) {
-                lcd_->display_on(false);
-            }
-            if (display_) {
-                display_->uninitialize();
-            }
-        } catch (const std::exception& e) {
-            LOG_ERROR("Error during RealDisplay shutdown: {}", e.what());
-        }
-        isConnected_ = false;
+void Display::shutdown() {
+    if (display_) {
+        display_->shutdown();
     }
 }
 
-bool RealDisplay::isConnected() const {
-    return isConnected_;
+bool Display::isConnected() const {
+    if (!display_) {
+        return false;
+    }
+    return display_->isConnected();
 }
 
-void RealDisplay::showMessage(const DisplayMessage& message) {
-    if (!isConnected_ || !display_) {
+void Display::showMessage(const DisplayMessage& message) {
+    if (!display_ || !display_->isConnected()) {
         return;
     }
     
     try {
-        currentMessage_ = message;
-        updateDisplay();
+        // Set all four lines
+        display_->setLine(0, message.line1);
+        display_->setLine(1, message.line2);
+        display_->setLine(2, message.line3);
+        display_->setLine(3, message.line4);
+        
+        // Update the display
+        display_->update();
     } catch (const std::exception& e) {
-        LOG_ERROR("Error showing message on RealDisplay: {}", e.what());
+        LOG_ERROR("Error showing message on display: {}", e.what());
     }
 }
 
-void RealDisplay::clear() {
-    if (!isConnected_ || !display_) {
+void Display::clear() {
+    if (!display_ || !display_->isConnected()) {
         return;
     }
     
     try {
-        currentMessage_ = {"", "", "", ""};
-        updateDisplay();
+        display_->clearAll();
+        display_->update();
     } catch (const std::exception& e) {
-        LOG_ERROR("Error clearing RealDisplay: {}", e.what());
+        LOG_ERROR("Error clearing display: {}", e.what());
     }
 }
 
-void RealDisplay::setBacklight(bool enabled) {
-    backlightEnabled_ = enabled;
-    if (!isConnected_ || !lcd_) {
+void Display::setBacklight(bool enabled) {
+    if (!display_ || !display_->isConnected()) {
         return;
     }
     
     try {
-        lcd_->display_on(enabled);
+        display_->setBacklight(enabled);
     } catch (const std::exception& e) {
-        LOG_ERROR("Error setting backlight on RealDisplay: {}", e.what());
+        LOG_ERROR("Error setting backlight on display: {}", e.what());
     }
-}
-
-void RealDisplay::updateDisplay() {
-    if (!display_ || !lcd_) {
-        return;
-    }
-    
-    // Update all four lines
-    display_->puts(0, currentMessage_.line1);
-    display_->puts(1, currentMessage_.line2);
-    display_->puts(2, currentMessage_.line3);
-    display_->puts(3, currentMessage_.line4);
-    
-    // Render and send to LCD
-    const auto& fb = display_->render();
-    lcd_->set_framebuffer(fb);
 }
 
 } // namespace fuelflux::peripherals
-
-#else
-
-// Stub implementation for non-hardware builds
-namespace fuelflux::peripherals {
-
-HardwareDisplay::HardwareDisplay()
-    : isConnected_(false)
-    , backlightEnabled_(true)
-{
-}
-
-HardwareDisplay::~HardwareDisplay() {
-    shutdown();
-}
-
-bool HardwareDisplay::initialize() {
-    // Stub implementation - does nothing
-    isConnected_ = true;
-    return true;
-}
-
-void HardwareDisplay::shutdown() {
-    isConnected_ = false;
-}
-
-bool HardwareDisplay::isConnected() const {
-    return isConnected_;
-}
-
-void HardwareDisplay::showMessage(const DisplayMessage& message) {
-    currentMessage_ = message;
-    // Stub - no actual display
-}
-
-void HardwareDisplay::clear() {
-    currentMessage_ = {"", "", "", ""};
-    // Stub - no actual display
-}
-
-void HardwareDisplay::setBacklight(bool enabled) {
-    backlightEnabled_ = enabled;
-    // Stub - no actual display
-}
-
-} // namespace fuelflux::peripherals
-
-#endif
