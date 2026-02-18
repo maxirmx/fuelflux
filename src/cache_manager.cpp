@@ -212,7 +212,6 @@ bool CacheManager::PopulateCache() {
         int totalFetched = 0;
         int first = 0;
         bool moreData = true;
-        bool success = true;
         
         while (moreData && running_) {
             // Fetch batch of user cards
@@ -230,13 +229,9 @@ bool CacheManager::PopulateCache() {
                 if (!cache_->AddPopulationEntry(card.uid, card.allowance, card.roleId)) {
                     LOG_ERROR("Failed to add cache entry for UID: {}", card.uid);
                     cache_->AbortPopulation();
-                    success = false;
-                    break;
+                    backend_->Deauthorize();
+                    return false;
                 }
-            }
-            
-            if (!success) {
-                break;
             }
             
             totalFetched += static_cast<int>(cards.size());
@@ -256,12 +251,6 @@ bool CacheManager::PopulateCache() {
             return false;
         }
         
-        if (!success) {
-            LOG_ERROR("Cache population failed during data fetch");
-            backend_->Deauthorize();
-            return false;
-        }
-        
         // Commit population (swap tables)
         if (!cache_->CommitPopulation()) {
             LOG_ERROR("Failed to commit cache population");
@@ -271,9 +260,11 @@ bool CacheManager::PopulateCache() {
         
         LOG_INFO("Cache population completed: {} entries loaded", totalFetched);
         
-        // Close synchronization session
+        // Close synchronization session - this is critical for cleanup
+        // If deauthorization fails, we still return true because the data was successfully loaded
+        // The backend will clean up the session automatically after timeout
         if (!backend_->Deauthorize()) {
-            LOG_WARN("Failed to deauthorize synchronization session (data was still loaded successfully)");
+            LOG_WARN("Failed to deauthorize synchronization session (data was still loaded successfully, backend will clean up on timeout)");
         } else {
             LOG_INFO("Synchronization session deauthorized successfully");
         }
