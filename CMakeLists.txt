@@ -436,6 +436,7 @@ if(ENABLE_TESTING)
         tests/backend_bounded_test.cpp
         tests/controller_test.cpp
         tests/message_storage_test.cpp
+        tests/user_cache_test.cpp
         tests/backlog_worker_test.cpp
         tests/bounded_executor_test.cpp
         tests/cares_resolver_test.cpp
