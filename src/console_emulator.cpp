@@ -236,9 +236,6 @@ void logLine(const std::string& message) {
     ConsoleUi::instance().logLine(message);
 }
 
-void logBlock(const std::string& message) {
-    ConsoleUi::instance().logBlock(message);
-}
 } // namespace
 
 // ConsoleDisplay implementation
