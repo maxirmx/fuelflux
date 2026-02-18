@@ -8,6 +8,42 @@
 #include <stdexcept>
 #include <algorithm>
 
+namespace {
+
+bool get_pixel(const std::vector<unsigned char>& fb, int width, int height, int x, int y) {
+    if (x < 0 || y < 0 || x >= width || y >= height) {
+        return false;
+    }
+    const int page = y / 8;
+    const int bit = y % 8;
+    const size_t idx = static_cast<size_t>(page) * static_cast<size_t>(width) + static_cast<size_t>(x);
+    if (idx >= fb.size()) {
+        return false;
+    }
+    return (fb[idx] & static_cast<unsigned char>(1u << bit)) != 0;
+}
+
+void set_pixel(std::vector<unsigned char>& fb, int width, int height, int x, int y, bool on) {
+    if (x < 0 || y < 0 || x >= width || y >= height) {
+        return;
+    }
+    const int page = y / 8;
+    const int bit = y % 8;
+    const size_t idx = static_cast<size_t>(page) * static_cast<size_t>(width) + static_cast<size_t>(x);
+    if (idx >= fb.size()) {
+        return;
+    }
+
+    const unsigned char mask = static_cast<unsigned char>(1u << bit);
+    if (on) {
+        fb[idx] |= mask;
+    } else {
+        fb[idx] &= static_cast<unsigned char>(~mask);
+    }
+}
+
+} // namespace
+
 struct FourLineDisplayImpl::Impl {
     std::unique_ptr<FtText> small_ft;
     std::unique_ptr<FtText> large_ft;
@@ -168,22 +204,65 @@ const std::vector<unsigned char>& FourLineDisplayImpl::render() {
     // Clear graphics buffer
     impl_->gfx->clear();
     
+    const int available_width = content_width();
+
     // Render each line
     for (unsigned int i = 0; i < 4; ++i) {
         if (lines_[i].empty()) {
             continue;
         }
+
+        if (available_width <= 0) {
+            continue;
+        }
         
-        int y_pos = get_line_y_position(i);
+        const int y_pos = get_line_y_position(i);
+        const int line_height = get_line_font_size(i);
+        const int line_bottom = std::min(height_, y_pos + line_height);
+        if (y_pos >= height_ || y_pos < 0 || line_bottom <= y_pos) {
+            continue;
+        }
         
         // Select appropriate font renderer
         FtText* ft = (i == 1) ? impl_->large_ft.get() : impl_->small_ft.get();
+
+        // Render into intermediate content buffer first.
+        std::vector<unsigned char> line_fb(static_cast<size_t>(available_width * (height_ / 8)), 0);
         
-        // Render the text
+        // Render and truncate into content-width intermediate buffer.
         try {
-            ft->draw_utf8(impl_->gfx->fb(), width_, height_, left_margin_, y_pos, lines_[i], true);
+            ft->draw_utf8(line_fb, available_width, height_, 0, y_pos, lines_[i], true);
         } catch (const std::exception&) {
             // Silently ignore rendering errors for individual lines
+            continue;
+        }
+
+        int min_x = available_width;
+        int max_x = -1;
+        for (int y = y_pos; y < line_bottom; ++y) {
+            for (int x = 0; x < available_width; ++x) {
+                if (get_pixel(line_fb, available_width, height_, x, y)) {
+                    min_x = std::min(min_x, x);
+                    max_x = std::max(max_x, x);
+                }
+            }
+        }
+
+        if (max_x < min_x) {
+            continue;
+        }
+
+        const int rendered_width = (max_x - min_x + 1);
+        const int centered_start_x = left_margin_ + (available_width - rendered_width) / 2;
+
+        for (int y = y_pos; y < line_bottom; ++y) {
+            for (int src_x = min_x; src_x <= max_x; ++src_x) {
+                if (!get_pixel(line_fb, available_width, height_, src_x, y)) {
+                    continue;
+                }
+                const int dst_x = centered_start_x + (src_x - min_x);
+                set_pixel(impl_->gfx->fb(), width_, height_, dst_x, y, true);
+            }
         }
     }
 

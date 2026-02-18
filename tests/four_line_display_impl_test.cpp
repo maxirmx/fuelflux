@@ -5,6 +5,61 @@
 #include <gtest/gtest.h>
 #include "display/four_line_display_impl.h"
 #include <stdexcept>
+#include <array>
+#include <filesystem>
+
+namespace {
+
+bool GetPixel(const std::vector<unsigned char>& fb, int width, int height, int x, int y) {
+    if (x < 0 || y < 0 || x >= width || y >= height) {
+        return false;
+    }
+    const int page = y / 8;
+    const int bit = y % 8;
+    const size_t idx = static_cast<size_t>(page) * static_cast<size_t>(width) + static_cast<size_t>(x);
+    if (idx >= fb.size()) {
+        return false;
+    }
+    return (fb[idx] & static_cast<unsigned char>(1u << bit)) != 0;
+}
+
+const std::string& FindTestFontPath() {
+    static const std::array<const char*, 4> kCandidates = {
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+        "/usr/share/fonts/truetype/ubuntu/Ubuntu-R.ttf",
+        "/usr/share/fonts/truetype/ubuntu/UbuntuMono-B.ttf"
+    };
+    static const std::string kFound = []() {
+        for (const char* candidate : kCandidates) {
+            if (std::filesystem::exists(candidate)) {
+                return std::string(candidate);
+            }
+        }
+        return std::string();
+    }();
+    return kFound;
+}
+
+std::pair<int, int> FindRenderedXBounds(const std::vector<unsigned char>& fb,
+                                        int width,
+                                        int height,
+                                        int y_start,
+                                        int y_end) {
+    int min_x = width;
+    int max_x = -1;
+    for (int y = y_start; y < y_end; ++y) {
+        for (int x = 0; x < width; ++x) {
+            if (GetPixel(fb, width, height, x, y)) {
+                min_x = std::min(min_x, x);
+                max_x = std::max(max_x, x);
+            }
+        }
+    }
+    return {min_x, max_x};
+}
+
+} // namespace
 
 class FourLineDisplayImplTest : public ::testing::Test {
 protected:
@@ -389,4 +444,67 @@ TEST_F(FourLineDisplayImplTest, HandlesInvalidLineIds) {
         EXPECT_EQ(display->get_text(10), "");
         display->clear_line(10);
     });
+}
+
+TEST_F(FourLineDisplayImplTest, CentersRenderedTextWithVariableGlyphWidths) {
+    const std::string fontPath = FindTestFontPath();
+    if (fontPath.empty()) {
+        GTEST_SKIP() << "No test font available in container";
+    }
+
+    auto display = createValidDisplay();
+    ASSERT_TRUE(display->initialize(fontPath));
+
+    constexpr int kWidth = 128;
+    constexpr int kHeight = 64;
+    constexpr int kLeftMargin = 2;
+    constexpr int kRightMargin = 2;
+    constexpr int kContentCenterX = kLeftMargin + ((kWidth - kLeftMargin - kRightMargin) / 2);
+    constexpr int kLine0YStart = 0;
+    constexpr int kLine0YEnd = 12;
+
+    display->puts(0, "IIIIII");
+    display->puts(1, "");
+    display->puts(2, "");
+    display->puts(3, "");
+    const auto& narrowFb = display->render();
+    const auto [narrowMinX, narrowMaxX] = FindRenderedXBounds(narrowFb, kWidth, kHeight, kLine0YStart, kLine0YEnd);
+    ASSERT_LE(narrowMinX, narrowMaxX);
+
+    display->puts(0, "WWWWWW");
+    const auto& wideFb = display->render();
+    const auto [wideMinX, wideMaxX] = FindRenderedXBounds(wideFb, kWidth, kHeight, kLine0YStart, kLine0YEnd);
+    ASSERT_LE(wideMinX, wideMaxX);
+
+    const int narrowCenterX = (narrowMinX + narrowMaxX) / 2;
+    const int wideCenterX = (wideMinX + wideMaxX) / 2;
+
+    EXPECT_NEAR(narrowCenterX, kContentCenterX, 1);
+    EXPECT_NEAR(wideCenterX, kContentCenterX, 1);
+}
+
+TEST_F(FourLineDisplayImplTest, TruncatesInIntermediateBufferBeforeCentering) {
+    const std::string fontPath = FindTestFontPath();
+    if (fontPath.empty()) {
+        GTEST_SKIP() << "No test font available in container";
+    }
+
+    auto display = createValidDisplay();
+    ASSERT_TRUE(display->initialize(fontPath));
+
+    display->puts(0, std::string(400, 'W'));
+    display->puts(1, "");
+    display->puts(2, "");
+    display->puts(3, "");
+
+    const auto& fb = display->render();
+    constexpr int kWidth = 128;
+    constexpr int kHeight = 64;
+    constexpr int kLine0YStart = 0;
+    constexpr int kLine0YEnd = 12;
+    const auto [minX, maxX] = FindRenderedXBounds(fb, kWidth, kHeight, kLine0YStart, kLine0YEnd);
+
+    ASSERT_LE(minX, maxX);
+    EXPECT_GE(minX, 2);
+    EXPECT_LE(maxX, kWidth - 3);
 }
