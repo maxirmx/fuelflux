@@ -242,8 +242,8 @@ endif()
 if(TARGET_REAL_DISPLAY)
     list(APPEND LIB_SOURCES
         src/display/four_line_display.cpp
-        src/display/graphics.cpp
         src/display/ft_text.cpp
+        src/display/graphics.cpp
         src/display/spi_linux.cpp
     )
     

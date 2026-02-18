@@ -28,6 +28,8 @@ namespace display_defaults {
         constexpr int RST_PIN = 256;  // Reset GPIO line offset
         constexpr int WIDTH = 128;
         constexpr int HEIGHT = 64;
+        constexpr int LEFT_MARGIN = 2;
+        constexpr int RIGHT_MARGIN = 2;
         constexpr int SMALL_FONT_SIZE = 12;
         constexpr int LARGE_FONT_SIZE = 28;
     }
@@ -38,6 +40,8 @@ namespace display_defaults {
         constexpr int RST_PIN = 256;  // Reset GPIO line offset
         constexpr int WIDTH = 480;
         constexpr int HEIGHT = 320;
+        constexpr int LEFT_MARGIN = 5;
+        constexpr int RIGHT_MARGIN = 5;
         constexpr int SMALL_FONT_SIZE = 40;
         constexpr int LARGE_FONT_SIZE = 80;
     }

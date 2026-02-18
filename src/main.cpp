@@ -306,8 +306,15 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
             // Get hardware configuration from environment or use defaults
             std::string spiDevice = "/dev/spidev1.0";
             std::string gpioChip = "/dev/gpiochip0";
-            int dcPin = 271;
-            int rstPin = 256;
+#ifdef DISPLAY_ST7565
+            int dcPin = ::display_defaults::st7565::DC_PIN;
+            int rstPin = ::display_defaults::st7565::RST_PIN;
+#elif defined(DISPLAY_ILI9488)
+            int dcPin = ::display_defaults::ili9488::DC_PIN;
+            int rstPin = ::display_defaults::ili9488::RST_PIN;
+#else
+#error "No display type defined. Define DISPLAY_ST7565 or DISPLAY_ILI9488"
+#endif
             std::string fontPath = "/usr/share/fonts/truetype/ubuntu/UbuntuMono-B.ttf";
 
             if (const char* env = std::getenv("FUELFLUX_SPI_DEVICE")) spiDevice = env;
@@ -449,8 +456,6 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
             }
             
             // Start input dispatcher thread (handles both command and key modes)
-            msg.line3 = "Ввод\\вывод";
-            controller.showMessage(msg);
             std::thread inputThread(inputDispatcher, std::ref(emulator));
             
             // Start controller main loop in a separate thread

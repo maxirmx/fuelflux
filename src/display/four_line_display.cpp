@@ -14,15 +14,35 @@ struct FourLineDisplay::Impl {
     std::unique_ptr<MonoGfx> gfx;
 };
 
-FourLineDisplay::FourLineDisplay(int width, int height, 
-                                 int small_font_size, int large_font_size)
+FourLineDisplay::FourLineDisplay(int width,
+                                 int height,
+                                 int small_font_size,
+                                 int large_font_size,
+                                 int left_margin,
+                                 int right_margin)
     : impl_(std::make_unique<Impl>())
     , width_(width)
     , height_(height)
     , small_font_size_(small_font_size)
     , large_font_size_(large_font_size)
+    , left_margin_(std::max(0, left_margin))
+    , right_margin_(std::max(0, right_margin))
     , initialized_(false)
 {
+    if (width <= 0) {
+        throw std::invalid_argument("FourLineDisplay: width must be > 0");
+    }
+    if (height <= 0) {
+        throw std::invalid_argument("FourLineDisplay: height must be > 0");
+    }
+    if ((height % 8) != 0) {
+        throw std::invalid_argument("FourLineDisplay: height must be divisible by 8 (page-packed framebuffer requirement)");
+    }
+    
+    if (left_margin_ + right_margin_ >= width_) {
+        left_margin_ = 0;
+        right_margin_ = 0;
+    }
     framebuffer_.resize((width_ * height_) / 8, 0);
 }
 
@@ -108,7 +128,7 @@ unsigned int FourLineDisplay::length(unsigned int line_id) const {
         return 0;
     }
     
-    return static_cast<unsigned int>(width_ / char_width);
+    return static_cast<unsigned int>(content_width() / char_width);
 }
 
 void FourLineDisplay::puts(unsigned int line_id, const std::string& text) {
@@ -161,11 +181,13 @@ const std::vector<unsigned char>& FourLineDisplay::render() {
         
         // Render the text
         try {
-            ft->draw_utf8(impl_->gfx->fb(), width_, height_, 0, y_pos, lines_[i], true);
+            ft->draw_utf8(impl_->gfx->fb(), width_, height_, left_margin_, y_pos, lines_[i], true);
         } catch (const std::exception&) {
             // Silently ignore rendering errors for individual lines
         }
     }
+
+    clear_horizontal_margins(impl_->gfx->fb());
     
     // Copy framebuffer
     framebuffer_ = impl_->gfx->fb();
@@ -175,4 +197,30 @@ const std::vector<unsigned char>& FourLineDisplay::render() {
 
 const std::vector<unsigned char>& FourLineDisplay::get_framebuffer() const {
     return framebuffer_;
+}
+
+int FourLineDisplay::content_width() const {
+    const int available = width_ - left_margin_ - right_margin_;
+    return std::max(0, available);
+}
+
+void FourLineDisplay::clear_horizontal_margins(std::vector<unsigned char>& fb) const {
+    if (width_ <= 0 || height_ <= 0 || fb.size() != static_cast<size_t>(width_ * (height_ / 8))) {
+        return;
+    }
+
+    const int left_limit = std::clamp(left_margin_, 0, width_);
+    const int right_start = std::clamp(width_ - right_margin_, 0, width_);
+
+    for (int page = 0; page < (height_ / 8); ++page) {
+        const size_t row_offset = static_cast<size_t>(page * width_);
+
+        for (int x = 0; x < left_limit; ++x) {
+            fb[row_offset + static_cast<size_t>(x)] = 0x00;
+        }
+
+        for (int x = right_start; x < width_; ++x) {
+            fb[row_offset + static_cast<size_t>(x)] = 0x00;
+        }
+    }
 }
