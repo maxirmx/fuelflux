@@ -5,18 +5,20 @@
 #include <gtest/gtest.h>
 #include <gmock/gmock.h>
 #include "console_emulator.h"
+#include "peripherals/display.h"
 #include <thread>
 #include <chrono>
 
 using namespace fuelflux;
+using namespace fuelflux::peripherals;
 
-// Test ConsoleDisplay
+// Test Display (which wraps ConsoleDisplay in non-hardware builds)
 class ConsoleDisplayTest : public ::testing::Test {
 protected:
-    std::unique_ptr<ConsoleDisplay> display;
+    std::unique_ptr<IDisplay> display;
 
     void SetUp() override {
-        display = std::make_unique<ConsoleDisplay>();
+        display = std::make_unique<Display>();
     }
 
     void TearDown() override {

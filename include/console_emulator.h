@@ -18,32 +18,10 @@
 
 namespace fuelflux {
 
-// Console-based display emulation
-class ConsoleDisplay : public peripherals::IDisplay {
-public:
-    ConsoleDisplay();
-    ~ConsoleDisplay() override;
-
-    // IPeripheral implementation
-    bool initialize() override;
-    void shutdown() override;
-    bool isConnected() const override;
-
-    // IDisplay implementation
-    void showMessage(const DisplayMessage& message) override;
-    void clear() override;
-    void setBacklight(bool enabled) override;
-
-private:
-    bool isConnected_;
-    bool backlightEnabled_;
-    DisplayMessage currentMessage_;
-    mutable std::mutex displayMutex_;
-
-    void printDisplay() const;
-    std::string buildBorder(bool bottom [[maybe_unused]] ) const;
-    std::string padLine(const std::string& line, size_t width) const;
-};
+// Forward declaration - ConsoleDisplay is now defined in display/console_display.h
+namespace display {
+    class ConsoleDisplay;
+}
 
 // Console-based keyboard emulation
 class ConsoleKeyboard : public peripherals::IKeyboard {

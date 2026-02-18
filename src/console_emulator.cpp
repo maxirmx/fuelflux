@@ -3,6 +3,7 @@
 // This file is a part of fuelflux application
 
 #include "console_emulator.h"
+#include "display/console_display.h"
 #include "peripherals/display.h"
 #include "peripherals/keyboard_utils.h"
 #include "logger.h"
@@ -42,24 +43,6 @@ size_t utf8CharLength(unsigned char lead) {
         return 4;
     }
     return 1;
-}
-
-std::string utf8Truncate(const std::string& text, size_t maxChars) {
-    if (maxChars == 0) {
-        return {};
-    }
-
-    size_t bytePos = 0;
-    size_t chars = 0;
-    while (bytePos < text.size() && chars < maxChars) {
-        const auto len = utf8CharLength(static_cast<unsigned char>(text[bytePos]));
-        if (bytePos + len > text.size()) {
-            break; // incomplete code point at the end
-        }
-        bytePos += len;
-        ++chars;
-    }
-    return text.substr(0, bytePos);
 }
 
 size_t utf8Length(const std::string& text) {
@@ -237,101 +220,6 @@ void logLine(const std::string& message) {
 }
 
 } // namespace
-
-// ConsoleDisplay implementation
-ConsoleDisplay::ConsoleDisplay()
-    : isConnected_(false)
-    , backlightEnabled_(true)
-{
-}
-
-ConsoleDisplay::~ConsoleDisplay() {
-    shutdown();
-}
-
-bool ConsoleDisplay::initialize() {
-    isConnected_ = true;
-    ConsoleUi::instance().initialize();
-    clear();
-    LOG_PERIPH_DEBUG("Console display initialized");
-    return true;
-}
-
-void ConsoleDisplay::shutdown() {
-    isConnected_ = false;
-    ConsoleUi::instance().shutdown();
-    LOG_PERIPH_DEBUG("Console display shutdown");
-}
-
-bool ConsoleDisplay::isConnected() const {
-    return isConnected_;
-}
-
-void ConsoleDisplay::showMessage(const DisplayMessage& message) {
-    std::lock_guard<std::mutex> lock(displayMutex_);
-    currentMessage_ = message;
-    printDisplay();
-}
-
-void ConsoleDisplay::clear() {
-    std::lock_guard<std::mutex> lock(displayMutex_);
-    currentMessage_ = DisplayMessage{};
-    printDisplay();
-}
-
-void ConsoleDisplay::setBacklight(bool enabled) {
-    backlightEnabled_ = enabled;
-}
-
-void ConsoleDisplay::printDisplay() const {
-    const size_t displayWidth = 40;
-
-    std::array<std::string, 6> lines = {
-        buildBorder(false),
-        fmt::format("│{}│", padLine(currentMessage_.line1, displayWidth)),
-        fmt::format("│{}│", padLine(currentMessage_.line2, displayWidth)),
-        fmt::format("│{}│", padLine(currentMessage_.line3, displayWidth)),
-        fmt::format("│{}│", padLine(currentMessage_.line4, displayWidth)),
-        buildBorder(true)
-    };
-    ConsoleUi::instance().renderDisplay(lines);
-}
-
-std::string ConsoleDisplay::buildBorder(bool bottom [[maybe_unused]] ) const {
-    const size_t displayWidth = 40;
-#ifdef _WIN32
-    // Use Unicode box drawing characters now that console is UTF-8 enabled
-    std::string line;
-    line.reserve(displayWidth * 3);
-    for (size_t i = 0; i < displayWidth; ++i) {
-        line += "─";
-    }
-    if (!bottom) {
-        return fmt::format("┌{}┐", line);
-    }
-    return fmt::format("└{}┘", line);
-#else
-    // Use ASCII borders on non-Windows platforms
-    return fmt::format("+{}+", std::string(displayWidth, '-'));
-#endif
-}
-
-std::string ConsoleDisplay::padLine(const std::string& line, size_t width) const {
-    if (width == 0) {
-        return {};
-    }
-
-    const std::string trimmed = utf8Truncate(line, width);
-    const size_t charCount = utf8Length(trimmed);
-    if (charCount >= width) {
-        return trimmed;
-    }
-
-    const size_t padding = width - charCount;
-    const size_t leftPad = padding / 2;
-    const size_t rightPad = padding - leftPad;
-    return fmt::format("{0}{1}{2}", std::string(leftPad, ' '), trimmed, std::string(rightPad, ' '));
-}
 
 // ConsoleKeyboard implementation
 ConsoleKeyboard::ConsoleKeyboard()
@@ -682,12 +570,9 @@ ConsoleEmulator::~ConsoleEmulator() {
 }
 
 std::unique_ptr<peripherals::IDisplay> ConsoleEmulator::createDisplay() {
-#ifdef TARGET_REAL_DISPLAY
+    // peripherals::Display handles creating the appropriate display implementation
+    // based on TARGET_REAL_DISPLAY and DISPLAY_TYPE compile flags
     return std::make_unique<peripherals::Display>();
-#else
-    // Share the ConsoleUi surface for display output when using console display type
-    return std::make_unique<ConsoleDisplay>();
-#endif
 }
 
 std::unique_ptr<peripherals::IKeyboard> ConsoleEmulator::createKeyboard() {

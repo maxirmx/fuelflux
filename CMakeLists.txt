@@ -39,7 +39,7 @@ if(MSVC)
     option(CODE_COVERAGE "Enable code coverage instrumentation" OFF)
     option(UNIX_FOLDER_CONVENTION "Use Unix-style folder convention (e.g. /var/fuelflux) for logs and database" OFF) 
 else()
-    option(TARGET_SIM800C "Use PPP interface binding for HTTP backend" OFF) 
+    option(TARGET_SIM800C "Use PPP interface binding for HTTP backend" ON) 
     set(DISPLAY_TYPE "ILI9488" CACHE STRING "Display type: ST7565, ILI9488, or CONSOLE")
     option(TARGET_REAL_KEYBOARD "Use real keyboard hardware" ON)
     option(TARGET_REAL_CARD_READER "Use real card reader hardware" ON)
@@ -238,10 +238,15 @@ if(TARGET_REAL_KEYBOARD)
     list(APPEND LIB_SOURCES src/hardware/mcp23017.cpp)
 endif()
 
-# Add display library sources if TARGET_REAL_DISPLAY is enabled
+# Add display library sources
+# Four-line display base is always compiled
+list(APPEND LIB_SOURCES
+    src/display/four_line_display.cpp
+)
+
 if(TARGET_REAL_DISPLAY)
+    # Hardware display implementation
     list(APPEND LIB_SOURCES
-        src/display/four_line_display.cpp
         src/display/four_line_display_impl.cpp
         src/display/hardware_display.cpp
         src/display/ft_text.cpp
@@ -261,13 +266,12 @@ if(TARGET_REAL_DISPLAY)
             src/display/ili9488_display.cpp
         )
     endif()
-else()
-    # Console display for non-hardware builds
-    list(APPEND LIB_SOURCES
-        src/display/four_line_display.cpp
-        src/display/console_display.cpp
-    )
 endif()
+
+# Console display is always compiled (used for non-hardware builds and potentially for testing)
+list(APPEND LIB_SOURCES
+    src/display/console_display.cpp
+)
 
 # Headers
 set(HEADERS
