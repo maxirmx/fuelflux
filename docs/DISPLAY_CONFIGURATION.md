@@ -91,8 +91,59 @@ Both ST7565 and ILI9488 use the same default GPIO pins:
 
 ## Display Driver Architecture
 
-### Base Interface (`ILcdDriver`)
-Both display drivers implement a common interface to avoid code duplication:
+The display system has been refactored into a clean, thread-safe class hierarchy:
+
+### Class Hierarchy
+
+```
+FourLineDisplay (abstract base class)
+├── ConsoleDisplay (stub for testing/development)
+└── HardwareDisplay (abstract hardware base)
+    ├── St7565Display (ST7565 128x64 LCD)
+    └── Ili9488Display (ILI9488 480x320 TFT)
+```
+
+### Thread Safety
+
+All public methods of `FourLineDisplay` are thread-safe and protected by mutex:
+- `setLine()` - Set text for a specific line
+- `getLine()` - Get current text for a line
+- `clearAll()` - Clear all lines
+- `clearLine()` - Clear a specific line
+- `update()` - Render and update the physical display
+- `setBacklight()` - Control backlight/power
+
+This ensures safe concurrent access from multiple threads (e.g., controller event loop, timeout checks, etc.).
+
+### Display Configuration
+
+Display hardware configuration is centralized in `include/display/display_config.h`:
+
+**Common Settings:**
+- SPI Device: `/dev/spidev1.0`
+- GPIO Chip: `/dev/gpiochip0`
+- Font Path: `/usr/share/fonts/truetype/ubuntu/UbuntuMono-B.ttf`
+
+**ST7565 Settings:**
+- DC Pin: 271, RST Pin: 256
+- Resolution: 128×64
+- SPI Speed: 8 MHz
+- Font Sizes: 12pt (small), 28pt (large)
+- Margins: 2px left/right
+
+**ILI9488 Settings:**
+- DC Pin: 271, RST Pin: 256
+- Resolution: 480×320
+- SPI Speed: 8 MHz
+- Font Sizes: 40pt (small), 80pt (large)
+- Margins: 5px left/right
+
+Configuration is now hardcoded (no environment variables) for simplified deployment.
+
+### Low-Level Components
+
+**LCD Driver Interface (`ILcdDriver`):**
+Both ST7565 and ILI9488 implement this common interface:
 
 ```cpp
 class ILcdDriver {
@@ -100,21 +151,18 @@ class ILcdDriver {
     virtual void init() = 0;
     virtual void set_framebuffer(const std::vector<uint8_t>& fb) = 0;
     virtual void clear() = 0;
+    virtual void set_backlight(bool enabled) = 0;
     virtual int width() const = 0;
     virtual int height() const = 0;
 };
 ```
 
-### Display Abstraction Layer
-The `RealDisplay` class uses polymorphism to work with either display type:
-- Automatically selects appropriate driver based on build configuration
-- Configures font sizes and display parameters
-- Manages SPI and GPIO initialization
-
-### Shared Components
-- **FourLineDisplay**: Text rendering library (supports both resolutions)
+**Shared Components:**
+- **FourLineDisplayImpl**: Internal text rendering (FreeType-based)
 - **SpiLinux**: SPI communication layer
 - **GpioLine**: GPIO control layer
+- **MonoGfx**: Monochrome graphics primitives
+- **FtText**: Font rendering using FreeType
 
 ## Dependencies
 
@@ -182,15 +230,70 @@ sudo apt-get install libgpiod-dev
 
 ## Adding New Display Types
 
-To add support for a new display:
+To add support for a new display controller:
 
-1. Create driver class implementing `ILcdDriver` interface
-2. Add driver header to `include/display/`
-3. Add driver implementation to `src/display/`
-4. Update `CMakeLists.txt` to include new display type
-5. Add configuration section in `include/peripherals/display.h`
-6. Update initialization in `src/peripherals/display.cpp`
-7. Test with all display configurations
+1. **Create LCD Driver Class**
+   - Implement the `ILcdDriver` interface
+   - Add driver header to `include/display/`
+   - Add driver implementation to `src/display/`
+
+2. **Create Display Class**
+   - Inherit from `HardwareDisplay`
+   - Implement `createLcdDriver()` method
+   - Add configuration to `include/display/display_config.h`
+
+3. **Update Build System**
+   - Add new DISPLAY_TYPE option in `CMakeLists.txt`
+   - Add conditional compilation for your driver
+   - Include new source files in the build
+
+4. **Update Integration**
+   - Update `src/peripherals/display.cpp` to instantiate your new display class
+   - Add appropriate `#ifdef` guards
+
+5. **Test**
+   - Build with all display configurations
+   - Run test suite to ensure no regressions
+   - Test on actual hardware if available
+
+Example for a hypothetical SSD1306 display:
+
+```cpp
+// include/display/ssd1306_display.h
+#pragma once
+#include "display/hardware_display.h"
+
+namespace fuelflux::display {
+class Ssd1306Display : public HardwareDisplay {
+public:
+    Ssd1306Display();
+protected:
+    std::unique_ptr<ILcdDriver> createLcdDriver() override;
+};
+}
+
+// src/display/ssd1306_display.cpp
+#include "display/ssd1306_display.h"
+#include "display/ssd1306.h"
+
+namespace fuelflux::display {
+Ssd1306Display::Ssd1306Display()
+    : HardwareDisplay(
+        ssd1306::WIDTH, ssd1306::HEIGHT,
+        ssd1306::SMALL_FONT_SIZE, ssd1306::LARGE_FONT_SIZE,
+        ssd1306::LEFT_MARGIN, ssd1306::RIGHT_MARGIN,
+        hardware::SPI_DEVICE, ssd1306::SPI_SPEED,
+        hardware::GPIO_CHIP, ssd1306::DC_PIN,
+        ssd1306::RST_PIN, hardware::FONT_PATH) {}
+
+std::unique_ptr<ILcdDriver> Ssd1306Display::createLcdDriver() {
+    return std::make_unique<Ssd1306>(*spi_, *dcLine_, *rstLine_,
+                                     ssd1306::WIDTH, ssd1306::HEIGHT);
+}
+}
+```
+
+The refactored architecture makes it straightforward to add new displays with minimal code duplication.
 
 ## Performance Notes
 

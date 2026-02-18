@@ -3,6 +3,8 @@
 // This file is a part of fuelflux application
 
 #include "console_emulator.h"
+#include "display/console_display.h"
+#include "peripherals/display.h"
 #include "peripherals/keyboard_utils.h"
 #include "logger.h"
 #include "version.h"
@@ -19,8 +21,8 @@
 #ifdef _WIN32
 #include <conio.h>
 #else
-#include <unistd.h>
 #include <termios.h>
+#include <unistd.h>
 #include <sys/select.h>
 #endif
 
@@ -41,24 +43,6 @@ size_t utf8CharLength(unsigned char lead) {
         return 4;
     }
     return 1;
-}
-
-std::string utf8Truncate(const std::string& text, size_t maxChars) {
-    if (maxChars == 0) {
-        return {};
-    }
-
-    size_t bytePos = 0;
-    size_t chars = 0;
-    while (bytePos < text.size() && chars < maxChars) {
-        const auto len = utf8CharLength(static_cast<unsigned char>(text[bytePos]));
-        if (bytePos + len > text.size()) {
-            break; // incomplete code point at the end
-        }
-        bytePos += len;
-        ++chars;
-    }
-    return text.substr(0, bytePos);
 }
 
 size_t utf8Length(const std::string& text) {
@@ -102,7 +86,7 @@ public:
         std::lock_guard<std::mutex> lock(outputMutex_);
         initializeLocked();
         for (size_t i = 0; i < lines.size(); ++i) {
-            writeAt(static_cast<int>(i + 1), 1, lines[i]);
+            writeAt(i + 1, 1, lines[i]);
         }
         renderLogAreaLocked();
         renderInputLocked();
@@ -151,11 +135,14 @@ public:
     }
 
 private:
-    static constexpr int kDisplayHeight = 6;
-    static constexpr int kLogLines = 10;
-    static constexpr int kLogStartRow = kDisplayHeight + 1;
-    static constexpr int kInputRow = kLogStartRow + kLogLines + 1;
-    static constexpr size_t kMaxLogLines = static_cast<size_t>(kLogLines);
+#ifdef TARGET_REAL_DISPLAY
+    static constexpr size_t kDisplayHeight = 0;
+#else
+    static constexpr size_t kDisplayHeight = 6;
+#endif
+    static constexpr size_t kMaxLogLines = 12;
+    static constexpr size_t kLogStartRow = kDisplayHeight + 1;
+    static constexpr size_t kInputRow = kLogStartRow + kMaxLogLines + 1;
 
     std::mutex outputMutex_;
     std::deque<std::string> logLines_;
@@ -182,7 +169,8 @@ private:
     void appendLogLineLocked(const std::string& line) {
         if (line.empty()) {
             logLines_.push_back({});
-        } else {
+        }
+        else {
             logLines_.push_back(line);
         }
         while (logLines_.size() > kMaxLogLines) {
@@ -191,10 +179,10 @@ private:
     }
 
     void renderLogAreaLocked() {
-        for (int i = 0; i < kLogLines; ++i) {
-            const size_t index = logLines_.size() > static_cast<size_t>(kLogLines)
-                ? logLines_.size() - kLogLines + static_cast<size_t>(i)
-                : static_cast<size_t>(i);
+        for (size_t i = 0; i < kMaxLogLines; ++i) {
+            const size_t index = logLines_.size() > kMaxLogLines
+                ? logLines_.size() - kMaxLogLines + i
+                : i;
             std::string line;
             if (index < logLines_.size()) {
                 line = logLines_[index];
@@ -203,22 +191,26 @@ private:
         }
     }
 
+    std::string getPrompt() const {
+        return commandMode_ ? "CMD MODE ('keymode' to key) > " : "KEY MODE (Tab to command)";
+    }
+
     void renderInputLocked() {
-        std::string prompt = commandMode_ ? "CMD> " : "KEY MODE (Tab to command)";
+        std::string prompt = getPrompt();
         std::string line = commandMode_ ? prompt + inputBuffer_ : prompt;
         writeAt(kInputRow, 1, line);
         moveCursorToInputLocked();
     }
 
     void moveCursorToInputLocked() {
-        std::string prompt = commandMode_ ? "CMD> " : "KEY MODE (Tab to command)";
+        std::string prompt = getPrompt();
         const size_t cursorOffset = commandMode_
             ? utf8Length(prompt) + utf8Length(inputBuffer_)
             : utf8Length(prompt);
         std::cout << "\x1b[" << kInputRow << ";" << (cursorOffset + 1) << "H";
     }
 
-    void writeAt(int row, int col, const std::string& text) {
+    void writeAt(size_t row, size_t col, const std::string& text) {
         std::cout << "\x1b[" << row << ";" << col << "H\x1b[2K" << text;
     }
 };
@@ -227,105 +219,7 @@ void logLine(const std::string& message) {
     ConsoleUi::instance().logLine(message);
 }
 
-void logBlock(const std::string& message) {
-    ConsoleUi::instance().logBlock(message);
-}
 } // namespace
-
-// ConsoleDisplay implementation
-ConsoleDisplay::ConsoleDisplay()
-    : isConnected_(false)
-    , backlightEnabled_(true)
-{
-}
-
-ConsoleDisplay::~ConsoleDisplay() {
-    shutdown();
-}
-
-bool ConsoleDisplay::initialize() {
-    isConnected_ = true;
-    ConsoleUi::instance().initialize();
-    clear();
-    LOG_PERIPH_DEBUG("Console display initialized");
-    return true;
-}
-
-void ConsoleDisplay::shutdown() {
-    isConnected_ = false;
-    ConsoleUi::instance().shutdown();
-    LOG_PERIPH_DEBUG("Console display shutdown");
-}
-
-bool ConsoleDisplay::isConnected() const {
-    return isConnected_;
-}
-
-void ConsoleDisplay::showMessage(const DisplayMessage& message) {
-    std::lock_guard<std::mutex> lock(displayMutex_);
-    currentMessage_ = message;
-    printDisplay();
-}
-
-void ConsoleDisplay::clear() {
-    std::lock_guard<std::mutex> lock(displayMutex_);
-    currentMessage_ = DisplayMessage{};
-    printDisplay();
-}
-
-void ConsoleDisplay::setBacklight(bool enabled) {
-    backlightEnabled_ = enabled;
-}
-
-void ConsoleDisplay::printDisplay() const {
-    const size_t displayWidth = 40;
-
-    std::array<std::string, 6> lines = {
-        buildBorder(false),
-        fmt::format("│{}│", padLine(currentMessage_.line1, displayWidth)),
-        fmt::format("│{}│", padLine(currentMessage_.line2, displayWidth)),
-        fmt::format("│{}│", padLine(currentMessage_.line3, displayWidth)),
-        fmt::format("│{}│", padLine(currentMessage_.line4, displayWidth)),
-        buildBorder(true)
-    };
-    ConsoleUi::instance().renderDisplay(lines);
-}
-
-std::string ConsoleDisplay::buildBorder(bool bottom [[maybe_unused]] ) const {
-    const size_t displayWidth = 40;
-#ifdef _WIN32
-    // Use Unicode box drawing characters now that console is UTF-8 enabled
-    std::string line;
-    line.reserve(displayWidth * 3);
-    for (size_t i = 0; i < displayWidth; ++i) {
-        line += "─";
-    }
-    if (!bottom) {
-        return fmt::format("┌{}┐", line);
-    }
-    return fmt::format("└{}┘", line);
-#else
-    // Use ASCII borders on non-Windows platforms
-    return fmt::format("+{}+", std::string(displayWidth, '-'));
-#endif
-}
-
-std::string ConsoleDisplay::padLine(const std::string& line, size_t width) const {
-    if (width == 0) {
-        return {};
-    }
-
-    const std::string trimmed = utf8Truncate(line, width);
-    const size_t charCount = utf8Length(trimmed);
-    if (charCount >= width) {
-        return trimmed;
-    }
-
-    const size_t padding = width - charCount;
-    const size_t leftPad = padding / 2;
-    const size_t rightPad = padding - leftPad;
-    return fmt::format("{0}{1}{2}", std::string(leftPad, ' '), trimmed, std::string(rightPad, ' '));
-}
 
 // ConsoleKeyboard implementation
 ConsoleKeyboard::ConsoleKeyboard()
@@ -342,8 +236,6 @@ ConsoleKeyboard::~ConsoleKeyboard() {
 bool ConsoleKeyboard::initialize() {
     isConnected_ = true;
     shouldStop_ = false;
-    // Do not start an internal thread; dispatcher will inject keys
-    printKeyboardHelp();
     return true;
 }
 
@@ -374,21 +266,6 @@ void ConsoleKeyboard::injectKey(char c) {
     if (keyCode == static_cast<KeyCode>(0)) return;
     std::lock_guard<std::mutex> lock(callbackMutex_);
     if (keyPressCallback_) keyPressCallback_(keyCode);
-}
-
-void ConsoleKeyboard::printKeyboardHelp() const {
-    logBlock(
-        "=== KEYBOARD MAPPINGS ===\n"
-        "0-9: Number keys\n"
-        "*  : Max (maximum volume)\n"
-        "#  : Clear (delete last digit)\n"
-        "A  : Start/Enter (confirm input)\n"
-        "B  : Stop/Cancel (cancel operation)\n"
-        "\n=== IMPORTANT ===\n"
-        "In KEY mode: You must press 'A' (not Enter)\n"
-        "Press Tab to switch between command/key modes\n"
-        "========================="
-    );
 }
 
 // ConsoleCardReader implementation
@@ -430,7 +307,6 @@ void ConsoleCardReader::simulateCardPresented(const UserId& userId) {
         return;
     }
 
-    logLine(fmt::format("[CardReader] Card presented: {}", userId));
     std::lock_guard<std::mutex> lock(callbackMutex_);
     if (cardPresentedCallback_) {
         cardPresentedCallback_(userId);
@@ -685,13 +561,18 @@ ConsoleEmulator::ConsoleEmulator()
     , flowMeter_(nullptr)
     , keyboard_(nullptr)
     , commandBuffer_()
+    , runningFlag_(nullptr)
 {
 }
 
-ConsoleEmulator::~ConsoleEmulator() = default;
+ConsoleEmulator::~ConsoleEmulator() {
+    stopInputDispatcher();
+}
 
 std::unique_ptr<peripherals::IDisplay> ConsoleEmulator::createDisplay() {
-    return std::make_unique<ConsoleDisplay>();
+    // peripherals::Display handles creating the appropriate display implementation
+    // based on TARGET_REAL_DISPLAY and DISPLAY_TYPE compile flags
+    return std::make_unique<peripherals::Display>();
 }
 
 std::unique_ptr<peripherals::IKeyboard> ConsoleEmulator::createKeyboard() {
@@ -716,10 +597,169 @@ std::unique_ptr<peripherals::IFlowMeter> ConsoleEmulator::createFlowMeter() {
     return meter;
 }
 
+void ConsoleEmulator::startInputDispatcher(std::atomic<bool>& runningFlag) {
+    if (inputThread_.joinable()) {
+        return;
+    }
+    runningFlag_ = &runningFlag;
+    inputThread_ = std::thread([this]() { inputDispatcherLoop(); });
+}
+
+void ConsoleEmulator::stopInputDispatcher() {
+    // Signal the thread to stop
+    shouldStop_ = true;
+    
+    if (inputThread_.joinable()) {
+        inputThread_.join();
+    }
+    runningFlag_ = nullptr;
+    shouldStop_ = false;  // Reset for potential restart
+}
+
 void ConsoleEmulator::dispatchKey(char c) {
     if (keyboard_) {
         keyboard_->injectKey(c);
     }
+}
+
+#ifndef _WIN32
+void ConsoleEmulator::restoreTerminal(const struct ::termios& origTerm, bool haveTerm) {
+    if (haveTerm) {
+        tcsetattr(STDIN_FILENO, TCSANOW, &origTerm);
+    }
+}
+#endif
+
+void ConsoleEmulator::inputDispatcherLoop() {
+#ifndef _WIN32
+    struct termios origTerm;
+    bool haveTerm = (tcgetattr(STDIN_FILENO, &origTerm) == 0);
+
+    auto setRawMode = [&](bool raw) {
+        if (!haveTerm) return;
+        struct termios t = origTerm;
+        if (raw) {
+            t.c_lflag &= ~(ICANON | ECHO);
+            t.c_cc[VMIN] = 0;
+            t.c_cc[VTIME] = 0;
+        } else {
+            t.c_lflag |= (ICANON | ECHO);
+        }
+        tcsetattr(STDIN_FILENO, TCSANOW, &t);
+    };
+#endif
+
+    enum class InputMode {
+        Command,
+        Key
+    };
+
+    auto running = [&]() -> bool {
+        return !shouldStop_.load() && runningFlag_ && runningFlag_->load();
+    };
+
+    InputMode currentMode = InputMode::Command;
+
+    auto switchMode = [&](InputMode newMode) {
+        if (newMode != currentMode) {
+            currentMode = newMode;
+            if (currentMode == InputMode::Command) {
+#ifndef _WIN32
+                setRawMode(false);
+#endif
+                setInputMode(true);
+            } else {
+#ifndef _WIN32
+                setRawMode(true);
+#endif
+                setInputMode(false);
+            }
+        }
+    };
+
+    // Start in key mode
+    switchMode(InputMode::Key);
+
+    while (running()) {
+#ifndef _WIN32
+        fd_set readfds;
+        FD_ZERO(&readfds);
+        FD_SET(STDIN_FILENO, &readfds);
+        struct timeval tv;
+        tv.tv_sec = 0;
+        tv.tv_usec = 100000; // 100ms
+        int ret = select(STDIN_FILENO + 1, &readfds, nullptr, nullptr, &tv);
+        if (ret > 0 && FD_ISSET(STDIN_FILENO, &readfds)) {
+            char c = 0;
+            ssize_t r = read(STDIN_FILENO, &c, 1);
+            if (r > 0) {
+                if (c == '\t') {
+                    switchMode(InputMode::Command);
+                    continue;
+                }
+                if (currentMode == InputMode::Command) {
+                    bool shouldQuit = processKeyboardInput(c, SystemState::Waiting);
+                    if (shouldQuit) {
+                        runningFlag_->store(false);
+                        break;
+                    }
+                    if (consumeModeSwitchRequest()) {
+                        switchMode(InputMode::Key);
+                    }
+                } else {
+                    if (c == '\r' || c == '\n') {
+                        logLine("[Key mode: Press 'A' to confirm, not Enter]");
+                        continue;
+                    }
+                    dispatchKey(c);
+                }
+            } else if (r == 0) {
+                LOG_INFO("EOF on stdin, shutting down...");
+                runningFlag_->store(false);
+                break;
+            } else {
+                int err = errno;
+                LOG_ERROR("Error reading from stdin (errno: {}), shutting down...", err);
+                runningFlag_->store(false);
+                break;
+            }
+        }
+#else
+        if (_kbhit()) {
+            int ch = _getch();
+            if (ch == 0 || ch == 224) {
+                (void)_getch();
+            } else {
+                char c = static_cast<char>(ch);
+                if (c == '\t') {
+                    switchMode(InputMode::Command);
+                    continue;
+                }
+                if (currentMode == InputMode::Command) {
+                    bool shouldQuit = processKeyboardInput(c, SystemState::Waiting);
+                    if (shouldQuit) {
+                        runningFlag_->store(false);
+                        break;
+                    }
+                    if (consumeModeSwitchRequest()) {
+                        switchMode(InputMode::Key);
+                    }
+                } else {
+                    if (c == '\r' || c == '\n') {
+                        logLine("[Key mode: Press 'A' to confirm, not Enter]");
+                        continue;
+                    }
+                    dispatchKey(c);
+                }
+            }
+        }
+#endif
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+
+#ifndef _WIN32
+    restoreTerminal(origTerm, haveTerm);
+#endif
 }
 
 bool ConsoleEmulator::processKeyboardInput(char c, SystemState state) {
@@ -761,46 +801,6 @@ bool ConsoleEmulator::processKeyboardInput(char c, SystemState state) {
 }
 
 void ConsoleEmulator::printWelcome() const {
-    // Box width is 64 characters (62 inside the borders)
-    constexpr int kBoxInnerWidth = 62;
-
-    // Calculate centered version text
-    std::string versionText = "Version " + std::string(FUELFLUX_VERSION);
-
-    // Ensure the text does not exceed the inner box width
-    std::string displayText = versionText;
-    if (displayText.length() > static_cast<std::size_t>(kBoxInnerWidth)) {
-        displayText = displayText.substr(0, static_cast<std::size_t>(kBoxInnerWidth));
-    }
-
-    // Compute left/right padding in a signed type and keep them within [0, kBoxInnerWidth]
-    const int innerWidth = kBoxInnerWidth;
-    const int textLen = static_cast<int>(displayText.length());
-
-    int paddingLeft = 0;
-    int paddingRight = 0;
-
-    if (textLen < innerWidth) {
-        const int totalPadding = innerWidth - textLen;
-        paddingLeft = totalPadding / 2;
-        paddingRight = innerWidth - paddingLeft - textLen;
-    }
-
-    if (paddingLeft < 0) paddingLeft = 0;
-    if (paddingRight < 0) paddingRight = 0;
-    if (paddingLeft > innerWidth) paddingLeft = innerWidth;
-    if (paddingRight > innerWidth) paddingRight = innerWidth;
-
-    std::string paddedVersion = std::string(static_cast<std::size_t>(paddingLeft), ' ')
-                              + displayText
-                              + std::string(static_cast<std::size_t>(paddingRight), ' ');
-    std::string welcomeMsg = 
-        "╔══════════════════════════════════════════════════════════════╗\n"
-        "║                    FUEL FLUX CONTROLLER                      ║\n"
-        "║                    Console Emulator                          ║\n"
-        "║" + paddedVersion + "║\n"
-        "╚══════════════════════════════════════════════════════════════╝\n";
-    logBlock(welcomeMsg);
     printHelp();
 }
 
@@ -813,9 +813,11 @@ void ConsoleEmulator::printHelp() const {
     help += "help            : Show this help\n";
     help += "exit            : Exit application\n";
     help += "========================\n";
-    help += "  Command mode  : Type full commands, press Enter\n";
-    help += "  Key mode      : Press individual keys (A, B, 0-9, *, #)\n";
-    help += "  Tab key       : Switch between command and key input modes\n";
+    help += "Command mode  : Type full commands, press Enter\n";
+    help += "Key mode      : Press individual keys (A, B, 0-9, *, #)\n";
+    help += "Tab key       : Switch between command and key input modes\n";
+	help += "   'A' stands for \"Начать\"\n";
+    help += "   'B' stands for \"Отменить\"\n";
     help += "========================\n";
     logBlock(help);
 }

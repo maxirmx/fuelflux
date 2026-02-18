@@ -158,6 +158,7 @@ void Ili9488::fill(uint16_t color565) {
 void Ili9488::set_mono_framebuffer(const std::vector<uint8_t>& fb,
                                    uint16_t fg_color565,
                                    uint16_t bg_color565) {
+
     const auto rgb = mono_to_rgb666(fb, w_, h_, fg_color565, bg_color565);
     set_addr_window(0, 0, static_cast<uint16_t>(w_ - 1), static_cast<uint16_t>(h_ - 1));
 

@@ -64,6 +64,10 @@ class Controller {
     // Allow external threads to post events to the controller's event loop
     void postEvent(Event event);
 
+    // Coalesce consecutive InputUpdated events. Used by StateMachine to avoid
+    // redundant display refreshes while leaving other events in the queue.
+    void discardPendingInputUpdatedEvents();
+
     // State machine interface
     StateMachine& getStateMachine() { return stateMachine_; }
     const StateMachine& getStateMachine() const { return stateMachine_; }

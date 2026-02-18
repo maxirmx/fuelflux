@@ -238,10 +238,17 @@ if(TARGET_REAL_KEYBOARD)
     list(APPEND LIB_SOURCES src/hardware/mcp23017.cpp)
 endif()
 
-# Add display library sources if TARGET_REAL_DISPLAY is enabled
+# Add display library sources
+# Four-line display base is always compiled
+list(APPEND LIB_SOURCES
+    src/display/four_line_display.cpp
+)
+
 if(TARGET_REAL_DISPLAY)
+    # Hardware display implementation
     list(APPEND LIB_SOURCES
-        src/display/four_line_display.cpp
+        src/display/four_line_display_impl.cpp
+        src/display/hardware_display.cpp
         src/display/ft_text.cpp
         src/display/graphics.cpp
         src/display/spi_linux.cpp
@@ -249,11 +256,22 @@ if(TARGET_REAL_DISPLAY)
     
     # Add display-specific driver
     if(DISPLAY_TYPE STREQUAL "ST7565")
-        list(APPEND LIB_SOURCES src/display/st7565.cpp)
+        list(APPEND LIB_SOURCES 
+            src/display/st7565.cpp
+            src/display/st7565_display.cpp
+        )
     elseif(DISPLAY_TYPE STREQUAL "ILI9488")
-        list(APPEND LIB_SOURCES src/display/ili9488.cpp)
+        list(APPEND LIB_SOURCES 
+            src/display/ili9488.cpp
+            src/display/ili9488_display.cpp
+        )
     endif()
 endif()
+
+# Console display is always compiled (used for non-hardware builds and potentially for testing)
+list(APPEND LIB_SOURCES
+    src/display/console_display.cpp
+)
 
 # Headers
 set(HEADERS
@@ -420,7 +438,14 @@ if(ENABLE_TESTING)
         tests/bounded_executor_test.cpp
         tests/cares_resolver_test.cpp
         tests/url_utils_test.cpp
+        tests/console_emulator_test.cpp
+        tests/four_line_display_test.cpp
     )
+    
+    # Add four_line_display_impl tests only for real display builds
+    if(TARGET_REAL_DISPLAY)
+        list(APPEND TEST_SOURCES tests/four_line_display_impl_test.cpp)
+    endif()
 
     # Create test executable
     add_executable(fuelflux_tests ${TEST_SOURCES})

@@ -206,22 +206,6 @@ The FuelFlux controller uses a Mealy state machine to manage the fuel dispensing
 | **Data Transmission** | Logs refuel transaction | Logs intake transaction |
 | **Display During Operation** | Shows current/target volume | Shows "Data transmission" message |
 
-### Intake Validation Details
-
-When operator enters volume in `IntakeVolumeEntry` state:
-
-```cpp
-if (volume <= 0.0) {
-    showError("Invalid volume");  // "Неправильный объём"
-    clearInput();
-    return; // Stay in IntakeVolumeEntry
-}
-
-// No maximum limit check for operators
-// Valid volume - proceed to data transmission
-// Backend handles actual transfer limits
-```
-
 ### Intake Operation Constraints
 
 1. **Volume Entry**
@@ -380,35 +364,6 @@ From `Error` state:
   - Reinitializing all peripherals and callbacks
   - Clearing session data
   - Resetting the state machine
-
-## Volume Validation
-
-When user enters volume in `VolumeEntry` state:
-
-```cpp
-if (volume <= 0.0) {
-    showError("Invalid volume");
-    clearInput();
-    return; // Stay in VolumeEntry
-}
-
-// Check tank capacity first
-Volume tankVolume = getTankVolume(selectedTank);
-if (tankVolume > 0.0 && volume > tankVolume) {
-    showError("Volume exceeds tank capacity");
-    clearInput();
-    return; // Stay in VolumeEntry
-}
-
-// Then check user allowance for customers
-if (currentUser.role == Customer && volume > currentUser.allowance) {
-    showError("Volume exceeds allowance");
-    clearInput();
-    return; // Stay in VolumeEntry
-}
-
-// Valid volume - proceed to Refueling
-```
 
 ## Transition Action Execution Order
 

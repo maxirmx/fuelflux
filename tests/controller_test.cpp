@@ -74,7 +74,7 @@ public:
     void setKeyPressCallback(KeyPressCallback callback) override {
         storedCallback = callback;
     }
-    
+
     void simulateKeyPress(KeyCode key) {
         if (storedCallback) {
             storedCallback(key);
@@ -693,7 +693,7 @@ TEST_F(ControllerTest, FormatVolume) {
     controller->initialize();
     
     std::string formatted = controller->formatVolume(25.50);
-    EXPECT_EQ(formatted, "25.50 L");
+    EXPECT_EQ(formatted, "25.50 л");
 }
 
 // Test get device serial number
@@ -1047,10 +1047,10 @@ TEST_F(ControllerTest, DisplayMessageWaitingState) {
     DisplayMessage msg = controller->getStateMachine().getDisplayMessage();
     
     // Verify four lines are present
-    EXPECT_EQ(msg.line1, "Поднесите карту или введите PIN");
-    EXPECT_FALSE(msg.line2.empty());  // Should have timestamp
+    EXPECT_EQ(msg.line1, "Приложите карту");
+    EXPECT_EQ(msg.line2, "");         // Empty line
     EXPECT_EQ(msg.line3, "");         // Empty line
-    EXPECT_EQ(msg.line4, CONTROLLER_UID);  // Should have serial number
+    EXPECT_EQ(msg.line4, "");         // Empty line
 }
 
 // Test display message structure for PinEntry state
@@ -1072,10 +1072,10 @@ TEST_F(ControllerTest, DisplayMessagePinEntryState) {
     DisplayMessage msg = controller->getStateMachine().getDisplayMessage();
     
     // Verify structure
-    EXPECT_EQ(msg.line1, "Введите PIN и нажмите Старт (A)");
+    EXPECT_EQ(msg.line1, "Введите PIN");
     EXPECT_EQ(msg.line2, "*");  // One digit entered, masked
-    EXPECT_EQ(msg.line3, "");
-    EXPECT_FALSE(msg.line4.empty());  // Should have timestamp
+    EXPECT_EQ(msg.line3, "Нажмите Старт (A)");
+    EXPECT_EQ(msg.line4, "");  
     
     shutdownControllerAndJoinThread(controllerThread);
 }
@@ -1103,12 +1103,11 @@ TEST_F(ControllerTest, DisplayMessageTankSelectionState) {
     DisplayMessage msg = controller->getStateMachine().getDisplayMessage();
     
     // Verify structure
-    EXPECT_EQ(msg.line1, "Выберите цистерну и нажмите Старт (A)");
+    EXPECT_EQ(msg.line1, "Выберите цистерну");
     // line2 should be current input (empty initially)
-    EXPECT_TRUE(msg.line3.find("Доступные цистерны") != std::string::npos);
     EXPECT_TRUE(msg.line3.find("1") != std::string::npos);
     EXPECT_TRUE(msg.line3.find("2") != std::string::npos);
-    EXPECT_EQ(msg.line4, "");
+    EXPECT_EQ(msg.line4, "Нажмите Старт(A)");
     
     shutdownControllerAndJoinThread(controllerThread);
 }
@@ -1139,10 +1138,10 @@ TEST_F(ControllerTest, DisplayMessageVolumeEntryState) {
     DisplayMessage msg = controller->getStateMachine().getDisplayMessage();
     
     // Verify structure
-    EXPECT_EQ(msg.line1, "Введите объём и нажмите Старт (A)");
+    EXPECT_EQ(msg.line1, "Введите объём");
     // line2 is current input
     EXPECT_TRUE(msg.line3.find("Макс:") != std::string::npos);  // Should show max for customers
-    EXPECT_EQ(msg.line4, "Нажмите * для макс, # для очистки");
+    EXPECT_EQ(msg.line4, "* макс, # стереть");
     
     shutdownControllerAndJoinThread(controllerThread);
 }
@@ -1384,13 +1383,13 @@ TEST_F(ControllerTest, DataTransmissionStateShownDuringRefuel) {
     {
         std::lock_guard<std::mutex> lk(msgMutex);
         for (const auto& msg : displayedMessages) {
-            if (msg.line1 == "Передача данных") {
+            if (msg.line1 == "Передача данных...") {
                 foundDataTransmissionMessage = true;
                 break;
             }
         }
     }
-    EXPECT_TRUE(foundDataTransmissionMessage) << "Expected 'Передача данных' message during data transmission";
+    EXPECT_TRUE(foundDataTransmissionMessage) << "Expected 'Передача данных...' message during data transmission";
 
     controller->shutdown();
     if (controllerThread.joinable()) controllerThread.join();
@@ -1450,13 +1449,13 @@ TEST_F(ControllerTest, DataTransmissionStateShownDuringIntake) {
     {
         std::lock_guard<std::mutex> lk(msgMutex);
         for (const auto& msg : displayedMessages) {
-            if (msg.line1 == "Передача данных") {
+            if (msg.line1 == "Передача данных...") {
                 foundDataTransmissionMessage = true;
                 break;
             }
         }
     }
-    EXPECT_TRUE(foundDataTransmissionMessage) << "Expected 'Передача данных' message during data transmission";
+    EXPECT_TRUE(foundDataTransmissionMessage) << "Expected 'Передача данных...' message during data transmission";
 
     controller->shutdown();
     if (controllerThread.joinable()) controllerThread.join();
@@ -1896,7 +1895,7 @@ TEST_F(ControllerTest, VolumeEntryDisplayShowsAllowanceWhenLower) {
     // Check that display shows allowance (30L) as max since it's lower
     {
         std::lock_guard<std::mutex> lk(msgMutex);
-        EXPECT_EQ(lastMsg.line1, std::string("Введите объём и нажмите Старт (A)"));
+        EXPECT_EQ(lastMsg.line1, std::string("Введите объём"));
         EXPECT_TRUE(lastMsg.line3.find("30") != std::string::npos) 
             << "Display should show allowance (30L) as max, got: " << lastMsg.line3;
     }
@@ -1947,7 +1946,7 @@ TEST_F(ControllerTest, VolumeEntryDisplayShowsTankVolumeWhenLower) {
     // Check that display shows tank volume (40L) as max since it's lower
     {
         std::lock_guard<std::mutex> lk(msgMutex);
-        EXPECT_EQ(lastMsg.line1, std::string("Введите объём и нажмите Старт (A)"));
+        EXPECT_EQ(lastMsg.line1, std::string("Введите объём"));
         EXPECT_TRUE(lastMsg.line3.find("40") != std::string::npos) 
             << "Display should show tank capacity (40L) as max, got: " << lastMsg.line3;
     }
@@ -1998,7 +1997,7 @@ TEST_F(ControllerTest, VolumeEntryDisplayShowsAllowanceWhenNoTankVolume) {
     // Check that display shows allowance (50L) when no tank volume
     {
         std::lock_guard<std::mutex> lk(msgMutex);
-        EXPECT_EQ(lastMsg.line1, std::string("Введите объём и нажмите Старт (A)"));
+        EXPECT_EQ(lastMsg.line1, std::string("Введите объём"));
         EXPECT_TRUE(lastMsg.line3.find("50") != std::string::npos) 
             << "Display should show allowance (50L) when tank volume is 0, got: " << lastMsg.line3;
     }
@@ -2076,3 +2075,31 @@ TEST_F(ControllerTest, VolumeEntryDisplayWithMultipleTanksDifferentVolumes) {
 
     shutdownControllerAndJoinThread(controllerThread);
 }
+
+// Coalesce consecutive InputUpdated events and keep following non-InputUpdated event
+TEST_F(ControllerTest, CoalesceInputUpdatedEvents) {
+    controller->initialize();
+
+    std::thread controllerThread([this]() {
+        controller->run();
+        });
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+
+    // Clear prior expectations (initialization may have called showMessage)
+    ::testing::Mock::VerifyAndClearExpectations(mockDisplay);
+
+    // We expect one display update: for the first InputUpdated
+     // (second InputUpdated is coalesced, CancelPressed in Waiting doesn't change state)
+    EXPECT_CALL(*mockDisplay, showMessage(::testing::_)).Times(1);
+
+    controller->postEvent(Event::InputUpdated);
+    controller->postEvent(Event::InputUpdated); // This will be coalesced/discarded
+    controller->postEvent(Event::CancelPressed);
+
+    // Wait for processing
+    ASSERT_TRUE(waitForState(SystemState::Waiting, std::chrono::milliseconds(500)));
+
+    shutdownControllerAndJoinThread(controllerThread);
+}
+
