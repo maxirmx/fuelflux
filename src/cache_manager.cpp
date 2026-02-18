@@ -82,11 +82,8 @@ bool CacheManager::DeductAllowance(const std::string& uid, double amount) {
         return false;
     }
     
-    // Deduct allowance
-    double newAllowance = entry->allowance - amount;
-    if (newAllowance < 0.0) {
-        newAllowance = 0.0;
-    }
+    // Deduct allowance (clamp to 0)
+    double newAllowance = std::max(0.0, entry->allowance - amount);
     
     // Update cache
     return cache_->UpdateEntry(uid, newAllowance, entry->roleId);
