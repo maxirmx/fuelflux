@@ -114,7 +114,7 @@ jobs:
               mkdir -p build-arm64
               cd build-arm64
               cmake .. -G Ninja -DCMAKE_BUILD_TYPE=Release
-              cmake --build . --config Release -j\$(nproc)
+              cmake --build . --config Release -j\$(nproc) -DDISPLAY_TYPE=ILI9488
               ctest --output-on-failure -C Release
             "
 
