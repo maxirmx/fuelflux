@@ -17,8 +17,11 @@
 #include "types.h"
 #include "peripherals/peripheral_interface.h"
 
-
 namespace fuelflux {
+
+// Forward declarations
+class CacheManager;
+class UserCache;
 
 // Main controller class that orchestrates the entire system
 class Controller {
@@ -132,6 +135,10 @@ class Controller {
 
     // Peripheral control
     void enableCardReading(bool enabled);
+    
+    // Cache management
+    std::shared_ptr<CacheManager> getCacheManager() const { return cacheManager_; }
+    std::shared_ptr<UserCache> getUserCache() const { return userCache_; }
 
     // Utility functions
     std::string formatVolume(Volume volume) const;
@@ -155,6 +162,11 @@ class Controller {
     std::unique_ptr<peripherals::IPump> pump_;
     std::unique_ptr<peripherals::IFlowMeter> flowMeter_;
     std::shared_ptr<IBackend> backend_;
+    
+    // Cache components
+    std::shared_ptr<UserCache> userCache_;
+    std::shared_ptr<CacheManager> cacheManager_;
+    
     // Current session state
     UserInfo currentUser_;
     std::vector<TankInfo> availableTanks_;
