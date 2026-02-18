@@ -46,7 +46,7 @@ jobs:
         run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DENABLE_TESTING=ON -DCODE_COVERAGE=ON -DDISPLAY_TYPE=CONSOLE
 
       - name: Build
-        run: cmake --build build --config Release -DDISPLAY_TYPE=CONSOLE -j$(nproc)
+        run: cmake --build build --config Release -j$(nproc)
 
       - name: Run tests
         run: cd build && ctest --output-on-failure -C Release
