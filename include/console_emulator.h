@@ -21,6 +21,7 @@ namespace fuelflux {
 
 // Forward declarations
 class CacheManager;
+class UserCache;
 
 // Forward declaration - ConsoleDisplay is now defined in display/console_display.h
 namespace display {
@@ -165,8 +166,9 @@ public:
     // Test card simulation
     void simulateCard(const UserId& userId);
     
-    // Set cache manager for cache commands
+    // Set cache manager and user cache for cache commands
     void setCacheManager(std::shared_ptr<CacheManager> cacheManager);
+    void setUserCache(std::shared_ptr<UserCache> userCache);
 
     // Dispatcher helper: forward a raw character to the keyboard (if available)
     void dispatchKey(char c);
@@ -192,6 +194,7 @@ private:
     
     // Cache manager for cache commands
     std::shared_ptr<CacheManager> cacheManager_;
+    std::shared_ptr<UserCache> userCache_;
 
     // command assembly in command mode
     std::string commandBuffer_;

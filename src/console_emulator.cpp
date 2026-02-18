@@ -7,6 +7,7 @@
 #include "peripherals/display.h"
 #include "peripherals/keyboard_utils.h"
 #include "cache_manager.h"
+#include "user_cache.h"
 #include "logger.h"
 #include "version.h"
 #include <iostream>
@@ -843,21 +844,28 @@ void ConsoleEmulator::processCommand(const std::string& command) {
             logBlock("Usage: card <user_id>\nExample: card 2222-2222-2222-2222");
         }
     } else if (cmd == "cache_count") {
-        if (cacheManager_ && cacheManager_->GetLastPopulationSuccess()) {
-            // Cache manager doesn't directly expose count, so we need to access it via the controller
-            // For now, just report that the feature is available
-            logLine("Cache count command received. Feature requires controller integration.");
+        if (userCache_) {
+            int count = userCache_->GetCount();
+            logLine(fmt::format("Cache contains {} user entries", count));
         } else {
-            logLine("Cache not available or not populated yet");
+            logLine("Cache not available");
         }
     } else if (cmd == "cache_show") {
         std::string uid;
         iss >> uid;
         if (uid.empty()) {
             logBlock("Usage: cache_show <uid>\nExample: cache_show 1000000000");
-        } else if (cacheManager_) {
-            logLine(fmt::format("Cache show command for UID: {}", uid));
-            logLine("Feature requires controller integration for data access.");
+        } else if (userCache_) {
+            auto entry = userCache_->GetEntry(uid);
+            if (entry.has_value()) {
+                std::string info = fmt::format(
+                    "UID: {}\nRole ID: {}\nAllowance: {:.2f} liters",
+                    entry->uid, entry->roleId, entry->allowance
+                );
+                logBlock(info);
+            } else {
+                logLine(fmt::format("No cache entry found for UID: {}", uid));
+            }
         } else {
             logLine("Cache not available");
         }
@@ -883,6 +891,10 @@ void ConsoleEmulator::simulateCard(const UserId& userId) {
 
 void ConsoleEmulator::setCacheManager(std::shared_ptr<CacheManager> cacheManager) {
     cacheManager_ = std::move(cacheManager);
+}
+
+void ConsoleEmulator::setUserCache(std::shared_ptr<UserCache> userCache) {
+    userCache_ = std::move(userCache);
 }
 
 void ConsoleEmulator::printAvailableCommands() const {
