@@ -229,8 +229,7 @@ const std::vector<unsigned char>& FourLineDisplayImpl::render() {
 
         // Reuse and clear the intermediate content buffer.
         const size_t buffer_size = static_cast<size_t>(available_width * (height_ / 8));
-        impl_->line_buffer.resize(buffer_size);
-        std::fill(impl_->line_buffer.begin(), impl_->line_buffer.end(), 0);
+        impl_->line_buffer.resize(buffer_size, 0);
         
         // Render and truncate into content-width intermediate buffer.
         try {
