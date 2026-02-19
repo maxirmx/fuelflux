@@ -16,8 +16,13 @@
 namespace fuelflux {
 
 // Cache manager that handles periodic population and updates
+// Important: CacheManager must be given a dedicated backend instance to avoid
+// JWT token conflicts with concurrent user operations. The backend passed should
+// not be shared with controller's user authorization operations.
 class CacheManager {
 public:
+    // Constructor takes a dedicated backend for synchronization operations
+    // and the user cache to populate
     CacheManager(std::shared_ptr<UserCache> cache, std::shared_ptr<IBackend> backend);
     ~CacheManager();
 

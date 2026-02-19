@@ -44,7 +44,11 @@ Controller::Controller(ControllerId controllerId, std::shared_ptr<IBackend> back
     // Initialize user cache and cache manager
     try {
         userCache_ = std::make_shared<UserCache>(CACHE_DB_PATH);
-        cacheManager_ = std::make_shared<CacheManager>(userCache_, backend_);
+        // Create a separate backend instance for cache manager synchronization to avoid JWT token conflicts
+        // The cache manager needs its own backend with independent session state so that synchronization
+        // operations don't interfere with concurrent user authorization sessions in the main backend
+        auto syncBackend = CreateDefaultBackendShared(backend_->GetControllerUid(), nullptr);
+        cacheManager_ = std::make_shared<CacheManager>(userCache_, syncBackend);
         LOG_CTRL_INFO("User cache initialized at: {}", CACHE_DB_PATH);
     } catch (const std::exception& e) {
         LOG_CTRL_ERROR("Failed to initialize user cache: {}", e.what());
