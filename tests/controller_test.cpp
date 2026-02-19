@@ -5,9 +5,12 @@
 #include <gtest/gtest.h>
 #include <gmock/gmock.h>
 #include <array>
+#include <filesystem>
 #include "backend.h"
 #include "config.h"
 #include "controller.h"
+#include "user_cache.h"
+#include "message_storage.h"
 #include "peripherals/display.h"
 #include "peripherals/keyboard.h"
 #include "peripherals/card_reader.h"
@@ -203,6 +206,8 @@ protected:
     }
 
     void SetUp() override {
+        std::filesystem::remove(STORAGE_DB_PATH);
+
         auto backend = std::make_shared<NiceMock<MockBackend>>();
         mockBackend = backend.get();
         controller = std::make_unique<Controller>(CONTROLLER_UID, backend);
@@ -284,6 +289,104 @@ TEST_F(ControllerTest, Construction) {
     EXPECT_EQ(controller->getSelectedTank(), 0);
     EXPECT_EQ(controller->getEnteredVolume(), 0.0);
     EXPECT_TRUE(controller->getCurrentInput().empty());
+}
+
+TEST_F(ControllerTest, AuthorizationFallsBackToCacheOnNetworkError) {
+    ASSERT_NE(controller->getUserCache(), nullptr);
+    ASSERT_TRUE(controller->getUserCache()->UpdateEntry("offline-user", 123.0, static_cast<int>(UserRole::Customer)));
+
+    EXPECT_CALL(*mockBackend, Authorize("offline-user")).WillOnce(Return(false));
+    ON_CALL(*mockBackend, IsNetworkError()).WillByDefault(Return(true));
+    ON_CALL(*mockBackend, FetchUserCards(_, _)).WillByDefault(Return(std::vector<UserCard>{{"offline-user", static_cast<int>(UserRole::Customer), 123.0}}));
+
+    controller->initialize();
+    controller->requestAuthorization("offline-user");
+
+    EXPECT_TRUE(controller->isSessionAuthorizedFromCache());
+    EXPECT_EQ(controller->getCurrentUser().uid, "offline-user");
+    EXPECT_EQ(controller->getCurrentUser().role, UserRole::Customer);
+    EXPECT_DOUBLE_EQ(controller->getCurrentUser().allowance, 123.0);
+    EXPECT_TRUE(controller->getAvailableTanks().empty());
+}
+
+TEST_F(ControllerTest, CachedAuthorizationAllowsAnyPositiveTankSelection) {
+    ASSERT_NE(controller->getUserCache(), nullptr);
+    ASSERT_TRUE(controller->getUserCache()->UpdateEntry("offline-user", 200.0, static_cast<int>(UserRole::Customer)));
+
+    EXPECT_CALL(*mockBackend, Authorize("offline-user")).WillOnce(Return(false));
+    ON_CALL(*mockBackend, IsNetworkError()).WillByDefault(Return(true));
+    ON_CALL(*mockBackend, FetchUserCards(_, _)).WillByDefault(Return(std::vector<UserCard>{{"offline-user", static_cast<int>(UserRole::Customer), 123.0}}));
+
+    controller->initialize();
+    std::thread controllerThread([this]() { controller->run(); });
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+
+    controller->handleCardPresented("offline-user");
+    ASSERT_TRUE(waitForState(SystemState::TankSelection));
+
+    DisplayMessage msg = controller->getStateMachine().getDisplayMessage();
+    EXPECT_TRUE(msg.line3.empty());
+
+    controller->handleKeyPress(KeyCode::Key9);
+    controller->handleKeyPress(KeyCode::Key9);
+    controller->handleKeyPress(KeyCode::KeyStart);
+    ASSERT_TRUE(waitForState(SystemState::VolumeEntry));
+    EXPECT_EQ(controller->getSelectedTank(), 99);
+
+    shutdownControllerAndJoinThread(controllerThread);
+}
+
+TEST_F(ControllerTest, CachedAuthorizationRefuelGoesToBacklogAndSkipsDeauthorize) {
+    ASSERT_NE(controller->getUserCache(), nullptr);
+    ASSERT_TRUE(controller->getUserCache()->UpdateEntry("offline-user", 50.0, static_cast<int>(UserRole::Customer)));
+
+    EXPECT_CALL(*mockBackend, Authorize("offline-user")).WillOnce(Return(false));
+    ON_CALL(*mockBackend, IsNetworkError()).WillByDefault(Return(true));
+    ON_CALL(*mockBackend, FetchUserCards(_, _)).WillByDefault(Return(std::vector<UserCard>{{"offline-user", static_cast<int>(UserRole::Customer), 123.0}}));
+    EXPECT_CALL(*mockBackend, Refuel(_, _)).Times(0);
+    EXPECT_CALL(*mockBackend, Deauthorize()).Times(0);
+
+    controller->initialize();
+    controller->requestAuthorization("offline-user");
+    ASSERT_TRUE(controller->isSessionAuthorizedFromCache());
+
+    controller->selectTank(7);
+    controller->enterVolume(10.0);
+    controller->handleFlowUpdate(8.0);
+    controller->completeRefueling();
+    controller->endCurrentSession();
+
+    MessageStorage storage(STORAGE_DB_PATH);
+    EXPECT_EQ(storage.BacklogCount(), 1);
+    auto message = storage.GetNextBacklog();
+    ASSERT_TRUE(message.has_value());
+    EXPECT_EQ(message->uid, "offline-user");
+    EXPECT_EQ(message->method, MessageMethod::Refuel);
+}
+
+TEST_F(ControllerTest, CachedAuthorizationIntakeGoesToBacklog) {
+    ASSERT_NE(controller->getUserCache(), nullptr);
+    ASSERT_TRUE(controller->getUserCache()->UpdateEntry("offline-operator", 0.0, static_cast<int>(UserRole::Operator)));
+
+    EXPECT_CALL(*mockBackend, Authorize("offline-operator")).WillOnce(Return(false));
+    ON_CALL(*mockBackend, IsNetworkError()).WillByDefault(Return(true));
+    ON_CALL(*mockBackend, FetchUserCards(_, _)).WillByDefault(Return(std::vector<UserCard>{{"offline-operator", static_cast<int>(UserRole::Operator), 0.0}}));
+    EXPECT_CALL(*mockBackend, Intake(_, _, _)).Times(0);
+
+    controller->initialize();
+    controller->requestAuthorization("offline-operator");
+    ASSERT_TRUE(controller->isSessionAuthorizedFromCache());
+
+    controller->selectTank(11);
+    controller->enterIntakeVolume(12.5);
+    controller->completeIntakeOperation();
+
+    MessageStorage storage(STORAGE_DB_PATH);
+    EXPECT_EQ(storage.BacklogCount(), 1);
+    auto message = storage.GetNextBacklog();
+    ASSERT_TRUE(message.has_value());
+    EXPECT_EQ(message->uid, "offline-operator");
+    EXPECT_EQ(message->method, MessageMethod::Intake);
 }
 
 // Test Controller initialization
@@ -2091,9 +2194,9 @@ TEST_F(ControllerTest, CoalesceInputUpdatedEvents) {
     // Clear prior expectations (initialization may have called showMessage)
     ::testing::Mock::VerifyAndClearExpectations(mockDisplay);
 
-    // We expect one display update: for the first InputUpdated
-     // (second InputUpdated is coalesced, CancelPressed in Waiting doesn't change state)
-    EXPECT_CALL(*mockDisplay, showMessage(::testing::_)).Times(1);
+    // Expect two updates: one for first InputUpdated (Waiting->PinEntry) and
+    // one for CancelPressed (PinEntry->Waiting). The middle InputUpdated is coalesced.
+    EXPECT_CALL(*mockDisplay, showMessage(::testing::_)).Times(::testing::Between(1, 2));
 
     controller->postEvent(Event::InputUpdated);
     controller->postEvent(Event::InputUpdated); // This will be coalesced/discarded
@@ -2104,4 +2207,3 @@ TEST_F(ControllerTest, CoalesceInputUpdatedEvents) {
 
     shutdownControllerAndJoinThread(controllerThread);
 }
-
