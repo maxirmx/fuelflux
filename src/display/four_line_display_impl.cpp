@@ -228,7 +228,8 @@ const std::vector<unsigned char>& FourLineDisplayImpl::render() {
         FtText* ft = (i == 1) ? impl_->large_ft.get() : impl_->small_ft.get();
 
         // Reuse and clear the intermediate content buffer.
-        const size_t buffer_size = static_cast<size_t>(available_width * (height_ / 8));
+        const size_t pages = static_cast<size_t>(height_) / 8u;
+        const size_t buffer_size = static_cast<size_t>(available_width) * pages;
         if (impl_->line_buffer.size() != buffer_size) {
             impl_->line_buffer.resize(buffer_size, 0);
         } else {
