@@ -52,6 +52,7 @@ public:
     virtual const std::string& GetLastError() const = 0;
     virtual bool IsNetworkError() const = 0;
     virtual std::vector<UserCard> FetchUserCards(int first, int number) = 0;
+    virtual const std::string& GetControllerUid() const = 0;
 };
 
 // Base backend class with shared logic for request/response handling
@@ -89,6 +90,7 @@ public:
     const std::string& GetLastError() const override { return lastError_; }
     bool IsNetworkError() const override { return networkError_; }
     std::vector<UserCard> FetchUserCards(int first, int number) override;
+    const std::string& GetControllerUid() const override { return controllerUid_; }
 
 protected:
     BackendBase(std::string controllerUid, std::shared_ptr<MessageStorage> storage);

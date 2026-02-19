@@ -401,3 +401,56 @@ TEST_F(UserCacheTest, UpdatesDuringPopulationArePreserved) {
     ASSERT_TRUE(entry4.has_value());
     EXPECT_DOUBLE_EQ(entry4->allowance, 400.0);
 }
+
+TEST_F(UserCacheTest, AtomicDeductAllowance) {
+    UserCache cache(dbPath_);
+    ASSERT_TRUE(cache.IsOpen());
+    
+    // Add entry with allowance 100.0
+    ASSERT_TRUE(cache.UpdateEntry("uid-1", 100.0, 1));
+    
+    // Deduct 30.0
+    ASSERT_TRUE(cache.DeductAllowance("uid-1", 30.0));
+    
+    auto entry = cache.GetEntry("uid-1");
+    ASSERT_TRUE(entry.has_value());
+    EXPECT_DOUBLE_EQ(entry->allowance, 70.0);
+    EXPECT_EQ(entry->roleId, 1);
+    
+    // Deduct more than available (should clamp to 0)
+    ASSERT_TRUE(cache.DeductAllowance("uid-1", 100.0));
+    
+    entry = cache.GetEntry("uid-1");
+    ASSERT_TRUE(entry.has_value());
+    EXPECT_DOUBLE_EQ(entry->allowance, 0.0);
+    EXPECT_EQ(entry->roleId, 1);
+    
+    // Try to deduct from non-existent entry
+    EXPECT_FALSE(cache.DeductAllowance("uid-nonexistent", 10.0));
+}
+
+TEST_F(UserCacheTest, AtomicDeductDuringPopulation) {
+    UserCache cache(dbPath_);
+    ASSERT_TRUE(cache.IsOpen());
+    
+    // Add initial entry
+    ASSERT_TRUE(cache.UpdateEntry("uid-1", 100.0, 1));
+    
+    // Begin population (enters populationInProgress_ state)
+    ASSERT_TRUE(cache.BeginPopulation());
+    
+    // Deduct during population - should update both tables
+    ASSERT_TRUE(cache.DeductAllowance("uid-1", 25.0));
+    
+    // Add entries to standby table
+    ASSERT_TRUE(cache.AddPopulationEntry("uid-2", 200.0, 2));
+    
+    // Commit population (swap tables)
+    ASSERT_TRUE(cache.CommitPopulation());
+    
+    // Verify deduction was preserved after table swap
+    auto entry1 = cache.GetEntry("uid-1");
+    ASSERT_TRUE(entry1.has_value());
+    EXPECT_DOUBLE_EQ(entry1->allowance, 75.0);  // Should have deducted value
+    EXPECT_EQ(entry1->roleId, 1);
+}

@@ -76,23 +76,26 @@ bool CacheManager::DeductAllowance(const std::string& uid, double amount) {
         return false;
     }
     
-    // Get current entry
-    auto entry = cache_->GetEntry(uid);
-    if (!entry.has_value()) {
-        return false;
-    }
-    
-    // Deduct allowance (clamp to 0)
-    double newAllowance = std::max(0.0, entry->allowance - amount);
-    
-    // Update cache
-    return cache_->UpdateEntry(uid, newAllowance, entry->roleId);
+    // Use atomic deduct operation in UserCache
+    return cache_->DeductAllowance(uid, amount);
 }
 
 std::chrono::system_clock::time_point CacheManager::CalculateNextDailyUpdate(int hour) const {
     auto now = std::chrono::system_clock::now();
     auto nowTime = std::chrono::system_clock::to_time_t(now);
+    
+    // Use thread-safe localtime variant
+#ifdef _WIN32
     std::tm* nowTm = std::localtime(&nowTime);
+#else
+    std::tm nowTmBuf;
+    std::tm* nowTm = ::localtime_r(&nowTime, &nowTmBuf);
+#endif
+    
+    if (!nowTm) {
+        // Fallback: schedule next update 24 hours from now if conversion fails
+        return now + std::chrono::hours(24);
+    }
     
     // Create a time_point for today at the specified hour
     std::tm targetTm = *nowTm;
@@ -177,9 +180,35 @@ bool CacheManager::PopulateCache() {
     }
     
     try {
+        // Get controller UID to use for synchronization session
+        // For synchronization, we authorize using ControllerUID as both CardUID and ControllerUID
+        std::string controllerUid = backend_->GetControllerUid();
+        if (controllerUid.empty()) {
+            LOG_ERROR("Controller UID not available");
+            return false;
+        }
+        
+        // Open synchronization session
+        LOG_INFO("Opening synchronization session with ControllerUID: {}", controllerUid);
+        if (!backend_->Authorize(controllerUid)) {
+            LOG_ERROR("Failed to open synchronization session: {}", backend_->GetLastError());
+            return false;
+        }
+        
+        // Verify RoleId = 3 (synchronization role)
+        int roleId = backend_->GetRoleId();
+        if (roleId != 3) {
+            LOG_ERROR("Synchronization session returned invalid RoleId: {} (expected 3)", roleId);
+            backend_->Deauthorize();
+            return false;
+        }
+        
+        LOG_INFO("Synchronization session authorized with RoleId=3, token obtained");
+        
         // Begin population (prepares standby table)
         if (!cache_->BeginPopulation()) {
             LOG_ERROR("Failed to begin cache population");
+            backend_->Deauthorize();
             return false;
         }
         
@@ -203,6 +232,7 @@ bool CacheManager::PopulateCache() {
                 if (!cache_->AddPopulationEntry(card.uid, card.allowance, card.roleId)) {
                     LOG_ERROR("Failed to add cache entry for UID: {}", card.uid);
                     cache_->AbortPopulation();
+                    backend_->Deauthorize();
                     return false;
                 }
             }
@@ -220,21 +250,37 @@ bool CacheManager::PopulateCache() {
         if (!running_) {
             LOG_WARN("Cache population interrupted by shutdown");
             cache_->AbortPopulation();
+            backend_->Deauthorize();
             return false;
         }
         
         // Commit population (swap tables)
         if (!cache_->CommitPopulation()) {
             LOG_ERROR("Failed to commit cache population");
+            backend_->Deauthorize();
             return false;
         }
         
         LOG_INFO("Cache population completed: {} entries loaded", totalFetched);
+        
+        // Close synchronization session - this is critical for cleanup
+        // If deauthorization fails, we still return true because the data was successfully loaded
+        // The backend will clean up the session automatically after timeout
+        if (!backend_->Deauthorize()) {
+            LOG_WARN("Failed to deauthorize synchronization session (data was still loaded successfully, backend will clean up on timeout)");
+        } else {
+            LOG_INFO("Synchronization session deauthorized successfully");
+        }
+        
         return true;
         
     } catch (const std::exception& e) {
         LOG_ERROR("Exception during cache population: {}", e.what());
         cache_->AbortPopulation();
+        // Try to deauthorize if authorized
+        if (backend_->IsAuthorized()) {
+            backend_->Deauthorize();
+        }
         return false;
     }
 }
