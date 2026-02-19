@@ -48,9 +48,6 @@ Controller::Controller(ControllerId controllerId, std::shared_ptr<IBackend> back
         // The cache manager needs its own backend with independent session state so that synchronization
         // operations don't interfere with concurrent user authorization sessions in the main backend
         auto syncBackend = CreateDefaultBackendShared(backend_->GetControllerUid(), nullptr);
-        if (!syncBackend) {
-            throw std::runtime_error("Failed to create synchronization backend");
-        }
         cacheManager_ = std::make_shared<CacheManager>(userCache_, syncBackend);
         LOG_CTRL_INFO("User cache initialized at: {}", CACHE_DB_PATH);
     } catch (const std::exception& e) {

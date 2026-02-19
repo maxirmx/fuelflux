@@ -17,8 +17,10 @@ namespace fuelflux {
 
 // Cache manager that handles periodic population and updates
 // Important: CacheManager must be given a dedicated backend instance to avoid
-// JWT token conflicts with concurrent user operations. The backend passed should
-// not be shared with controller's user authorization operations.
+// JWT token conflicts with concurrent user operations. Each backend has a single
+// Session object that stores one JWT token. If the controller and cache_manager
+// shared the same backend, concurrent Authorize() calls would overwrite each other's
+// tokens, causing requests to fail or use incorrect authorization.
 class CacheManager {
 public:
     // Constructor takes a dedicated backend for synchronization operations
