@@ -296,6 +296,7 @@ TEST_F(ControllerTest, AuthorizationFallsBackToCacheOnNetworkError) {
 
     EXPECT_CALL(*mockBackend, Authorize("offline-user")).WillOnce(Return(false));
     ON_CALL(*mockBackend, IsNetworkError()).WillByDefault(Return(true));
+    ON_CALL(*mockBackend, FetchUserCards(_, _)).WillByDefault(Return(std::vector<UserCard>{}));
 
     controller->initialize();
     controller->requestAuthorization("offline-user");
@@ -313,6 +314,7 @@ TEST_F(ControllerTest, CachedAuthorizationAllowsAnyPositiveTankSelection) {
 
     EXPECT_CALL(*mockBackend, Authorize("offline-user")).WillOnce(Return(false));
     ON_CALL(*mockBackend, IsNetworkError()).WillByDefault(Return(true));
+    ON_CALL(*mockBackend, FetchUserCards(_, _)).WillByDefault(Return(std::vector<UserCard>{}));
 
     controller->initialize();
     std::thread controllerThread([this]() { controller->run(); });
@@ -339,6 +341,7 @@ TEST_F(ControllerTest, CachedAuthorizationRefuelGoesToBacklogAndSkipsDeauthorize
 
     EXPECT_CALL(*mockBackend, Authorize("offline-user")).WillOnce(Return(false));
     ON_CALL(*mockBackend, IsNetworkError()).WillByDefault(Return(true));
+    ON_CALL(*mockBackend, FetchUserCards(_, _)).WillByDefault(Return(std::vector<UserCard>{}));
     EXPECT_CALL(*mockBackend, Refuel(_, _)).Times(0);
     EXPECT_CALL(*mockBackend, Deauthorize()).Times(0);
 
@@ -366,6 +369,7 @@ TEST_F(ControllerTest, CachedAuthorizationIntakeGoesToBacklog) {
 
     EXPECT_CALL(*mockBackend, Authorize("offline-operator")).WillOnce(Return(false));
     ON_CALL(*mockBackend, IsNetworkError()).WillByDefault(Return(true));
+    ON_CALL(*mockBackend, FetchUserCards(_, _)).WillByDefault(Return(std::vector<UserCard>{}));
     EXPECT_CALL(*mockBackend, Intake(_, _, _)).Times(0);
 
     controller->initialize();
