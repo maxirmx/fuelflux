@@ -246,9 +246,13 @@ const std::vector<unsigned char>& FourLineDisplayImpl::render() {
 
         // First pass: Find the actual vertical extent of rendered pixels.
         // This captures ascenders above y_pos and descenders below line_bottom.
+        // We scan a reasonable range: from max(0, y_pos - line_height) to min(height_, y_pos + 2*line_height)
+        // This should capture all typical glyph extents while being more efficient than scanning the entire buffer.
+        const int scan_start = std::max(0, y_pos - line_height);
+        const int scan_end = std::min(height_, y_pos + 2 * line_height);
         int min_y = height_;
         int max_y = -1;
-        for (int y = 0; y < height_; ++y) {
+        for (int y = scan_start; y < scan_end; ++y) {
             for (int x = 0; x < available_width; ++x) {
                 if (get_pixel(impl_->line_buffer, available_width, height_, x, y)) {
                     min_y = std::min(min_y, y);
