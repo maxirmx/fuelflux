@@ -48,6 +48,7 @@ struct FourLineDisplayImpl::Impl {
     std::unique_ptr<FtText> small_ft;
     std::unique_ptr<FtText> large_ft;
     std::unique_ptr<MonoGfx> gfx;
+    std::vector<unsigned char> line_buffer;  // Reusable buffer for line rendering
 };
 
 FourLineDisplayImpl::FourLineDisplayImpl(int width,
@@ -226,12 +227,14 @@ const std::vector<unsigned char>& FourLineDisplayImpl::render() {
         // Select appropriate font renderer
         FtText* ft = (i == 1) ? impl_->large_ft.get() : impl_->small_ft.get();
 
-        // Render into intermediate content buffer first.
-        std::vector<unsigned char> line_fb(static_cast<size_t>(available_width * (height_ / 8)), 0);
+        // Reuse and clear the intermediate content buffer.
+        const size_t buffer_size = static_cast<size_t>(available_width * (height_ / 8));
+        impl_->line_buffer.resize(buffer_size);
+        std::fill(impl_->line_buffer.begin(), impl_->line_buffer.end(), 0);
         
         // Render and truncate into content-width intermediate buffer.
         try {
-            ft->draw_utf8(line_fb, available_width, height_, 0, y_pos, lines_[i], true);
+            ft->draw_utf8(impl_->line_buffer, available_width, height_, 0, y_pos, lines_[i], true);
         } catch (const std::exception&) {
             // Silently ignore rendering errors for individual lines
             continue;
@@ -241,7 +244,7 @@ const std::vector<unsigned char>& FourLineDisplayImpl::render() {
         int max_x = -1;
         for (int y = y_pos; y < line_bottom; ++y) {
             for (int x = 0; x < available_width; ++x) {
-                if (get_pixel(line_fb, available_width, height_, x, y)) {
+                if (get_pixel(impl_->line_buffer, available_width, height_, x, y)) {
                     min_x = std::min(min_x, x);
                     max_x = std::max(max_x, x);
                 }
@@ -257,7 +260,7 @@ const std::vector<unsigned char>& FourLineDisplayImpl::render() {
 
         for (int y = y_pos; y < line_bottom; ++y) {
             for (int src_x = min_x; src_x <= max_x; ++src_x) {
-                if (!get_pixel(line_fb, available_width, height_, src_x, y)) {
+                if (!get_pixel(impl_->line_buffer, available_width, height_, src_x, y)) {
                     continue;
                 }
                 const int dst_x = centered_start_x + (src_x - min_x);
