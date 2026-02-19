@@ -244,9 +244,29 @@ const std::vector<unsigned char>& FourLineDisplayImpl::render() {
             continue;
         }
 
+        // First pass: Find the actual vertical extent of rendered pixels.
+        // This captures ascenders above y_pos and descenders below line_bottom.
+        int min_y = height_;
+        int max_y = -1;
+        for (int y = 0; y < height_; ++y) {
+            for (int x = 0; x < available_width; ++x) {
+                if (get_pixel(impl_->line_buffer, available_width, height_, x, y)) {
+                    min_y = std::min(min_y, y);
+                    max_y = std::max(max_y, y);
+                    break;  // Found a pixel in this row, move to next row
+                }
+            }
+        }
+
+        // If no pixels were rendered, skip this line
+        if (max_y < min_y) {
+            continue;
+        }
+
+        // Second pass: Find horizontal bounds across the actual vertical extent
         int min_x = available_width;
         int max_x = -1;
-        for (int y = y_pos; y < line_bottom; ++y) {
+        for (int y = min_y; y <= max_y; ++y) {
             for (int x = 0; x < available_width; ++x) {
                 if (get_pixel(impl_->line_buffer, available_width, height_, x, y)) {
                     min_x = std::min(min_x, x);
@@ -262,7 +282,8 @@ const std::vector<unsigned char>& FourLineDisplayImpl::render() {
         const int rendered_width = (max_x - min_x + 1);
         const int centered_start_x = left_margin_ + (available_width - rendered_width) / 2;
 
-        for (int y = y_pos; y < line_bottom; ++y) {
+        // Blit all rendered pixels (within the actual vertical extent)
+        for (int y = min_y; y <= max_y; ++y) {
             for (int src_x = min_x; src_x <= max_x; ++src_x) {
                 if (!get_pixel(impl_->line_buffer, available_width, height_, src_x, y)) {
                     continue;
