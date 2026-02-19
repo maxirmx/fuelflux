@@ -4,9 +4,11 @@
 
 #include <gtest/gtest.h>
 #include "display/four_line_display_impl.h"
-#include <stdexcept>
+#include <algorithm>
 #include <array>
 #include <filesystem>
+#include <stdexcept>
+#include <utility>
 
 namespace {
 
