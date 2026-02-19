@@ -34,6 +34,7 @@ public:
     // Cache operations
     std::optional<UserCacheEntry> GetEntry(const std::string& uid) const;
     bool UpdateEntry(const std::string& uid, double allowance, int roleId);
+    bool DeductAllowance(const std::string& uid, double amount);
     int GetCount() const;
 
     // Population operations with flip/flop mechanism

@@ -466,7 +466,13 @@ std::vector<UserCard> BackendBase::FetchUserCards(int first, int number) {
             }
             
             if (item.contains("Allowance") && !item["Allowance"].is_null()) {
-                card.allowance = item["Allowance"].get<double>();
+                if (item["Allowance"].is_number()) {
+                    card.allowance = item["Allowance"].get<double>();
+                } else {
+                    LOG_BCK_ERROR("Invalid response format: expected array");
+                    lastError_ = StdBackendError;
+                    return result;
+                }
             }
             
             result.push_back(card);
