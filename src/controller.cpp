@@ -8,6 +8,7 @@
 #include "console_emulator.h"
 #include "user_cache.h"
 #include "cache_manager.h"
+#include "message_storage.h"
 #include "logger.h"
 #include <sstream>
 #include <iomanip>
@@ -49,6 +50,13 @@ Controller::Controller(ControllerId controllerId, std::shared_ptr<IBackend> back
     } catch (const std::exception& e) {
         LOG_CTRL_ERROR("Failed to initialize user cache: {}", e.what());
         // Continue without cache - non-blocking
+    }
+
+    try {
+        messageStorage_ = std::make_shared<MessageStorage>(STORAGE_DB_PATH);
+        LOG_CTRL_INFO("Message storage initialized at: {}", STORAGE_DB_PATH);
+    } catch (const std::exception& e) {
+        LOG_CTRL_ERROR("Failed to initialize message storage: {}", e.what());
     }
 }
 
@@ -385,7 +393,7 @@ void Controller::endCurrentSession() {
     if (flowMeter_) {
         flowMeter_->stopMeasurement();
     }
-    if (backend_ && backend_->IsAuthorized()) {
+    if (!sessionAuthorizedFromCache_ && backend_ && backend_->IsAuthorized()) {
         (void)backend_->Deauthorize();
     }
 }
@@ -429,6 +437,7 @@ void Controller::requestAuthorization(const UserId& userId) {
 
     // This method handles the actual authorization for both card and PIN
     if (backend_->Authorize(userId)) {
+        sessionAuthorizedFromCache_ = false;
         currentUser_.uid = userId;
         currentUser_.role = static_cast<UserRole>(backend_->GetRoleId());
         currentUser_.allowance = backend_->GetAllowance();
@@ -450,6 +459,21 @@ void Controller::requestAuthorization(const UserId& userId) {
         // Post event instead of processing it directly to maintain sequential event processing
         postEvent(Event::AuthorizationSuccess);
     } else {
+        if (backend_->IsNetworkError() && userCache_) {
+            auto cached = userCache_->GetEntry(userId);
+            if (cached.has_value()) {
+                sessionAuthorizedFromCache_ = true;
+                currentUser_.uid = cached->uid;
+                currentUser_.role = static_cast<UserRole>(cached->roleId);
+                currentUser_.allowance = cached->allowance;
+                currentUser_.price = 0.0;
+                availableTanks_.clear();
+                LOG_CTRL_WARN("Authorized user {} from cache due to backend network error", userId);
+                postEvent(Event::AuthorizationSuccess);
+                return;
+            }
+        }
+
         // Post event instead of processing it directly to maintain sequential event processing
         postEvent(Event::AuthorizationFailed);
     }
@@ -469,6 +493,10 @@ void Controller::selectTank(TankNumber tankNumber) {
 }
 
 bool Controller::isTankValid(TankNumber tankNumber) const {
+    if (sessionAuthorizedFromCache_) {
+        return tankNumber > 0;
+    }
+
     for (const auto& tank : availableTanks_) {
         if (tank.number == tankNumber) {
             return true;
@@ -547,7 +575,7 @@ void Controller::completeRefueling() {
     
     // After completing refuel, deauthorize the user to close the session
     // Do not reset session data here so the final pumped volume remains visible
-    if (backend_ && backend_->IsAuthorized()) {
+    if (!sessionAuthorizedFromCache_ && backend_ && backend_->IsAuthorized()) {
         (void)backend_->Deauthorize();
     }
 }
@@ -589,6 +617,26 @@ void Controller::completeIntakeOperation() {
 
 // Transaction logging
 void Controller::logRefuelTransaction(const RefuelTransaction& transaction) {
+    if (sessionAuthorizedFromCache_ && messageStorage_) {
+        const auto timestampMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+            transaction.timestamp.time_since_epoch()).count();
+
+        nlohmann::json payload;
+        payload["TankNumber"] = transaction.tankNumber;
+        payload["FuelVolume"] = transaction.volume;
+        payload["TimeAt"] = timestampMs;
+
+        const bool stored = messageStorage_->AddBacklog(transaction.userId, MessageMethod::Refuel, payload.dump());
+        if (!stored) {
+            LOG_CTRL_ERROR("Failed to save offline refuel report to backlog for user {}", transaction.userId);
+        }
+
+        if (cacheManager_ && currentUser_.role == UserRole::Customer) {
+            cacheManager_->DeductAllowance(transaction.userId, transaction.volume);
+        }
+        return;
+    }
+
     if (backend_) {
         (void)backend_->Refuel(transaction.tankNumber, transaction.volume);
         
@@ -601,6 +649,23 @@ void Controller::logRefuelTransaction(const RefuelTransaction& transaction) {
 }
 
 void Controller::logIntakeTransaction(const IntakeTransaction& transaction) {
+    if (sessionAuthorizedFromCache_ && messageStorage_) {
+        const auto timestampMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+            transaction.timestamp.time_since_epoch()).count();
+
+        nlohmann::json payload;
+        payload["TankNumber"] = transaction.tankNumber;
+        payload["IntakeVolume"] = transaction.volume;
+        payload["Direction"] = static_cast<int>(transaction.direction);
+        payload["TimeAt"] = timestampMs;
+
+        const bool stored = messageStorage_->AddBacklog(transaction.operatorId, MessageMethod::Intake, payload.dump());
+        if (!stored) {
+            LOG_CTRL_ERROR("Failed to save offline intake report to backlog for user {}", transaction.operatorId);
+        }
+        return;
+    }
+
     if (backend_) {
         (void)backend_->Intake(transaction.tankNumber, transaction.volume, transaction.direction);
     }
@@ -748,6 +813,7 @@ void Controller::resetSessionData() {
     selectedIntakeDirection_ = IntakeDirection::In;
     currentRefuelVolume_ = 0.0;
     targetRefuelVolume_ = 0.0;
+    sessionAuthorizedFromCache_ = false;
 }
 
 bool Controller::initializePeripherals() {
