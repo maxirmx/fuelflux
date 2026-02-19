@@ -459,7 +459,7 @@ void Controller::requestAuthorization(const UserId& userId) {
         // Post event instead of processing it directly to maintain sequential event processing
         postEvent(Event::AuthorizationSuccess);
     } else {
-        if (backend_->IsNetworkError() && userCache_) {
+        if (backend_->IsNetworkError() && userCache_ && messageStorage_) {
             auto cached = userCache_->GetEntry(userId);
             if (cached.has_value()) {
                 sessionAuthorizedFromCache_ = true;
