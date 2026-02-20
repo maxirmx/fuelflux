@@ -36,6 +36,8 @@ public:
      * @param right_margin Right margin in pixels (default: 0); non-drawable columns on the right edge.
      *                     Negative values are clamped to 0. If left_margin + right_margin >= width,
      *                     both margins are reset to 0.
+     * @param top_margin Top margin in pixels (default: 0); vertical offset for all content.
+     *                   Negative values are clamped to 0.
      * @throws std::invalid_argument if width <= 0, height <= 0, or height is not divisible by 8
      */
     FourLineDisplayImpl(int width = 128,
@@ -43,7 +45,8 @@ public:
                         int small_font_size = 12,
                         int large_font_size = 28,
                         int left_margin = 0,
-                        int right_margin = 0);
+                        int right_margin = 0,
+                        int top_margin = 0);
     ~FourLineDisplayImpl();
 
     FourLineDisplayImpl(const FourLineDisplayImpl&) = delete;
@@ -132,6 +135,7 @@ private:
     int large_font_size_;
     int left_margin_;
     int right_margin_;
+    int top_margin_;
 
     bool initialized_;
     std::string lines_[4];

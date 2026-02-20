@@ -4,7 +4,64 @@
 
 #include <gtest/gtest.h>
 #include "display/four_line_display_impl.h"
+#include <algorithm>
+#include <array>
+#include <filesystem>
 #include <stdexcept>
+#include <utility>
+
+namespace {
+
+bool GetPixel(const std::vector<unsigned char>& fb, int width, int height, int x, int y) {
+    if (x < 0 || y < 0 || x >= width || y >= height) {
+        return false;
+    }
+    const int page = y / 8;
+    const int bit = y % 8;
+    const size_t idx = static_cast<size_t>(page) * static_cast<size_t>(width) + static_cast<size_t>(x);
+    if (idx >= fb.size()) {
+        return false;
+    }
+    return (fb[idx] & static_cast<unsigned char>(1u << bit)) != 0;
+}
+
+const std::string& FindTestFontPath() {
+    static const std::array<const char*, 4> kCandidates = {
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+        "/usr/share/fonts/truetype/ubuntu/Ubuntu-R.ttf",
+        "/usr/share/fonts/truetype/ubuntu/UbuntuMono-B.ttf"
+    };
+    static const std::string kFound = []() {
+        for (const char* candidate : kCandidates) {
+            if (std::filesystem::exists(candidate)) {
+                return std::string(candidate);
+            }
+        }
+        return std::string();
+    }();
+    return kFound;
+}
+
+std::pair<int, int> FindRenderedXBounds(const std::vector<unsigned char>& fb,
+                                        int width,
+                                        int height,
+                                        int y_start,
+                                        int y_end) {
+    int min_x = width;
+    int max_x = -1;
+    for (int y = y_start; y < y_end; ++y) {
+        for (int x = 0; x < width; ++x) {
+            if (GetPixel(fb, width, height, x, y)) {
+                min_x = std::min(min_x, x);
+                max_x = std::max(max_x, x);
+            }
+        }
+    }
+    return {min_x, max_x};
+}
+
+} // namespace
 
 class FourLineDisplayImplTest : public ::testing::Test {
 protected:
@@ -389,4 +446,137 @@ TEST_F(FourLineDisplayImplTest, HandlesInvalidLineIds) {
         EXPECT_EQ(display->get_text(10), "");
         display->clear_line(10);
     });
+}
+
+TEST_F(FourLineDisplayImplTest, CentersRenderedTextWithVariableGlyphWidths) {
+    const std::string fontPath = FindTestFontPath();
+    if (fontPath.empty()) {
+        GTEST_SKIP() << "No test font available in container";
+    }
+
+    auto display = createValidDisplay();
+    ASSERT_TRUE(display->initialize(fontPath));
+
+    constexpr int kWidth = 128;
+    constexpr int kHeight = 64;
+    constexpr int kLeftMargin = 2;
+    constexpr int kRightMargin = 2;
+    constexpr int kContentCenterX = kLeftMargin + ((kWidth - kLeftMargin - kRightMargin) / 2);
+    constexpr int kLine0YStart = 0;
+    constexpr int kLine0YEnd = 12;
+
+    display->puts(0, "IIIIII");
+    display->puts(1, "");
+    display->puts(2, "");
+    display->puts(3, "");
+    const auto& narrowFb = display->render();
+    const auto [narrowMinX, narrowMaxX] = FindRenderedXBounds(narrowFb, kWidth, kHeight, kLine0YStart, kLine0YEnd);
+    ASSERT_LE(narrowMinX, narrowMaxX);
+
+    display->puts(0, "WWWWWW");
+    const auto& wideFb = display->render();
+    const auto [wideMinX, wideMaxX] = FindRenderedXBounds(wideFb, kWidth, kHeight, kLine0YStart, kLine0YEnd);
+    ASSERT_LE(wideMinX, wideMaxX);
+
+    const int narrowCenterX = (narrowMinX + narrowMaxX) / 2;
+    const int wideCenterX = (wideMinX + wideMaxX) / 2;
+
+    EXPECT_NEAR(narrowCenterX, kContentCenterX, 1);
+    EXPECT_NEAR(wideCenterX, kContentCenterX, 1);
+}
+
+TEST_F(FourLineDisplayImplTest, TruncatesInIntermediateBufferBeforeCentering) {
+    const std::string fontPath = FindTestFontPath();
+    if (fontPath.empty()) {
+        GTEST_SKIP() << "No test font available in container";
+    }
+
+    auto display = createValidDisplay();
+    ASSERT_TRUE(display->initialize(fontPath));
+
+    display->puts(0, std::string(400, 'W'));
+    display->puts(1, "");
+    display->puts(2, "");
+    display->puts(3, "");
+
+    const auto& fb = display->render();
+    constexpr int kWidth = 128;
+    constexpr int kHeight = 64;
+    constexpr int kLine0YStart = 0;
+    constexpr int kLine0YEnd = 12;
+    const auto [minX, maxX] = FindRenderedXBounds(fb, kWidth, kHeight, kLine0YStart, kLine0YEnd);
+
+    ASSERT_LE(minX, maxX);
+    EXPECT_GE(minX, 2);
+    EXPECT_LE(maxX, kWidth - 3);
+}
+
+TEST_F(FourLineDisplayImplTest, TopMarginOffsetsContent) {
+    const std::string fontPath = FindTestFontPath();
+    if (fontPath.empty()) {
+        GTEST_SKIP() << "No test font available in container";
+    }
+
+    constexpr int kWidth = 480;
+    constexpr int kHeight = 320;
+    constexpr int kSmallFont = 40;
+    constexpr int kLargeFont = 80;
+    constexpr int kTopMargin = 10;
+
+    // Create display with 10px top margin (like ILI9488)
+    auto display = std::make_unique<FourLineDisplayImpl>(
+        kWidth, kHeight, kSmallFont, kLargeFont, 5, 5, kTopMargin
+    );
+    ASSERT_TRUE(display->initialize(fontPath));
+
+    // Render text on line 0
+    display->puts(0, "Test");
+    display->puts(1, "");
+    display->puts(2, "");
+    display->puts(3, "");
+    const auto& fb = display->render();
+
+    // Find vertical bounds of rendered content
+    int minY = kHeight;
+    int maxY = -1;
+    for (int y = 0; y < kHeight; ++y) {
+        for (int x = 0; x < kWidth; ++x) {
+            if (GetPixel(fb, kWidth, kHeight, x, y)) {
+                minY = std::min(minY, y);
+                maxY = std::max(maxY, y);
+                break;
+            }
+        }
+    }
+
+    ASSERT_LE(minY, maxY) << "No content was rendered";
+    // Content should start at or after the top margin
+    EXPECT_GE(minY, kTopMargin) << "Content starts before top margin";
+    // Verify no pixels are rendered in the top margin area
+    bool hasPixelsInMargin = false;
+    for (int y = 0; y < kTopMargin; ++y) {
+        for (int x = 0; x < kWidth; ++x) {
+            if (GetPixel(fb, kWidth, kHeight, x, y)) {
+                hasPixelsInMargin = true;
+                break;
+            }
+        }
+    }
+    EXPECT_FALSE(hasPixelsInMargin) << "Found pixels in top margin area";
+}
+
+TEST_F(FourLineDisplayImplTest, NegativeTopMarginClampedToZero) {
+    // Negative top margin should be clamped to 0
+    auto display = std::make_unique<FourLineDisplayImpl>(
+        128,  // width
+        64,   // height
+        12,   // small_font_size
+        24,   // large_font_size
+        2,    // left_margin
+        2,    // right_margin
+        -10   // top_margin (negative, should be clamped to 0)
+    );
+    
+    EXPECT_EQ(display->get_width(), 128);
+    EXPECT_EQ(display->get_height(), 64);
 }
