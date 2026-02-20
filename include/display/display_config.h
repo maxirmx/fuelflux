@@ -28,6 +28,7 @@ namespace st7565 {
     constexpr int HEIGHT = 64;
     constexpr int LEFT_MARGIN = 2;
     constexpr int RIGHT_MARGIN = 2;
+    constexpr int TOP_MARGIN = 0;
     constexpr int SMALL_FONT_SIZE = 12;
     constexpr int LARGE_FONT_SIZE = 28;
     constexpr int SPI_SPEED = 8000000;   // 8 MHz
@@ -41,6 +42,7 @@ namespace ili9488 {
     constexpr int HEIGHT = 320;
     constexpr int LEFT_MARGIN = 5;
     constexpr int RIGHT_MARGIN = 5;
+    constexpr int TOP_MARGIN = 10;
     constexpr int SMALL_FONT_SIZE = 40;
     constexpr int LARGE_FONT_SIZE = 80;
     constexpr int SPI_SPEED = 8000000;  // 8 MHz

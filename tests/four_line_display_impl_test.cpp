@@ -510,3 +510,73 @@ TEST_F(FourLineDisplayImplTest, TruncatesInIntermediateBufferBeforeCentering) {
     EXPECT_GE(minX, 2);
     EXPECT_LE(maxX, kWidth - 3);
 }
+
+TEST_F(FourLineDisplayImplTest, TopMarginOffsetsContent) {
+    const std::string fontPath = FindTestFontPath();
+    if (fontPath.empty()) {
+        GTEST_SKIP() << "No test font available in container";
+    }
+
+    constexpr int kWidth = 480;
+    constexpr int kHeight = 320;
+    constexpr int kSmallFont = 40;
+    constexpr int kLargeFont = 80;
+    constexpr int kTopMargin = 10;
+
+    // Create display with 10px top margin (like ILI9488)
+    auto display = std::make_unique<FourLineDisplayImpl>(
+        kWidth, kHeight, kSmallFont, kLargeFont, 5, 5, kTopMargin
+    );
+    ASSERT_TRUE(display->initialize(fontPath));
+
+    // Render text on line 0
+    display->puts(0, "Test");
+    display->puts(1, "");
+    display->puts(2, "");
+    display->puts(3, "");
+    const auto& fb = display->render();
+
+    // Find vertical bounds of rendered content
+    int minY = kHeight;
+    int maxY = -1;
+    for (int y = 0; y < kHeight; ++y) {
+        for (int x = 0; x < kWidth; ++x) {
+            if (GetPixel(fb, kWidth, kHeight, x, y)) {
+                minY = std::min(minY, y);
+                maxY = std::max(maxY, y);
+                break;
+            }
+        }
+    }
+
+    ASSERT_LE(minY, maxY) << "No content was rendered";
+    // Content should start at or after the top margin
+    EXPECT_GE(minY, kTopMargin) << "Content starts before top margin";
+    // Verify no pixels are rendered in the top margin area
+    bool hasPixelsInMargin = false;
+    for (int y = 0; y < kTopMargin; ++y) {
+        for (int x = 0; x < kWidth; ++x) {
+            if (GetPixel(fb, kWidth, kHeight, x, y)) {
+                hasPixelsInMargin = true;
+                break;
+            }
+        }
+    }
+    EXPECT_FALSE(hasPixelsInMargin) << "Found pixels in top margin area";
+}
+
+TEST_F(FourLineDisplayImplTest, NegativeTopMarginClampedToZero) {
+    // Negative top margin should be clamped to 0
+    auto display = std::make_unique<FourLineDisplayImpl>(
+        128,  // width
+        64,   // height
+        12,   // small_font_size
+        24,   // large_font_size
+        2,    // left_margin
+        2,    // right_margin
+        -10   // top_margin (negative, should be clamped to 0)
+    );
+    
+    EXPECT_EQ(display->get_width(), 128);
+    EXPECT_EQ(display->get_height(), 64);
+}

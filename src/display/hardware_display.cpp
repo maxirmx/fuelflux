@@ -17,6 +17,7 @@ HardwareDisplay::HardwareDisplay(int width,
                                  int largeFontSize,
                                  int leftMargin,
                                  int rightMargin,
+                                 int topMargin,
                                  const std::string& spiDevice,
                                  int spiSpeed,
                                  const std::string& gpioChip,
@@ -30,6 +31,7 @@ HardwareDisplay::HardwareDisplay(int width,
     , largeFontSize_(largeFontSize)
     , leftMargin_(leftMargin)
     , rightMargin_(rightMargin)
+    , topMargin_(topMargin)
     , spiDevice_(spiDevice)
     , spiSpeed_(spiSpeed)
     , gpioChip_(gpioChip)
@@ -77,7 +79,8 @@ bool HardwareDisplay::initialize() {
             smallFontSize_,
             largeFontSize_,
             leftMargin_,
-            rightMargin_);
+            rightMargin_,
+            topMargin_);
         
         if (!displayImpl_->initialize(fontPath_)) {
             LOG_ERROR("Failed to initialize display rendering with font: {}", fontPath_);

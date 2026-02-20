@@ -43,6 +43,7 @@ protected:
      * @param largeFontSize Large font size in pixels
      * @param leftMargin Left margin in pixels
      * @param rightMargin Right margin in pixels
+     * @param topMargin Top margin in pixels
      * @param spiDevice SPI device path (e.g., "/dev/spidev1.0")
      * @param spiSpeed SPI speed in Hz
      * @param gpioChip GPIO chip path (e.g., "/dev/gpiochip0")
@@ -56,6 +57,7 @@ protected:
                     int largeFontSize,
                     int leftMargin,
                     int rightMargin,
+                    int topMargin,
                     const std::string& spiDevice,
                     int spiSpeed,
                     const std::string& gpioChip,
@@ -92,6 +94,7 @@ private:
     int largeFontSize_;
     int leftMargin_;
     int rightMargin_;
+    int topMargin_;
     std::string spiDevice_;
     int spiSpeed_;
     std::string gpioChip_;
