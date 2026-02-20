@@ -92,7 +92,14 @@ bool CacheManager::DeductAllowance(const std::string& uid, double amount) {
 std::chrono::system_clock::time_point CacheManager::CalculateNextDailyUpdate(int hour) const {
     auto now = std::chrono::system_clock::now();
     auto nowTime = std::chrono::system_clock::to_time_t(now);
+    
+    // Use thread-safe localtime variant
+#ifdef _WIN32
     std::tm* nowTm = std::localtime(&nowTime);
+#else
+    std::tm nowTmBuf;
+    std::tm* nowTm = localtime_r(&nowTime, &nowTmBuf);
+#endif
     
     // Create a time_point for today at the specified hour
     std::tm targetTm = *nowTm;
