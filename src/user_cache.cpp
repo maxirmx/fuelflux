@@ -198,11 +198,22 @@ bool UserCache::DeductAllowance(const std::string& uid, double amount) {
         tablesToUpdate.push_back(GetActiveTableName());
     }
 
+    // Use transaction to ensure both tables are updated atomically during population
+    if (populationInProgress_) {
+        char* errorMessage = nullptr;
+        if (sqlite3_exec(db_, "BEGIN TRANSACTION;", nullptr, nullptr, &errorMessage) != SQLITE_OK) {
+            sqlite3_free(errorMessage);
+            return false;
+        }
+    }
+
+    bool success = true;
     for (const auto& tableName : tablesToUpdate) {
         std::string updateSql = "INSERT OR REPLACE INTO " + tableName + " (uid, allowance, role_id) VALUES (?, ?, ?);";
         sqlite3_stmt* updateStmt = nullptr;
         if (sqlite3_prepare_v2(db_, updateSql.c_str(), -1, &updateStmt, nullptr) != SQLITE_OK) {
-            return false;
+            success = false;
+            break;
         }
 
         sqlite3_bind_text(updateStmt, 1, uid.c_str(), -1, SQLITE_TRANSIENT);
@@ -213,11 +224,22 @@ bool UserCache::DeductAllowance(const std::string& uid, double amount) {
         sqlite3_finalize(updateStmt);
         
         if (!ok) {
+            success = false;
+            break;
+        }
+    }
+
+    // Commit or rollback transaction during population
+    if (populationInProgress_) {
+        char* errorMessage = nullptr;
+        const char* sql = success ? "COMMIT;" : "ROLLBACK;";
+        if (sqlite3_exec(db_, sql, nullptr, nullptr, &errorMessage) != SQLITE_OK) {
+            sqlite3_free(errorMessage);
             return false;
         }
     }
 
-    return true;
+    return success;
 }
 
 int UserCache::GetCount() const {
