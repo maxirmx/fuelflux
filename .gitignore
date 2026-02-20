@@ -53,6 +53,9 @@ _codeql_detected_source_root
 # logs
 logs/
 
+# Generated config files (from .in templates)
+config/logging.json
+
 #
 .vs/
 coverage.info
