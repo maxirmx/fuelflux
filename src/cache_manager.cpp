@@ -76,17 +76,8 @@ bool CacheManager::DeductAllowance(const std::string& uid, double amount) {
         return false;
     }
     
-    // Get current entry
-    auto entry = cache_->GetEntry(uid);
-    if (!entry.has_value()) {
-        return false;
-    }
-    
-    // Deduct allowance (clamp to 0)
-    double newAllowance = std::max(0.0, entry->allowance - amount);
-    
-    // Update cache
-    return cache_->UpdateEntry(uid, newAllowance, entry->roleId);
+    // Use atomic deduct operation in UserCache
+    return cache_->DeductAllowance(uid, amount);
 }
 
 std::chrono::system_clock::time_point CacheManager::CalculateNextDailyUpdate(int hour) const {

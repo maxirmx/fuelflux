@@ -4,6 +4,7 @@
 
 #include "user_cache.h"
 
+#include <algorithm>
 #include <sqlite3.h>
 #include <filesystem>
 #include <stdexcept>
@@ -151,6 +152,65 @@ bool UserCache::UpdateEntry(const std::string& uid, double allowance, int roleId
 
         const bool ok = (sqlite3_step(stmt) == SQLITE_DONE);
         sqlite3_finalize(stmt);
+        
+        if (!ok) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+bool UserCache::DeductAllowance(const std::string& uid, double amount) {
+    std::lock_guard<std::mutex> lock(dbMutex_);
+    if (!db_) {
+        return false;
+    }
+
+    // First, get the current entry from active table
+    std::string selectSql = "SELECT allowance, role_id FROM " + GetActiveTableName() + " WHERE uid = ?;";
+    sqlite3_stmt* selectStmt = nullptr;
+    if (sqlite3_prepare_v2(db_, selectSql.c_str(), -1, &selectStmt, nullptr) != SQLITE_OK) {
+        return false;
+    }
+
+    sqlite3_bind_text(selectStmt, 1, uid.c_str(), -1, SQLITE_TRANSIENT);
+
+    if (sqlite3_step(selectStmt) != SQLITE_ROW) {
+        sqlite3_finalize(selectStmt);
+        return false; // Entry not found
+    }
+
+    double currentAllowance = sqlite3_column_double(selectStmt, 0);
+    int roleId = sqlite3_column_int(selectStmt, 1);
+    sqlite3_finalize(selectStmt);
+
+    // Calculate new allowance (clamp to 0)
+    double newAllowance = std::max(0.0, currentAllowance - amount);
+
+    // Update the entry (or both entries if population is in progress)
+    // Use INSERT OR REPLACE to handle standby table not having the entry yet
+    std::vector<std::string> tablesToUpdate;
+    if (populationInProgress_) {
+        tablesToUpdate.push_back(GetActiveTableName());
+        tablesToUpdate.push_back(GetStandbyTableName());
+    } else {
+        tablesToUpdate.push_back(GetActiveTableName());
+    }
+
+    for (const auto& tableName : tablesToUpdate) {
+        std::string updateSql = "INSERT OR REPLACE INTO " + tableName + " (uid, allowance, role_id) VALUES (?, ?, ?);";
+        sqlite3_stmt* updateStmt = nullptr;
+        if (sqlite3_prepare_v2(db_, updateSql.c_str(), -1, &updateStmt, nullptr) != SQLITE_OK) {
+            return false;
+        }
+
+        sqlite3_bind_text(updateStmt, 1, uid.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_double(updateStmt, 2, newAllowance);
+        sqlite3_bind_int(updateStmt, 3, roleId);
+
+        const bool ok = (sqlite3_step(updateStmt) == SQLITE_DONE);
+        sqlite3_finalize(updateStmt);
         
         if (!ok) {
             return false;
