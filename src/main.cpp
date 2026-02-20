@@ -35,6 +35,7 @@
 #include <chrono>
 #ifdef _WIN32
 #include <windows.h>
+#include <io.h>
 #include <conio.h>
 #else
 #include <unistd.h>
