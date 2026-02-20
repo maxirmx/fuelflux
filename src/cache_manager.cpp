@@ -102,7 +102,7 @@ std::chrono::system_clock::time_point CacheManager::CalculateNextDailyUpdate(int
 #endif
     
     if (!nowTm) {
-        // Fallback to current time if conversion fails
+        // Fallback: schedule next update 24 hours from now if conversion fails
         return now + std::chrono::hours(24);
     }
     
