@@ -26,6 +26,13 @@ struct BackendTankInfo {
     Volume volume = 0.0;  // Tank capacity in liters
 };
 
+// User card structure for cache population
+struct UserCard {
+    std::string uid;
+    int roleId = 0;
+    double allowance = 0.0;
+};
+
 // Interface for backend communication to enable mocking in tests
 class IBackend {
 public:
@@ -44,6 +51,8 @@ public:
     virtual const std::vector<BackendTankInfo>& GetFuelTanks() const = 0;
     virtual const std::string& GetLastError() const = 0;
     virtual bool IsNetworkError() const = 0;
+    virtual std::vector<UserCard> FetchUserCards(int first, int number) = 0;
+    virtual const std::string& GetControllerUid() const = 0;
 };
 
 // Base backend class with shared logic for request/response handling
@@ -80,6 +89,8 @@ public:
     const std::vector<BackendTankInfo>& GetFuelTanks() const override { return fuelTanks_; }
     const std::string& GetLastError() const override { return lastError_; }
     bool IsNetworkError() const override { return networkError_; }
+    std::vector<UserCard> FetchUserCards(int first, int number) override;
+    const std::string& GetControllerUid() const override { return controllerUid_; }
 
 protected:
     BackendBase(std::string controllerUid, std::shared_ptr<MessageStorage> storage);

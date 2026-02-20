@@ -271,6 +271,14 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
                 LOG_INFO("Controller initialized successfully");
             }
             
+            // Set cache manager and user cache for console commands
+            if (controller.getCacheManager()) {
+                emulator.setCacheManager(controller.getCacheManager());
+            }
+            if (controller.getUserCache()) {
+                emulator.setUserCache(controller.getUserCache());
+            }
+            
             // Start input dispatcher thread (handles both command and key modes)
             emulator.startInputDispatcher(g_running);
             

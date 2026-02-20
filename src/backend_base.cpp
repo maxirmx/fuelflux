@@ -418,4 +418,77 @@ bool BackendBase::IntakePayload(const std::string& payload) {
     }
 }
 
+std::vector<UserCard> BackendBase::FetchUserCards(int first, int number) {
+    std::vector<UserCard> result;
+    
+    try {
+        // Build the endpoint with query parameters
+        std::string endpoint = "/api/pump/cards?first=" + std::to_string(first) + 
+                               "&number=" + std::to_string(number);
+        
+        LOG_BCK_INFO("Fetching user cards: first={}, number={}", first, number);
+        
+        // Create an empty request body (GET-like request but using POST for consistency)
+        nlohmann::json requestBody;
+        requestBody["PumpControllerUid"] = controllerUid_;
+        
+        // Make the request with bearer token (will use controller's session)
+        nlohmann::json response = HttpRequestWrapper(endpoint, "POST", requestBody, true);
+        
+        std::string responseError;
+        if (IsErrorResponse(response, &responseError)) {
+            LOG_BCK_ERROR("Failed to fetch user cards: {}", responseError);
+            lastError_ = responseError;
+            return result;
+        }
+        
+        // Parse the response array
+        if (!response.is_array()) {
+            LOG_BCK_ERROR("Invalid response format: expected array");
+            lastError_ = StdBackendError;
+            return result;
+        }
+        
+        for (const auto& item : response) {
+            if (!item.is_object()) {
+                continue;
+            }
+            
+            UserCard card;
+            if (item.contains("Uid") && item["Uid"].is_string()) {
+                card.uid = item["Uid"].get<std::string>();
+            } else {
+                continue; // Skip entries without UID
+            }
+            
+            if (item.contains("RoleId") && item["RoleId"].is_number_integer()) {
+                card.roleId = item["RoleId"].get<int>();
+            }
+            
+            if (item.contains("Allowance") && !item["Allowance"].is_null()) {
+                if (item["Allowance"].is_number()) {
+                    card.allowance = item["Allowance"].get<double>();
+                } else {
+                    LOG_BCK_ERROR("Invalid response format: expected array");
+                    lastError_ = StdBackendError;
+                    return result;
+                }
+            }
+            
+            result.push_back(card);
+        }
+        
+        LOG_BCK_INFO("Fetched {} user cards", result.size());
+        lastError_.clear();
+        
+    } catch (const std::exception& e) {
+        LOG_BCK_ERROR("Failed to fetch user cards: {}", e.what());
+        if (lastError_.empty()) {
+            lastError_ = StdBackendError;
+        }
+    }
+    
+    return result;
+}
+
 } // namespace fuelflux

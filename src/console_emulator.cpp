@@ -6,6 +6,8 @@
 #include "display/console_display.h"
 #include "peripherals/display.h"
 #include "peripherals/keyboard_utils.h"
+#include "cache_manager.h"
+#include "user_cache.h"
 #include "logger.h"
 #include "version.h"
 #include <iostream>
@@ -807,11 +809,13 @@ void ConsoleEmulator::printWelcome() const {
 void ConsoleEmulator::printHelp() const {
     std::string help = "=== CONSOLE COMMANDS ===\n";
 #ifndef TARGET_REAL_CARD_READER
-    help += "card <user_id>  : Simulate card presentation\n";
+    help += "card <user_id>     : Simulate card presentation\n";
 #endif
-    help += "keymode         : Switch to key input mode\n";
-    help += "help            : Show this help\n";
-    help += "exit            : Exit application\n";
+    help += "cache_count        : Show number of cached users\n";
+    help += "cache_show <uid>   : Show cached info for specific UID\n";
+    help += "keymode            : Switch to key input mode\n";
+    help += "help               : Show this help\n";
+    help += "exit               : Exit application\n";
     help += "========================\n";
     help += "Command mode  : Type full commands, press Enter\n";
     help += "Key mode      : Press individual keys (A, B, 0-9, *, #)\n";
@@ -839,6 +843,32 @@ void ConsoleEmulator::processCommand(const std::string& command) {
         } else {
             logBlock("Usage: card <user_id>\nExample: card 2222-2222-2222-2222");
         }
+    } else if (cmd == "cache_count") {
+        if (userCache_) {
+            int count = userCache_->GetCount();
+            logLine(fmt::format("Cache contains {} user entries", count));
+        } else {
+            logLine("Cache not available");
+        }
+    } else if (cmd == "cache_show") {
+        std::string uid;
+        iss >> uid;
+        if (uid.empty()) {
+            logBlock("Usage: cache_show <uid>\nExample: cache_show 1000000000");
+        } else if (userCache_) {
+            auto entry = userCache_->GetEntry(uid);
+            if (entry.has_value()) {
+                std::string info = fmt::format(
+                    "UID: {}\nRole ID: {}\nAllowance: {:.2f} liters",
+                    entry->uid, entry->roleId, entry->allowance
+                );
+                logBlock(info);
+            } else {
+                logLine(fmt::format("No cache entry found for UID: {}", uid));
+            }
+        } else {
+            logLine("Cache not available");
+        }
     } else if (cmd == "help") {
         printHelp();
     }
@@ -859,11 +889,19 @@ void ConsoleEmulator::simulateCard(const UserId& userId) {
     }
 }
 
+void ConsoleEmulator::setCacheManager(std::shared_ptr<CacheManager> cacheManager) {
+    cacheManager_ = std::move(cacheManager);
+}
+
+void ConsoleEmulator::setUserCache(std::shared_ptr<UserCache> userCache) {
+    userCache_ = std::move(userCache);
+}
+
 void ConsoleEmulator::printAvailableCommands() const {
 #ifndef TARGET_REAL_CARD_READER
-    logLine("Available commands: card, keymode, help, exit");
+    logLine("Available commands: card, cache_count, cache_show <uid>, keymode, help, exit");
 #else
-    logLine("Available commands: keymode, help, exit");
+    logLine("Available commands: cache_count, cache_show <uid>, keymode, help, exit");
 #endif
 }
 

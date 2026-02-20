@@ -28,6 +28,8 @@ public:
     MOCK_METHOD(const std::vector<BackendTankInfo>&, GetFuelTanks, (), (const, override));
     MOCK_METHOD(const std::string&, GetLastError, (), (const, override));
     MOCK_METHOD(bool, IsNetworkError, (), (const, override));
+    MOCK_METHOD(std::vector<UserCard>, FetchUserCards, (int first, int number), (override));
+    MOCK_METHOD(const std::string&, GetControllerUid, (), (const, override));
 };
 
 TEST(BacklogWorkerTest, ProcessesBacklogSuccessfully) {

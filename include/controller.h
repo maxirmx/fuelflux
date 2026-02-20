@@ -13,12 +13,16 @@
 #include <condition_variable>
 
 #include "backend.h"
+#include "message_storage.h"
 #include "state_machine.h"
 #include "types.h"
 #include "peripherals/peripheral_interface.h"
 
-
 namespace fuelflux {
+
+// Forward declarations
+class CacheManager;
+class UserCache;
 
 // Main controller class that orchestrates the entire system
 class Controller {
@@ -132,6 +136,11 @@ class Controller {
 
     // Peripheral control
     void enableCardReading(bool enabled);
+    
+    // Cache management
+    std::shared_ptr<CacheManager> getCacheManager() const { return cacheManager_; }
+    std::shared_ptr<UserCache> getUserCache() const { return userCache_; }
+    bool isSessionAuthorizedFromCache() const { return sessionAuthorizedFromCache_; }
 
     // Utility functions
     std::string formatVolume(Volume volume) const;
@@ -155,6 +164,12 @@ class Controller {
     std::unique_ptr<peripherals::IPump> pump_;
     std::unique_ptr<peripherals::IFlowMeter> flowMeter_;
     std::shared_ptr<IBackend> backend_;
+    std::shared_ptr<MessageStorage> messageStorage_;
+    
+    // Cache components
+    std::shared_ptr<UserCache> userCache_;
+    std::shared_ptr<CacheManager> cacheManager_;
+    
     // Current session state
     UserInfo currentUser_;
     std::vector<TankInfo> availableTanks_;
@@ -172,6 +187,7 @@ class Controller {
     bool isRunning_;
     std::atomic<bool> threadExited_{false};
     std::string lastErrorMessage_;
+    bool sessionAuthorizedFromCache_ = false;
 
     // Event queue for cross-thread event posting
     std::queue<Event> eventQueue_;
