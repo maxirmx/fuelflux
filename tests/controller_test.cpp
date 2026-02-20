@@ -207,6 +207,7 @@ protected:
 
     void SetUp() override {
         std::filesystem::remove(STORAGE_DB_PATH);
+        std::filesystem::remove(CACHE_DB_PATH);
 
         auto backend = std::make_shared<NiceMock<MockBackend>>();
         mockBackend = backend.get();
