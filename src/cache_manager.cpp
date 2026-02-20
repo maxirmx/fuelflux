@@ -98,7 +98,7 @@ std::chrono::system_clock::time_point CacheManager::CalculateNextDailyUpdate(int
     std::tm* nowTm = std::localtime(&nowTime);
 #else
     std::tm nowTmBuf;
-    std::tm* nowTm = localtime_r(&nowTime, &nowTmBuf);
+    std::tm* nowTm = ::localtime_r(&nowTime, &nowTmBuf);
 #endif
     
     if (!nowTm) {
