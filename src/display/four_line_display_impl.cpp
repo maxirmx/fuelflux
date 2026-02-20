@@ -56,7 +56,8 @@ FourLineDisplayImpl::FourLineDisplayImpl(int width,
                                  int small_font_size,
                                  int large_font_size,
                                  int left_margin,
-                                 int right_margin)
+                                 int right_margin,
+                                 int top_margin)
     : impl_(std::make_unique<Impl>())
     , width_(width)
     , height_(height)
@@ -64,6 +65,7 @@ FourLineDisplayImpl::FourLineDisplayImpl(int width,
     , large_font_size_(large_font_size)
     , left_margin_(std::max(0, left_margin))
     , right_margin_(std::max(0, right_margin))
+    , top_margin_(std::max(0, top_margin))
     , initialized_(false)
 {
     if (width <= 0) {
@@ -139,7 +141,7 @@ int FourLineDisplayImpl::get_line_y_position(unsigned int line_id) const {
     // Line 2 (small, 12px): y=40
     // Line 3 (small, 12px): y=52
     
-    int y = 0;
+    int y = top_margin_;
     for (unsigned int i = 0; i < line_id && i < 4; ++i) {
         y += get_line_font_size(i);
     }
