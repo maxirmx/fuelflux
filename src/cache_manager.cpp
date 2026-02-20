@@ -101,6 +101,11 @@ std::chrono::system_clock::time_point CacheManager::CalculateNextDailyUpdate(int
     std::tm* nowTm = localtime_r(&nowTime, &nowTmBuf);
 #endif
     
+    if (!nowTm) {
+        // Fallback to current time if conversion fails
+        return now + std::chrono::hours(24);
+    }
+    
     // Create a time_point for today at the specified hour
     std::tm targetTm = *nowTm;
     targetTm.tm_hour = hour;
