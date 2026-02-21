@@ -5,34 +5,163 @@
 #include "peripherals/flow_meter.h"
 #include "logger.h"
 
+#ifdef TARGET_REAL_FLOW_METER
+#include <gpiod.h>
+#include <exception>
+#include <cerrno>
+#include <cstring>
+#endif
+
 namespace fuelflux::peripherals {
 
 HardwareFlowMeter::HardwareFlowMeter() 
     : m_connected(false), m_measuring(false), m_currentVolume(0.0), m_totalVolume(0.0) {
+#ifdef TARGET_REAL_FLOW_METER
+    gpioChip_ = flowmeter_defaults::GPIO_CHIP;
+    gpioPin_ = flowmeter_defaults::GPIO_PIN;
+    ticksPerLiter_ = flowmeter_defaults::TICKS_PER_LITER;
+    stopMonitoring_ = false;
+    pulseCount_ = 0;
+#endif
 }
+
+#ifdef TARGET_REAL_FLOW_METER
+HardwareFlowMeter::HardwareFlowMeter(const std::string& gpioChip,
+                                     int gpioPin,
+                                     double ticksPerLiter)
+    : gpioChip_(gpioChip)
+    , gpioPin_(gpioPin)
+    , ticksPerLiter_(ticksPerLiter)
+    , m_connected(false)
+    , m_measuring(false)
+    , m_currentVolume(0.0)
+    , m_totalVolume(0.0)
+    , stopMonitoring_(false)
+    , pulseCount_(0) {
+}
+#endif
 
 HardwareFlowMeter::~HardwareFlowMeter() {
     shutdown();
 }
 
 bool HardwareFlowMeter::initialize() {
+#ifdef TARGET_REAL_FLOW_METER
+    LOG_PERIPH_INFO("Initializing flow meter hardware on {} pin {} (ticks/L={})",
+                    gpioChip_, gpioPin_, ticksPerLiter_);
+    try {
+        // Verify GPIO chip is accessible
+        errno = 0;
+        struct gpiod_chip* chip = gpiod_chip_open(gpioChip_.c_str());
+        if (!chip) {
+            LOG_PERIPH_ERROR("Failed to open GPIO chip {}: {} (errno={})", 
+                           gpioChip_, std::strerror(errno), errno);
+            return false;
+        }
+        
+        // Verify GPIO line is accessible
+        errno = 0;
+        struct gpiod_line* line = gpiod_chip_get_line(chip, gpioPin_);
+        if (!line) {
+            LOG_PERIPH_ERROR("Failed to get GPIO line {}: {} (errno={})", 
+                           gpioPin_, std::strerror(errno), errno);
+            gpiod_chip_close(chip);
+            return false;
+        }
+        
+        // Close chip - we'll reopen it in the monitoring thread
+        gpiod_chip_close(chip);
+        
+        m_connected = true;
+        return true;
+    } catch (const std::exception& e) {
+        LOG_PERIPH_ERROR("Failed to initialize flow meter GPIO: {}", e.what());
+        m_connected = false;
+        return false;
+    }
+#else
     LOG_PERIPH_INFO("Initializing flow meter hardware...");
-    // Stub: In real implementation, this would initialize flow meter hardware
     m_connected = true;
     return true;
+#endif
 }
 
 void HardwareFlowMeter::shutdown() {
-    if (m_connected) {
-        LOG_PERIPH_INFO("Shutting down flow meter hardware...");
-        stopMeasurement();
-        m_connected = false;
+    if (!m_connected) {
+        return;
     }
+
+    LOG_PERIPH_INFO("Shutting down flow meter hardware...");
+    stopMeasurement();
+    m_connected = false;
 }
 
 bool HardwareFlowMeter::isConnected() const {
     return m_connected;
 }
+
+#ifdef TARGET_REAL_FLOW_METER
+void HardwareFlowMeter::monitorThread() {
+    // Open GPIO chip for this thread
+    errno = 0;
+    struct gpiod_chip* chip = gpiod_chip_open(gpioChip_.c_str());
+    if (!chip) {
+        LOG_PERIPH_ERROR("Monitor thread: Failed to open GPIO chip {}: {} (errno={})", 
+                       gpioChip_, std::strerror(errno), errno);
+        return;
+    }
+    
+    // Get GPIO line
+    errno = 0;
+    struct gpiod_line* line = gpiod_chip_get_line(chip, gpioPin_);
+    if (!line) {
+        LOG_PERIPH_ERROR("Monitor thread: Failed to get GPIO line {}: {} (errno={})", 
+                       gpioPin_, std::strerror(errno), errno);
+        gpiod_chip_close(chip);
+        return;
+    }
+    
+    // Request falling edge events (assuming active-low pulses like in reference)
+    errno = 0;
+    if (gpiod_line_request_falling_edge_events(line, "fuelflux-flowmeter-monitor") != 0) {
+        LOG_PERIPH_ERROR("Monitor thread: Failed to request falling edge events: {} (errno={})", 
+                        std::strerror(errno), errno);
+        gpiod_chip_close(chip);
+        return;
+    }
+
+    LOG_PERIPH_INFO("Flow meter monitoring thread started");
+    
+    while (!stopMonitoring_.load()) {
+        struct timespec timeout = { .tv_sec = 0, .tv_nsec = 100000000 }; // 100ms
+        errno = 0;
+        int rc = gpiod_line_event_wait(line, &timeout);
+        
+        if (rc < 0) {
+            LOG_PERIPH_ERROR("Flow meter event wait failed: {} (errno={})", 
+                           std::strerror(errno), errno);
+            break;
+        }
+        
+        if (rc == 1) {
+            struct gpiod_line_event ev;
+            errno = 0;
+            if (gpiod_line_event_read(line, &ev) == 0) {
+                pulseCount_.fetch_add(1, std::memory_order_relaxed);
+            } else {
+                LOG_PERIPH_ERROR("Failed to read flow meter event: {} (errno={})", 
+                               std::strerror(errno), errno);
+            }
+        }
+    }
+    
+    LOG_PERIPH_INFO("Flow meter monitoring thread stopped");
+    
+    // Clean up
+    gpiod_line_release(line);
+    gpiod_chip_close(chip);
+}
+#endif
 
 void HardwareFlowMeter::startMeasurement() {
     if (!m_connected) {
@@ -44,12 +173,32 @@ void HardwareFlowMeter::startMeasurement() {
         LOG_PERIPH_INFO("Starting flow measurement...");
         m_measuring = true;
         m_currentVolume = 0.0;
+        
+#ifdef TARGET_REAL_FLOW_METER
+        pulseCount_ = 0;
+        stopMonitoring_ = false;
+        monitorThread_ = std::thread(&HardwareFlowMeter::monitorThread, this);
+#endif
     }
 }
 
 void HardwareFlowMeter::stopMeasurement() {
     if (m_measuring) {
         LOG_PERIPH_INFO("Stopping flow measurement...");
+        
+#ifdef TARGET_REAL_FLOW_METER
+        stopMonitoring_ = true;
+        if (monitorThread_.joinable()) {
+            monitorThread_.join();
+        }
+        
+        // Calculate final volume from pulse count
+        uint64_t pulses = pulseCount_.load();
+        m_currentVolume = static_cast<Volume>(pulses) / ticksPerLiter_;
+        LOG_PERIPH_INFO("Flow measurement complete: {} pulses = {:.3f} liters", 
+                       pulses, m_currentVolume);
+#endif
+        
         m_measuring = false;
         
         // Add current volume to total
@@ -65,9 +214,18 @@ void HardwareFlowMeter::resetCounter() {
     LOG_PERIPH_INFO("Resetting volume counter...");
     m_currentVolume = 0.0;
     m_totalVolume = 0.0;
+#ifdef TARGET_REAL_FLOW_METER
+    pulseCount_ = 0;
+#endif
 }
 
 Volume HardwareFlowMeter::getCurrentVolume() const {
+#ifdef TARGET_REAL_FLOW_METER
+    if (m_measuring) {
+        uint64_t pulses = pulseCount_.load();
+        return static_cast<Volume>(pulses) / ticksPerLiter_;
+    }
+#endif
     return m_currentVolume;
 }
 
