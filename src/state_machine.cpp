@@ -101,10 +101,16 @@ bool StateMachine::processEvent(Event event) {
             );
         controller_->enableCardReading(cardReadingEnabled);
 
-        if ((toState == SystemState::Authorization || 
+        // Update display before action for specific states
+        bool updateDisplayBeforeAction = (
+            toState == SystemState::Authorization || 
             toState == SystemState::RefuelDataTransmission ||
-            toState == SystemState::RefuelDataTransmission)) controller_->updateDisplay();
-
+            toState == SystemState::IntakeDataTransmission
+        );
+        
+        if (updateDisplayBeforeAction) {
+            controller_->updateDisplay();
+        }
     }
 
     // Execute transition action
@@ -119,7 +125,16 @@ bool StateMachine::processEvent(Event event) {
     }
 
     if (controller_) {
-        if (stateChanged || event == Event::InputUpdated) controller_->updateDisplay();
+        // Update display after action for all other states
+        bool updateDisplayBeforeAction = (
+            toState == SystemState::Authorization || 
+            toState == SystemState::RefuelDataTransmission ||
+            toState == SystemState::IntakeDataTransmission
+        );
+        
+        if (!updateDisplayBeforeAction && (stateChanged || event == Event::InputUpdated)) {
+            controller_->updateDisplay();
+        }
     }
 
     LOG_SM_INFO("Transition: {} -> {} (event: {})",
