@@ -562,7 +562,7 @@ DisplayMessage StateMachine::getDisplayMessage() const {
 
         case SystemState::IntakeDataTransmission:
             message.line1 = "Передача данных...";
-            message.line2 = controller_->formatVolume(controller_->getEnteredVolume());;
+            message.line2 = controller_->formatVolume(controller_->getEnteredVolume());
             message.line3 = "";
             message.line4 = "Ожидайте";
             break;
