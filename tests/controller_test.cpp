@@ -194,39 +194,25 @@ protected:
     MockPump* mockPump;
     MockFlowMeter* mockFlowMeter;
 
-    // Helper to safely shutdown controller and join thread
-    void shutdownControllerAndJoinThread(std::thread& controllerThread) {
-        // shutdown() now waits for thread to exit cleanly
-        controller->shutdown();
-        
-        // Just ensure thread is joinable (should always be true after shutdown waits)
-        if (controllerThread.joinable()) {
-            controllerThread.join();
-        }
-    }
-
-    void SetUp() override {
-        std::filesystem::remove(STORAGE_DB_PATH);
-        std::filesystem::remove(CACHE_DB_PATH);
-
+    void createController(std::chrono::seconds noFlowCancelTimeout = std::chrono::seconds(30)) {
         auto backend = std::make_shared<NiceMock<MockBackend>>();
         mockBackend = backend.get();
-        controller = std::make_unique<Controller>(CONTROLLER_UID, backend);
-        
+        controller = std::make_unique<Controller>(CONTROLLER_UID, backend, noFlowCancelTimeout);
+
         // Create mocks (use raw pointers as Controller takes ownership)
         auto display = std::make_unique<NiceMock<MockDisplay>>();
         auto keyboard = std::make_unique<NiceMock<MockKeyboard>>();
         auto cardReader = std::make_unique<NiceMock<MockCardReader>>();
         auto pump = std::make_unique<NiceMock<MockPump>>();
         auto flowMeter = std::make_unique<NiceMock<MockFlowMeter>>();
-        
+
         // Store raw pointers for testing
         mockDisplay = display.get();
         mockKeyboard = keyboard.get();
         mockCardReader = cardReader.get();
         mockPump = pump.get();
         mockFlowMeter = flowMeter.get();
-        
+
         // Set up default return values
         ON_CALL(*mockDisplay, initialize()).WillByDefault(Return(true));
         ON_CALL(*mockKeyboard, initialize()).WillByDefault(Return(true));
@@ -250,19 +236,36 @@ protected:
         ON_CALL(*mockBackend, GetPrice()).WillByDefault(ReturnPointee(&mockBackend->price_));
         ON_CALL(*mockBackend, GetFuelTanks()).WillByDefault(ReturnRef(mockBackend->tanksStorage_));
         ON_CALL(*mockBackend, GetLastError()).WillByDefault(ReturnRef(mockBackend->lastErrorStorage_));
-        
+
         ON_CALL(*mockDisplay, isConnected()).WillByDefault(Return(true));
         ON_CALL(*mockKeyboard, isConnected()).WillByDefault(Return(true));
         ON_CALL(*mockCardReader, isConnected()).WillByDefault(Return(true));
         ON_CALL(*mockPump, isConnected()).WillByDefault(Return(true));
         ON_CALL(*mockFlowMeter, isConnected()).WillByDefault(Return(true));
-        
+
         // Transfer ownership to controller
         controller->setDisplay(std::move(display));
         controller->setKeyboard(std::move(keyboard));
         controller->setCardReader(std::move(cardReader));
         controller->setPump(std::move(pump));
         controller->setFlowMeter(std::move(flowMeter));
+    }
+
+    // Helper to safely shutdown controller and join thread
+    void shutdownControllerAndJoinThread(std::thread& controllerThread) {
+        // shutdown() now waits for thread to exit cleanly
+        controller->shutdown();
+        
+        // Just ensure thread is joinable (should always be true after shutdown waits)
+        if (controllerThread.joinable()) {
+            controllerThread.join();
+        }
+    }
+
+    void SetUp() override {
+        std::filesystem::remove(STORAGE_DB_PATH);
+        std::filesystem::remove(CACHE_DB_PATH);
+        createController();
     }
 
     void TearDown() override {
@@ -641,6 +644,70 @@ TEST_F(ControllerTest, NotAuthorizedCancelAndTimeoutReturnToWaiting) {
 
     controller->postEvent(Event::Timeout);
     ASSERT_TRUE(waitForState(SystemState::Waiting));
+
+    shutdownControllerAndJoinThread(controllerThread);
+}
+
+TEST_F(ControllerTest, CancelNoFuelInRefuelingBehavesLikeCancelPressed) {
+    mockBackend->roleId_ = static_cast<int>(UserRole::Customer);
+    mockBackend->allowance_ = 100.0;
+    mockBackend->price_ = 1.0;
+    mockBackend->tanksStorage_ = { BackendTankInfo{1, "Tank A"} };
+
+    EXPECT_CALL(*mockBackend, Authorize("customer-card")).WillOnce([this]() {
+        mockBackend->authorized_ = true;
+        return true;
+    });
+
+    controller->initialize();
+
+    std::thread controllerThread([this]() { controller->run(); });
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+
+    controller->handleCardPresented("customer-card");
+    ASSERT_TRUE(waitForState(SystemState::TankSelection));
+
+    controller->selectTank(1);
+    ASSERT_TRUE(waitForState(SystemState::VolumeEntry));
+
+    controller->enterVolume(10.0);
+    ASSERT_TRUE(waitForState(SystemState::Refueling));
+
+    controller->postEvent(Event::CancelNoFuel);
+    ASSERT_TRUE(waitForState(SystemState::RefuelingComplete));
+
+    shutdownControllerAndJoinThread(controllerThread);
+}
+
+TEST_F(ControllerTest, NoFlowWatchdogCancelsRefueling) {
+    controller->shutdown();
+    createController(std::chrono::seconds(1));
+
+    mockBackend->roleId_ = static_cast<int>(UserRole::Customer);
+    mockBackend->allowance_ = 100.0;
+    mockBackend->price_ = 1.0;
+    mockBackend->tanksStorage_ = { BackendTankInfo{1, "Tank A"} };
+
+    EXPECT_CALL(*mockBackend, Authorize("customer-card")).WillOnce([this]() {
+        mockBackend->authorized_ = true;
+        return true;
+    });
+
+    controller->initialize();
+
+    std::thread controllerThread([this]() { controller->run(); });
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+
+    controller->handleCardPresented("customer-card");
+    ASSERT_TRUE(waitForState(SystemState::TankSelection));
+
+    controller->selectTank(1);
+    ASSERT_TRUE(waitForState(SystemState::VolumeEntry));
+
+    controller->enterVolume(10.0);
+    ASSERT_TRUE(waitForState(SystemState::Refueling));
+
+    ASSERT_TRUE(waitForState(SystemState::RefuelingComplete, std::chrono::milliseconds(2500)));
 
     shutdownControllerAndJoinThread(controllerThread);
 }
@@ -1202,7 +1269,7 @@ TEST_F(ControllerTest, DisplayMessageVolumeEntryState) {
     // Verify structure
     EXPECT_EQ(msg.line1, "Введите объём");
     // line2 is current input
-    EXPECT_TRUE(msg.line3.find("Макс(*)") != std::string::npos);  // Should show max for customers
+    EXPECT_TRUE(msg.line3.find("макс(*)") != std::string::npos);  // Should show max for customers
     EXPECT_EQ(msg.line4, "Старт(A)/Отмена(B)");
     
     shutdownControllerAndJoinThread(controllerThread);
