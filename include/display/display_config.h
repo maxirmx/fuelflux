@@ -45,7 +45,7 @@ namespace ili9488 {
     constexpr int TOP_MARGIN = 10;
     constexpr int SMALL_FONT_SIZE = 40;
     constexpr int LARGE_FONT_SIZE = 80;
-    constexpr int SPI_SPEED = 8000000;  // 8 MHz
+    constexpr int SPI_SPEED = 32000000;  // 32 MHz
 }
 
 } // namespace fuelflux::display

@@ -119,6 +119,13 @@ void HardwareDisplay::shutdown() {
         }
         isConnected_ = false;
     }
+
+    // Release all resources so initialize() can be called again
+    displayImpl_.reset();
+    lcd_.reset();
+    dcLine_.reset();
+    rstLine_.reset();
+    spi_.reset();
 }
 
 bool HardwareDisplay::isConnected() const {
