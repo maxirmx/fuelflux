@@ -90,6 +90,15 @@ bool StateMachine::processEvent(Event event) {
         lastActivityTime_ = std::chrono::steady_clock::now();
     }
 
+    // Determine if display should be updated before or after the transition action
+    // For Authorization and data transmission states, update display before action
+    // For all other states, update display after action
+    const bool shouldUpdateDisplayBeforeAction = (
+        toState == SystemState::Authorization || 
+        toState == SystemState::RefuelDataTransmission ||
+        toState == SystemState::IntakeDataTransmission
+    );
+
     if (controller_) {
         // Enable card reading only in Waiting state.
         // In PinEntry state, the user is entering a PIN via keyboard,
@@ -102,13 +111,7 @@ bool StateMachine::processEvent(Event event) {
         controller_->enableCardReading(cardReadingEnabled);
 
         // Update display before action for specific states
-        bool updateDisplayBeforeAction = (
-            toState == SystemState::Authorization || 
-            toState == SystemState::RefuelDataTransmission ||
-            toState == SystemState::IntakeDataTransmission
-        );
-        
-        if (updateDisplayBeforeAction) {
+        if (shouldUpdateDisplayBeforeAction) {
             controller_->updateDisplay();
         }
     }
@@ -126,13 +129,7 @@ bool StateMachine::processEvent(Event event) {
 
     if (controller_) {
         // Update display after action for all other states
-        bool updateDisplayBeforeAction = (
-            toState == SystemState::Authorization || 
-            toState == SystemState::RefuelDataTransmission ||
-            toState == SystemState::IntakeDataTransmission
-        );
-        
-        if (!updateDisplayBeforeAction && (stateChanged || event == Event::InputUpdated)) {
+        if (!shouldUpdateDisplayBeforeAction && (stateChanged || event == Event::InputUpdated)) {
             controller_->updateDisplay();
         }
     }
