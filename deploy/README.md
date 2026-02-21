@@ -54,8 +54,10 @@ After installation:
 
 ```
 /opt/fuelflux/
-└── bin/
-    └── fuelflux          # Application binary
+├── bin/
+│   └── fuelflux          # Application binary
+└── config/
+    └── logging.json      # Logging configuration
 
 /etc/fuelflux/
 └── fuelflux.env          # Environment configuration

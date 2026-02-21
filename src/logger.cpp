@@ -237,7 +237,13 @@ bool Logger::loadConfig(const std::string& configPath) {
                 // Ensure parent directory exists for log file
                 std::filesystem::path logPath(filename);
                 if (logPath.has_parent_path()) {
-                    std::filesystem::create_directories(logPath.parent_path());
+                    std::error_code ec;
+                    std::filesystem::create_directories(logPath.parent_path(), ec);
+                    if (ec) {
+                        std::cerr << "[Logger] Failed to create log directory '" 
+                                  << logPath.parent_path() << "': " << ec.message() << std::endl;
+                        throw std::runtime_error("Failed to create log directory: " + ec.message());
+                    }
                 }
 
                 // Parse size string (e.g., "10MB" -> bytes)
