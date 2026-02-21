@@ -194,7 +194,17 @@ void Controller::run() {
         }
 
         if (haveEvent) {
-            stateMachine_.processEvent(event);
+            // Handle DisplayReset event in the controller thread to avoid race conditions.
+            // This event bypasses the state machine because display reset is a hardware
+            // operation that doesn't affect logical state transitions. The state machine
+            // state is preserved across display resets, and the display simply shows the
+            // same state information after reinitialization. This design keeps display
+            // hardware management separate from business logic.
+            if (event == Event::DisplayReset) {
+                reinitializeDisplay();
+            } else {
+                stateMachine_.processEvent(event);
+            }
         } else {
             // Small sleep to avoid busy loop when no events are present
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
@@ -293,9 +303,12 @@ void Controller::handleKeyPress(KeyCode key) {
         case KeyCode::KeyStop:
             postEvent(Event::CancelPressed);
             break;
-            
+
+        case KeyCode::KeyDisplayReset:
+            postEvent(Event::DisplayReset);
+            break;
     }
-    
+
 }
 
 void Controller::handleCardPresented(const UserId& userId) {
@@ -369,9 +382,22 @@ void Controller::handleFlowUpdate(Volume currentVolume) {
 // Display management
 void Controller::updateDisplay() {
     if (!display_) return;
-    
+
     DisplayMessage message = stateMachine_.getDisplayMessage();
     display_->showMessage(message);
+}
+
+void Controller::reinitializeDisplay() {
+    LOG_CTRL_INFO("Display reset requested");
+    if (display_) {
+        display_->shutdown();
+        if (display_->initialize()) {
+            updateDisplay();
+            LOG_CTRL_INFO("Display reinitialized successfully");
+        } else {
+            LOG_CTRL_ERROR("Failed to reinitialize display");
+        }
+    }
 }
 
 void Controller::showMessage(DisplayMessage message) {

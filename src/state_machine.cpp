@@ -90,6 +90,15 @@ bool StateMachine::processEvent(Event event) {
         lastActivityTime_ = std::chrono::steady_clock::now();
     }
 
+    // Determine if display should be updated before or after the transition action
+    // For Authorization and data transmission states, update display before action
+    // For all other states, update display after action
+    const bool shouldUpdateDisplayBeforeAction = (
+        toState == SystemState::Authorization || 
+        toState == SystemState::RefuelDataTransmission ||
+        toState == SystemState::IntakeDataTransmission
+    );
+
     if (controller_) {
         // Enable card reading only in Waiting state.
         // In PinEntry state, the user is entering a PIN via keyboard,
@@ -101,10 +110,10 @@ bool StateMachine::processEvent(Event event) {
             );
         controller_->enableCardReading(cardReadingEnabled);
 
-        if ((toState == SystemState::Authorization || 
-            toState == SystemState::RefuelDataTransmission ||
-            toState == SystemState::RefuelDataTransmission)) controller_->updateDisplay();
-
+        // Update display before action for specific states
+        if (shouldUpdateDisplayBeforeAction) {
+            controller_->updateDisplay();
+        }
     }
 
     // Execute transition action
@@ -119,7 +128,10 @@ bool StateMachine::processEvent(Event event) {
     }
 
     if (controller_) {
-        if (stateChanged || event == Event::InputUpdated) controller_->updateDisplay();
+        // Update display after action for all other states
+        if (!shouldUpdateDisplayBeforeAction && (stateChanged || event == Event::InputUpdated)) {
+            controller_->updateDisplay();
+        }
     }
 
     LOG_SM_INFO("Transition: {} -> {} (event: {})",
@@ -539,10 +551,10 @@ DisplayMessage StateMachine::getDisplayMessage() const {
             break;
 
         case SystemState::RefuelingComplete:
-            message.line1 = "Заправка завершена";
+            message.line1 = "Заправка выполнена на";
             message.line2 = controller_->formatVolume(controller_->getCurrentRefuelVolume());
-            message.line3 = "";
-            message.line4 = "Приложите карту";
+            message.line3 = "Для новой заправки";
+            message.line4 = "приложите карту";
             break;
 
         case SystemState::IntakeDirectionSelection:
@@ -562,18 +574,17 @@ DisplayMessage StateMachine::getDisplayMessage() const {
 
         case SystemState::IntakeDataTransmission:
             message.line1 = "Передача данных...";
-            message.line2 = controller_->formatVolume(controller_->getEnteredVolume());;
+            message.line2 = controller_->formatVolume(controller_->getEnteredVolume());
             message.line3 = "";
             message.line4 = "Ожидайте";
             break;
 
         case SystemState::IntakeComplete:
-            message.line1 = (controller_->getSelectedIntakeDirection() == IntakeDirection::In)
-                ? "Приём завершён"
-                : "Слив завершён";
+            message.line1 = "Цистерна " + std::to_string(controller_->getSelectedTank()) + 
+                            ((controller_->getSelectedIntakeDirection() == IntakeDirection::In) ? " приём на" : " cлив на");
             message.line2 = controller_->formatVolume(controller_->getEnteredVolume());
-            message.line3 = "Цистерна " + std::to_string(controller_->getSelectedTank());
-            message.line4 = "Приложите карту";
+            message.line3 = "Для новой операции";
+            message.line4 = "приложите карту";
             break;
 
         case SystemState::Error:

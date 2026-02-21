@@ -133,7 +133,9 @@ void HardwareFlowMeter::monitorThread() {
     LOG_PERIPH_INFO("Flow meter monitoring thread started");
     
     while (!stopMonitoring_.load(std::memory_order_acquire)) {
-        struct timespec timeout = { .tv_sec = 0, .tv_nsec = 100000000 }; // 100ms
+        struct timespec timeout;
+        timeout.tv_sec = 0;
+        timeout.tv_nsec = 100000000; // 100ms
         errno = 0;
         int rc = gpiod_line_event_wait(line, &timeout);
         

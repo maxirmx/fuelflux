@@ -73,17 +73,19 @@ enum class Event {
     CancelNoFuel,
     Timeout,
     Error,
-    ErrorRecovery
+    ErrorRecovery,
+    DisplayReset
 };
 
 // Key codes for keyboard input
 enum class KeyCode {
     Key0 = '0', Key1 = '1', Key2 = '2', Key3 = '3', Key4 = '4',
     Key5 = '5', Key6 = '6', Key7 = '7', Key8 = '8', Key9 = '9',
-    KeyMax = '*',     // Maximum volume/amount
-    KeyClear = '#',   // Clear last digit
-    KeyStart = 'A',   // Start/Enter
-    KeyStop  = 'B'    // Stop/Cancel
+    KeyMax = '*',           // Maximum volume/amount
+    KeyClear = '#',         // Clear last digit
+    KeyStart = 'A',         // Start/Enter
+    KeyStop  = 'B',         // Stop/Cancel
+    KeyDisplayReset = 'D'   // Reinitialize and update display
 };
 
 // User information
