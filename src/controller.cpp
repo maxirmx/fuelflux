@@ -29,7 +29,9 @@ std::shared_ptr<IBackend> Controller::CreateDefaultBackendShared(const std::stri
     return std::make_shared<Backend>(BACKEND_API_URL, controllerUid, storage);
 }
 
-Controller::Controller(ControllerId controllerId, std::shared_ptr<IBackend> backend)
+Controller::Controller(ControllerId controllerId,
+                       std::shared_ptr<IBackend> backend,
+                       std::chrono::seconds noFlowCancelTimeout)
     : controllerId_(std::move(controllerId))
     , stateMachine_(this)
     , backend_(backend ? std::move(backend) : CreateDefaultBackend())
@@ -39,6 +41,7 @@ Controller::Controller(ControllerId controllerId, std::shared_ptr<IBackend> back
     , currentRefuelVolume_(0.0)
     , targetRefuelVolume_(0.0)
     , isRunning_(false)
+    , noFlowCancelTimeout_(noFlowCancelTimeout)
 {
     resetSessionData();
     
@@ -93,6 +96,7 @@ bool Controller::initialize() {
     // the controller to run in Error state and wait for reinitialization.
     // All peripheral operations check for null/connected status before use.
     isRunning_ = true;
+    startNoFlowMonitorThread();
     if (!ok) {
         LOG_CTRL_ERROR("Initialization completed with errors");
         stateMachine_.processEvent(Event::Error);
@@ -113,6 +117,7 @@ void Controller::shutdown() {
     
     if (isRunning_) {
         isRunning_ = false;
+        stopNoFlowMonitorThread();
         eventCv_.notify_all();
         
         // Wait for the event loop thread to actually exit
@@ -304,6 +309,13 @@ void Controller::handlePumpStateChanged(bool isRunning) {
     LOG_CTRL_INFO("Pump state changed: {}", isRunning ? "Running" : "Stopped");
     
     if (isRunning) {
+        {
+            std::lock_guard<std::mutex> lock(noFlowMonitorMutex_);
+            pumpRunning_ = true;
+            noFlowCancelPosted_ = false;
+            lastFlowUpdateTime_ = std::chrono::steady_clock::now();
+        }
+
         if (flowMeter_) {
             flowMeter_->resetCounter();
             flowMeter_->startMeasurement();
@@ -323,6 +335,12 @@ void Controller::handlePumpStateChanged(bool isRunning) {
         }
         refuelStartTime_ = std::chrono::steady_clock::now();
     } else if (!isRunning) {
+        {
+            std::lock_guard<std::mutex> lock(noFlowMonitorMutex_);
+            pumpRunning_ = false;
+            noFlowCancelPosted_ = false;
+        }
+
         if (flowMeter_) {
             flowMeter_->stopMeasurement();
         }
@@ -332,6 +350,11 @@ void Controller::handlePumpStateChanged(bool isRunning) {
 
 void Controller::handleFlowUpdate(Volume currentVolume) {
     currentRefuelVolume_ = currentVolume;
+
+    {
+        std::lock_guard<std::mutex> lock(noFlowMonitorMutex_);
+        lastFlowUpdateTime_ = std::chrono::steady_clock::now();
+    }
     
     // Check if target volume reached
     if (targetRefuelVolume_ > 0.0 && currentVolume >= targetRefuelVolume_) {
@@ -878,6 +901,46 @@ void Controller::shutdownPeripherals() {
     if (cardReader_) cardReader_->shutdown();
     if (pump_) pump_->shutdown();
     if (flowMeter_) flowMeter_->shutdown();
+}
+
+void Controller::startNoFlowMonitorThread() {
+    stopNoFlowMonitorThread();
+
+    noFlowMonitorRunning_.store(true);
+    noFlowMonitorThread_ = std::thread(&Controller::noFlowMonitorThreadFunction, this);
+}
+
+void Controller::stopNoFlowMonitorThread() {
+    noFlowMonitorRunning_.store(false);
+    if (noFlowMonitorThread_.joinable()) {
+        noFlowMonitorThread_.join();
+    }
+}
+
+void Controller::noFlowMonitorThreadFunction() {
+    LOG_CTRL_DEBUG("No-flow monitor thread started");
+    while (noFlowMonitorRunning_.load()) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(200));
+
+        bool shouldCancel = false;
+        {
+            std::lock_guard<std::mutex> lock(noFlowMonitorMutex_);
+            if (pumpRunning_ && !noFlowCancelPosted_) {
+                const auto elapsed = std::chrono::steady_clock::now() - lastFlowUpdateTime_;
+                if (elapsed >= noFlowCancelTimeout_) {
+                    noFlowCancelPosted_ = true;
+                    shouldCancel = true;
+                }
+            }
+        }
+
+        if (shouldCancel && stateMachine_.getCurrentState() == SystemState::Refueling) {
+            LOG_CTRL_WARN("Pump is running without flow for {} seconds, cancelling refueling",
+                          noFlowCancelTimeout_.count());
+            postEvent(Event::CancelNoFuel);
+        }
+    }
+    LOG_CTRL_DEBUG("No-flow monitor thread stopped");
 }
 
 } // namespace fuelflux
