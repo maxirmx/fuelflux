@@ -5,9 +5,8 @@
 #include "peripherals/card_reader.h"
 #include "logger.h"
 
-#include <cstdlib>
-
 #ifdef TARGET_REAL_CARD_READER
+#include "hardware/hardware_config.h"
 #include <nfc/nfc.h>
 
 #include <chrono>
@@ -76,7 +75,9 @@ bool HardwareCardReader::initialize() {
         return true;
     }
 
-    const std::string connstring = resolveConnstring();
+    const std::string connstring = connstring_.empty() 
+        ? std::string("pn532_i2c:") + hardware::config::card_reader::I2C_DEVICE
+        : connstring_;
     nfc_init(&context_);
     if (!context_) {
         LOG_ERROR("NFC init failed");
@@ -179,27 +180,6 @@ void HardwareCardReader::pollingLoop() {
         }
     }
 #endif
-}
-
-std::string HardwareCardReader::resolveConnstring() const {
-    if (!connstring_.empty()) {
-        return connstring_;
-    }
-
-    if (const char* env = std::getenv("FUELFLUX_NFC_CONNSTRING")) {
-        if (*env != '\0') {
-            return env;
-        }
-    }
-
-    std::string i2cDevice = "/dev/i2c-3";
-    if (const char* env = std::getenv("FUELFLUX_NFC_I2C_DEVICE")) {
-        if (*env != '\0') {
-            i2cDevice = env;
-        }
-    }
-
-    return "pn532_i2c:" + i2cDevice;
 }
 
 } // namespace fuelflux::peripherals
