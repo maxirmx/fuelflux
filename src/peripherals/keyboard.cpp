@@ -163,11 +163,14 @@ bool HardwareKeyboard::initialize() {
 
 void HardwareKeyboard::shutdown() {
 #ifdef TARGET_REAL_KEYBOARD
+    // Always signal the thread to stop and join it, regardless of isConnected_ state.
+    // pollLoop() may have set isConnected_ = false on exception before returning,
+    // but the thread is still joinable and must be joined to avoid std::terminate().
+    shouldStop_ = true;
+    if (pollThread_.joinable()) {
+        pollThread_.join();
+    }
     if (isConnected_) {
-        shouldStop_ = true;
-        if (pollThread_.joinable()) {
-            pollThread_.join();
-        }
         mcp_.reset();
         isConnected_ = false;
     }
