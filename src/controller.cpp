@@ -293,9 +293,12 @@ void Controller::handleKeyPress(KeyCode key) {
         case KeyCode::KeyStop:
             postEvent(Event::CancelPressed);
             break;
-            
+
+        case KeyCode::KeyDisplayReset:
+            reinitializeDisplay();
+            break;
     }
-    
+
 }
 
 void Controller::handleCardPresented(const UserId& userId) {
@@ -369,9 +372,22 @@ void Controller::handleFlowUpdate(Volume currentVolume) {
 // Display management
 void Controller::updateDisplay() {
     if (!display_) return;
-    
+
     DisplayMessage message = stateMachine_.getDisplayMessage();
     display_->showMessage(message);
+}
+
+void Controller::reinitializeDisplay() {
+    LOG_CTRL_INFO("Display reset requested");
+    if (display_) {
+        display_->shutdown();
+        if (display_->initialize()) {
+            updateDisplay();
+            LOG_CTRL_INFO("Display reinitialized successfully");
+        } else {
+            LOG_CTRL_ERROR("Failed to reinitialize display");
+        }
+    }
 }
 
 void Controller::showMessage(DisplayMessage message) {

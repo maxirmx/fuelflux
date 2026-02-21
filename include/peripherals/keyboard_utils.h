@@ -24,6 +24,8 @@ inline KeyCode charToKeyCode(char c) {
             return KeyCode::KeyStart;
         case 'B':
             return KeyCode::KeyStop;
+        case 'D':
+            return KeyCode::KeyDisplayReset;
         default:
             return static_cast<KeyCode>(0);
     }
