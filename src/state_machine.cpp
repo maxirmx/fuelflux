@@ -539,10 +539,10 @@ DisplayMessage StateMachine::getDisplayMessage() const {
             break;
 
         case SystemState::RefuelingComplete:
-            message.line1 = "Заправка завершена";
+            message.line1 = "Заправка выполнена на";
             message.line2 = controller_->formatVolume(controller_->getCurrentRefuelVolume());
-            message.line3 = "";
-            message.line4 = "Приложите карту";
+            message.line3 = "Для новой заправки";
+            message.line4 = "приложите карту";
             break;
 
         case SystemState::IntakeDirectionSelection:
@@ -568,12 +568,11 @@ DisplayMessage StateMachine::getDisplayMessage() const {
             break;
 
         case SystemState::IntakeComplete:
-            message.line1 = (controller_->getSelectedIntakeDirection() == IntakeDirection::In)
-                ? "Приём завершён"
-                : "Слив завершён";
+            message.line1 = "Цистерна " + std::to_string(controller_->getSelectedTank()) + 
+                            ((controller_->getSelectedIntakeDirection() == IntakeDirection::In) ? " приём на" : " cлив на");
             message.line2 = controller_->formatVolume(controller_->getEnteredVolume());
-            message.line3 = "Цистерна " + std::to_string(controller_->getSelectedTank());
-            message.line4 = "Приложите карту";
+            message.line3 = "Для новой операции";
+            message.line4 = "приложите карту";
             break;
 
         case SystemState::Error:
