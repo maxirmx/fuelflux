@@ -13,13 +13,6 @@ class GpioLine;
 #endif
 
 namespace fuelflux::peripherals {
-#ifdef TARGET_REAL_PUMP
-namespace pump_defaults {
-    constexpr const char* GPIO_CHIP = "/dev/gpiochip0";
-    constexpr int RELAY_PIN = 272;
-    constexpr bool ACTIVE_LOW = true;
-}
-#endif
 
 // Hardware pump implementation: uses GPIO relay control when TARGET_REAL_PUMP is defined, otherwise behaves as a stub.
 class HardwarePump : public IPump {
