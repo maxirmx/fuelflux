@@ -610,6 +610,7 @@ TEST_F(ControllerTest, EndCurrentSession) {
 
 TEST_F(ControllerTest, AuthorizationFailureTransitionsToNotAuthorized) {
     EXPECT_CALL(*mockBackend, Authorize("denied-card")).WillOnce(Return(false));
+    EXPECT_CALL(*mockBackend, IsNetworkError()).WillRepeatedly(Return(false));
 
     controller->initialize();
 
@@ -620,13 +621,14 @@ TEST_F(ControllerTest, AuthorizationFailureTransitionsToNotAuthorized) {
     ASSERT_TRUE(waitForState(SystemState::NotAuthorized));
 
     DisplayMessage msg = controller->getStateMachine().getDisplayMessage();
-    EXPECT_EQ(msg.line1, "Доступ запрещен");
+    EXPECT_EQ(msg.line1, "Доступ запрещён");
 
     shutdownControllerAndJoinThread(controllerThread);
 }
 
 TEST_F(ControllerTest, NotAuthorizedCancelAndTimeoutReturnToWaiting) {
     EXPECT_CALL(*mockBackend, Authorize("denied-card")).Times(2).WillRepeatedly(Return(false));
+    EXPECT_CALL(*mockBackend, IsNetworkError()).WillRepeatedly(Return(false));
 
     controller->initialize();
 
@@ -1178,8 +1180,8 @@ TEST_F(ControllerTest, DisplayMessageWaitingState) {
     // Verify four lines are present
     EXPECT_EQ(msg.line1, "Добро пожаловать");
     EXPECT_EQ(msg.line2, "");         // Empty line
-    EXPECT_EQ(msg.line3, "");         // Empty line
-    EXPECT_EQ(msg.line4, "Приложите карту");
+    EXPECT_EQ(msg.line3, "Для заправки");         
+    EXPECT_EQ(msg.line4, "приложите карту");
 }
 
 // Test display message structure for PinEntry state
@@ -2367,5 +2369,294 @@ TEST_F(ControllerTest, DisplayResetHandlesInitializationFailure) {
     // Verify still in Waiting state (state machine should not be affected)
     EXPECT_EQ(controller->getStateMachine().getCurrentState(), SystemState::Waiting);
     
+    shutdownControllerAndJoinThread(controllerThread);
+}
+
+// ============================================================================
+// Tests for AuthorizationDenied and CannotAuthorize states
+// ============================================================================
+
+TEST_F(ControllerTest, AuthorizationDeniedTransitionsToNotAuthorized) {
+    // Scenario: Backend denies authorization (not a network error)
+    EXPECT_CALL(*mockBackend, Authorize("denied-card"))
+        .WillOnce(Return(false));
+    EXPECT_CALL(*mockBackend, IsNetworkError())
+        .WillRepeatedly(Return(false));  // Not a network error
+
+    controller->initialize();
+
+    std::thread controllerThread([this]() { controller->run(); });
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+
+    controller->handleCardPresented("denied-card");
+    ASSERT_TRUE(waitForState(SystemState::NotAuthorized));
+
+    DisplayMessage msg = controller->getStateMachine().getDisplayMessage();
+    EXPECT_EQ(msg.line1, "Доступ запрещён");
+    EXPECT_EQ(msg.line3, "Для новой заправки");
+    EXPECT_EQ(msg.line4, "приложите карту");
+
+    shutdownControllerAndJoinThread(controllerThread);
+}
+
+TEST_F(ControllerTest, AuthorizationFailedTransitionsToCannotAuthorize) {
+    // Scenario: Network error and no cache entry available
+    EXPECT_CALL(*mockBackend, Authorize("unknown-card"))
+        .WillOnce(Return(false));
+    EXPECT_CALL(*mockBackend, IsNetworkError())
+        .WillRepeatedly(Return(true));  // Network error
+
+    controller->initialize();
+
+    std::thread controllerThread([this]() { controller->run(); });
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+
+    controller->handleCardPresented("unknown-card");
+    ASSERT_TRUE(waitForState(SystemState::CannotAuthorize));
+
+    DisplayMessage msg = controller->getStateMachine().getDisplayMessage();
+    EXPECT_EQ(msg.line1, "Ошибка связи");
+    EXPECT_EQ(msg.line3, "Для новой заправки");
+    EXPECT_EQ(msg.line4, "приложите карту");
+
+    shutdownControllerAndJoinThread(controllerThread);
+}
+
+TEST_F(ControllerTest, NotAuthorizedStateRetriesAuthorization) {
+    // Test that NotAuthorized state allows retry with new card
+    EXPECT_CALL(*mockBackend, Authorize("denied-card"))
+        .WillOnce(Return(false));
+    EXPECT_CALL(*mockBackend, IsNetworkError())
+        .WillRepeatedly(Return(false));
+
+    mockBackend->roleId_ = static_cast<int>(UserRole::Customer);
+    mockBackend->allowance_ = 100.0;
+    mockBackend->tanksStorage_ = { BackendTankInfo{1, "Tank A"} };
+
+    EXPECT_CALL(*mockBackend, Authorize("valid-card"))
+        .WillOnce([this]() {
+            mockBackend->authorized_ = true;
+            return true;
+        });
+
+    controller->initialize();
+
+    std::thread controllerThread([this]() { controller->run(); });
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+
+    // First attempt fails
+    controller->handleCardPresented("denied-card");
+    ASSERT_TRUE(waitForState(SystemState::NotAuthorized));
+
+    // Second attempt succeeds
+    controller->handleCardPresented("valid-card");
+    ASSERT_TRUE(waitForState(SystemState::TankSelection));
+
+    shutdownControllerAndJoinThread(controllerThread);
+}
+
+TEST_F(ControllerTest, CannotAuthorizeStateRetriesAuthorization) {
+    // Test that CannotAuthorize state allows retry when network recovers
+    EXPECT_CALL(*mockBackend, Authorize("card"))
+        .Times(2)
+        .WillOnce(Return(false))  // First attempt fails with network error
+        .WillOnce([this]() {      // Second attempt succeeds
+            mockBackend->authorized_ = true;
+            return true;
+        });
+    
+    EXPECT_CALL(*mockBackend, IsNetworkError())
+        .WillOnce(Return(true))   // First attempt: network error
+        .WillRepeatedly(Return(false));  // Later: network OK
+
+    mockBackend->roleId_ = static_cast<int>(UserRole::Customer);
+    mockBackend->allowance_ = 100.0;
+    mockBackend->tanksStorage_ = { BackendTankInfo{1, "Tank A"} };
+
+    controller->initialize();
+
+    std::thread controllerThread([this]() { controller->run(); });
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+
+    // First attempt fails with network error
+    controller->handleCardPresented("card");
+    ASSERT_TRUE(waitForState(SystemState::CannotAuthorize));
+
+    // Retry after network recovery
+    controller->handleCardPresented("card");
+    ASSERT_TRUE(waitForState(SystemState::TankSelection));
+
+    shutdownControllerAndJoinThread(controllerThread);
+}
+
+TEST_F(ControllerTest, NotAuthorizedCancelReturnsToWaiting) {
+    EXPECT_CALL(*mockBackend, Authorize("denied-card"))
+        .WillOnce(Return(false));
+    EXPECT_CALL(*mockBackend, IsNetworkError())
+        .WillRepeatedly(Return(false));
+
+    controller->initialize();
+
+    std::thread controllerThread([this]() { controller->run(); });
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+
+    controller->handleCardPresented("denied-card");
+    ASSERT_TRUE(waitForState(SystemState::NotAuthorized));
+
+    controller->postEvent(Event::CancelPressed);
+    ASSERT_TRUE(waitForState(SystemState::Waiting));
+
+    shutdownControllerAndJoinThread(controllerThread);
+}
+
+TEST_F(ControllerTest, CannotAuthorizeCancelReturnsToWaiting) {
+    EXPECT_CALL(*mockBackend, Authorize("card"))
+        .WillOnce(Return(false));
+    EXPECT_CALL(*mockBackend, IsNetworkError())
+        .WillRepeatedly(Return(true));
+
+    controller->initialize();
+
+    std::thread controllerThread([this]() { controller->run(); });
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+
+    controller->handleCardPresented("card");
+    ASSERT_TRUE(waitForState(SystemState::CannotAuthorize));
+
+    controller->postEvent(Event::CancelPressed);
+    ASSERT_TRUE(waitForState(SystemState::Waiting));
+
+    shutdownControllerAndJoinThread(controllerThread);
+}
+
+TEST_F(ControllerTest, NotAuthorizedTimeoutReturnsToWaiting) {
+    EXPECT_CALL(*mockBackend, Authorize("denied-card"))
+        .WillOnce(Return(false));
+    EXPECT_CALL(*mockBackend, IsNetworkError())
+        .WillRepeatedly(Return(false));
+
+    controller->initialize();
+
+    std::thread controllerThread([this]() { controller->run(); });
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+
+    controller->handleCardPresented("denied-card");
+    ASSERT_TRUE(waitForState(SystemState::NotAuthorized));
+
+    controller->postEvent(Event::Timeout);
+    ASSERT_TRUE(waitForState(SystemState::Waiting));
+
+    shutdownControllerAndJoinThread(controllerThread);
+}
+
+TEST_F(ControllerTest, CannotAuthorizeTimeoutReturnsToWaiting) {
+    EXPECT_CALL(*mockBackend, Authorize("card"))
+        .WillOnce(Return(false));
+    EXPECT_CALL(*mockBackend, IsNetworkError())
+        .WillRepeatedly(Return(true));
+
+    controller->initialize();
+
+    std::thread controllerThread([this]() { controller->run(); });
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+
+    controller->handleCardPresented("card");
+    ASSERT_TRUE(waitForState(SystemState::CannotAuthorize));
+
+    controller->postEvent(Event::Timeout);
+    ASSERT_TRUE(waitForState(SystemState::Waiting));
+
+    shutdownControllerAndJoinThread(controllerThread);
+}
+
+TEST_F(ControllerTest, NotAuthorizedAllowsPinEntry) {
+    // Test that NotAuthorized state allows transition to PinEntry
+    EXPECT_CALL(*mockBackend, Authorize("denied-card"))
+        .WillOnce(Return(false));
+    EXPECT_CALL(*mockBackend, IsNetworkError())
+        .WillRepeatedly(Return(false));
+
+    controller->initialize();
+
+    std::thread controllerThread([this]() { controller->run(); });
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+
+    controller->handleCardPresented("denied-card");
+    ASSERT_TRUE(waitForState(SystemState::NotAuthorized));
+
+    // Start typing PIN (InputUpdated event)
+    controller->handleKeyPress(KeyCode::Key1);
+    ASSERT_TRUE(waitForState(SystemState::PinEntry));
+
+    shutdownControllerAndJoinThread(controllerThread);
+}
+
+TEST_F(ControllerTest, CannotAuthorizeAllowsPinEntry) {
+    // Test that CannotAuthorize state allows transition to PinEntry
+    EXPECT_CALL(*mockBackend, Authorize("card"))
+        .WillOnce(Return(false));
+    EXPECT_CALL(*mockBackend, IsNetworkError())
+        .WillRepeatedly(Return(true));
+
+    controller->initialize();
+
+    std::thread controllerThread([this]() { controller->run(); });
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+
+    controller->handleCardPresented("card");
+    ASSERT_TRUE(waitForState(SystemState::CannotAuthorize));
+
+    // Start typing PIN (InputUpdated event)
+    controller->handleKeyPress(KeyCode::Key1);
+    ASSERT_TRUE(waitForState(SystemState::PinEntry));
+
+    shutdownControllerAndJoinThread(controllerThread);
+}
+
+TEST_F(ControllerTest, StateMachineTotalityAuthorizationDeniedEventHandledInAllStates) {
+    // Verify that AuthorizationDenied event is handled in all states (no crash)
+    // Test a subset of states to verify totality
+    
+    controller->initialize();
+    std::thread controllerThread([this]() { controller->run(); });
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+
+    // Waiting state - should ignore AuthorizationDenied
+    EXPECT_EQ(controller->getStateMachine().getCurrentState(), SystemState::Waiting);
+    controller->postEvent(Event::AuthorizationDenied);
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    EXPECT_EQ(controller->getStateMachine().getCurrentState(), SystemState::Waiting);
+
+    // PinEntry state - should ignore AuthorizationDenied
+    controller->handleKeyPress(KeyCode::Key1);
+    ASSERT_TRUE(waitForState(SystemState::PinEntry));
+    controller->postEvent(Event::AuthorizationDenied);
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    EXPECT_EQ(controller->getStateMachine().getCurrentState(), SystemState::PinEntry);
+
+    shutdownControllerAndJoinThread(controllerThread);
+}
+
+TEST_F(ControllerTest, StateMachineTotalityAuthorizationFailedEventHandledInAllStates) {
+    // Verify that AuthorizationFailed event is handled in all states (no crash)
+    // Test a subset of states to verify totality
+    
+    controller->initialize();
+    std::thread controllerThread([this]() { controller->run(); });
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+
+    // Waiting state - should ignore AuthorizationFailed
+    EXPECT_EQ(controller->getStateMachine().getCurrentState(), SystemState::Waiting);
+    controller->postEvent(Event::AuthorizationFailed);
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    EXPECT_EQ(controller->getStateMachine().getCurrentState(), SystemState::Waiting);
+
+    // PinEntry state - should ignore AuthorizationFailed
+    controller->handleKeyPress(KeyCode::Key1);
+    ASSERT_TRUE(waitForState(SystemState::PinEntry));
+    controller->postEvent(Event::AuthorizationFailed);
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    EXPECT_EQ(controller->getStateMachine().getCurrentState(), SystemState::PinEntry);
+
     shutdownControllerAndJoinThread(controllerThread);
 }
