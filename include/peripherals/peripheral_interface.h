@@ -59,6 +59,7 @@ public:
 class IFlowMeter : public IPeripheral {
 public:
     using FlowCallback = std::function<void(Volume currentVolume)>;
+    using EventCallback = std::function<void(Event event)>;
     
     virtual void startMeasurement() = 0;
     virtual void stopMeasurement() = 0;
@@ -66,6 +67,7 @@ public:
     virtual Volume getCurrentVolume() const = 0;
     virtual Volume getTotalVolume() const = 0;
     virtual void setFlowCallback(FlowCallback callback) = 0;
+    virtual void setEventCallback(EventCallback callback) = 0;
 };
 
 } // namespace fuelflux::peripherals

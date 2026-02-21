@@ -731,6 +731,9 @@ void Controller::setupPeripheralCallbacks() {
         flowMeter_->setFlowCallback([this](Volume current) {
             handleFlowUpdate(current);
         });
+        flowMeter_->setEventCallback([this](Event event) {
+            postEvent(event);
+        });
     }
 }
 

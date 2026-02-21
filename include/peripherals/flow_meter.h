@@ -5,6 +5,10 @@
 #pragma once
 
 #include "peripheral_interface.h"
+#include <atomic>
+#include <thread>
+#include <mutex>
+#include <chrono>
 
 namespace fuelflux::peripherals {
 
@@ -26,13 +30,24 @@ public:
     Volume getCurrentVolume() const override;
     Volume getTotalVolume() const override;
     void setFlowCallback(FlowCallback callback) override;
+    void setEventCallback(EventCallback callback) override;
 
 private:
+    void monitorThreadFunction();
+    
     bool m_connected;
     bool m_measuring;
     Volume m_currentVolume;
     Volume m_totalVolume;
+    Volume m_lastVolume;
     FlowCallback m_callback;
+    EventCallback m_eventCallback;
+    
+    // Monitoring thread for no-flow detection
+    std::atomic<bool> m_monitorThreadRunning;
+    std::thread m_monitorThread;
+    mutable std::mutex m_mutex;
+    std::chrono::steady_clock::time_point m_lastFlowTime;
 };
 
 } // namespace fuelflux::peripherals

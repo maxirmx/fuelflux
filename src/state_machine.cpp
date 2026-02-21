@@ -162,6 +162,7 @@ void StateMachine::setupTransitions() {
     transitions_[{SystemState::Waiting, Event::IntakeVolumeEntered}]  = {SystemState::Waiting,           noOp};
     transitions_[{SystemState::Waiting, Event::IntakeComplete}]       = {SystemState::Waiting,           noOp};
     transitions_[{SystemState::Waiting, Event::CancelPressed}]        = {SystemState::Waiting,           noOp};
+    transitions_[{SystemState::Waiting, Event::CancelNoFuel}]         = {SystemState::Waiting,           noOp};
     transitions_[{SystemState::Waiting, Event::Timeout}]              = {SystemState::Waiting,           noOp};
     transitions_[{SystemState::Waiting, Event::Error}]                = {SystemState::Error,             noOp};
     transitions_[{SystemState::Waiting, Event::ErrorRecovery}]        = {SystemState::Waiting,           noOp};
@@ -183,6 +184,7 @@ void StateMachine::setupTransitions() {
     transitions_[{SystemState::PinEntry, Event::IntakeVolumeEntered}] = {SystemState::PinEntry,          noOp};
     transitions_[{SystemState::PinEntry, Event::IntakeComplete}]      = {SystemState::PinEntry,          noOp};
     transitions_[{SystemState::PinEntry, Event::CancelPressed}]       = {SystemState::Waiting,           [this]() { onCancelPressed();  }};
+    transitions_[{SystemState::PinEntry, Event::CancelNoFuel}]        = {SystemState::Waiting,           [this]() { onCancelPressed();  }};
     transitions_[{SystemState::PinEntry, Event::Timeout}]             = {SystemState::Waiting,           [this]() { onTimeout();        }};
     transitions_[{SystemState::PinEntry, Event::Error}]               = {SystemState::Error,             noOp};
     transitions_[{SystemState::PinEntry, Event::ErrorRecovery}]       = {SystemState::PinEntry,          noOp};
@@ -204,6 +206,7 @@ void StateMachine::setupTransitions() {
     transitions_[{SystemState::Authorization, Event::IntakeVolumeEntered}] = {SystemState::Authorization,     noOp};
     transitions_[{SystemState::Authorization, Event::IntakeComplete}]      = {SystemState::Authorization,     noOp};
     transitions_[{SystemState::Authorization, Event::CancelPressed}]       = {SystemState::Authorization,     noOp};
+    transitions_[{SystemState::Authorization, Event::CancelNoFuel}]        = {SystemState::Authorization,     noOp};
     transitions_[{SystemState::Authorization, Event::Timeout}]             = {SystemState::Authorization,     noOp};
     transitions_[{SystemState::Authorization, Event::Error}]               = {SystemState::Error,             noOp};
     transitions_[{SystemState::Authorization, Event::ErrorRecovery}]       = {SystemState::Authorization,     noOp};
@@ -225,6 +228,7 @@ void StateMachine::setupTransitions() {
     transitions_[{SystemState::NotAuthorized, Event::IntakeVolumeEntered}] = {SystemState::NotAuthorized,     noOp};
     transitions_[{SystemState::NotAuthorized, Event::IntakeComplete}]      = {SystemState::NotAuthorized,     noOp};
     transitions_[{SystemState::NotAuthorized, Event::CancelPressed}]       = {SystemState::Waiting,           [this]() { onCancelPressed();        }};
+    transitions_[{SystemState::NotAuthorized, Event::CancelNoFuel}]        = {SystemState::Waiting,           [this]() { onCancelPressed();        }};
     transitions_[{SystemState::NotAuthorized, Event::Timeout}]             = {SystemState::Waiting,           [this]() { onTimeout();              }};
     transitions_[{SystemState::NotAuthorized, Event::Error}]               = {SystemState::Error,             noOp};
     transitions_[{SystemState::NotAuthorized, Event::ErrorRecovery}]       = {SystemState::NotAuthorized,     noOp};
@@ -246,6 +250,7 @@ void StateMachine::setupTransitions() {
     transitions_[{SystemState::TankSelection, Event::IntakeVolumeEntered}] = {SystemState::TankSelection,     noOp};
     transitions_[{SystemState::TankSelection, Event::IntakeComplete}]      = {SystemState::TankSelection,     noOp};
     transitions_[{SystemState::TankSelection, Event::CancelPressed}]       = {SystemState::Waiting,           [this]() { onCancelPressed();        }};
+    transitions_[{SystemState::TankSelection, Event::CancelNoFuel}]        = {SystemState::Waiting,           [this]() { onCancelPressed();        }};
     transitions_[{SystemState::TankSelection, Event::Timeout}]             = {SystemState::Waiting,           [this]() { onTimeout();              }};
     transitions_[{SystemState::TankSelection, Event::Error}]               = {SystemState::Error,             noOp};
     transitions_[{SystemState::TankSelection, Event::ErrorRecovery}]       = {SystemState::TankSelection,     noOp};
@@ -267,6 +272,7 @@ void StateMachine::setupTransitions() {
     transitions_[{SystemState::VolumeEntry, Event::IntakeVolumeEntered}] = {SystemState::VolumeEntry,       noOp};
     transitions_[{SystemState::VolumeEntry, Event::IntakeComplete}]      = {SystemState::VolumeEntry,       noOp};
     transitions_[{SystemState::VolumeEntry, Event::CancelPressed}]       = {SystemState::Waiting,           [this]() { onCancelPressed();        }};
+    transitions_[{SystemState::VolumeEntry, Event::CancelNoFuel}]        = {SystemState::Waiting,           [this]() { onCancelPressed();        }};
     transitions_[{SystemState::VolumeEntry, Event::Timeout}]             = {SystemState::Waiting,           [this]() { onTimeout();              }};
     transitions_[{SystemState::VolumeEntry, Event::Error}]               = {SystemState::Error,             noOp};
     transitions_[{SystemState::VolumeEntry, Event::ErrorRecovery}]       = {SystemState::VolumeEntry,       noOp};
@@ -288,6 +294,7 @@ void StateMachine::setupTransitions() {
     transitions_[{SystemState::Refueling, Event::IntakeVolumeEntered}] = {SystemState::Refueling,         noOp};
     transitions_[{SystemState::Refueling, Event::IntakeComplete}]      = {SystemState::Refueling,         noOp};
     transitions_[{SystemState::Refueling, Event::CancelPressed}]       = {SystemState::RefuelDataTransmission, [this]() { onCancelRefueling(); doRefuelingDataTransmission(); }};
+    transitions_[{SystemState::Refueling, Event::CancelNoFuel}]        = {SystemState::RefuelDataTransmission, [this]() { onCancelRefueling(); doRefuelingDataTransmission(); }};
     transitions_[{SystemState::Refueling, Event::Timeout}]             = {SystemState::Refueling,         noOp};
     transitions_[{SystemState::Refueling, Event::Error}]               = {SystemState::Error,             noOp};
     transitions_[{SystemState::Refueling, Event::ErrorRecovery}]       = {SystemState::Refueling,         noOp};
@@ -309,6 +316,7 @@ void StateMachine::setupTransitions() {
     transitions_[{SystemState::RefuelDataTransmission, Event::IntakeVolumeEntered}] = {SystemState::RefuelDataTransmission,  noOp};
     transitions_[{SystemState::RefuelDataTransmission, Event::IntakeComplete}]      = {SystemState::RefuelDataTransmission,  noOp};
     transitions_[{SystemState::RefuelDataTransmission, Event::CancelPressed}]       = {SystemState::RefuelDataTransmission,  noOp};
+    transitions_[{SystemState::RefuelDataTransmission, Event::CancelNoFuel}]        = {SystemState::RefuelDataTransmission,  noOp};
     transitions_[{SystemState::RefuelDataTransmission, Event::Timeout}]             = {SystemState::RefuelDataTransmission,  noOp};
     transitions_[{SystemState::RefuelDataTransmission, Event::Error}]               = {SystemState::Error,                   noOp};
     transitions_[{SystemState::RefuelDataTransmission, Event::ErrorRecovery}]       = {SystemState::RefuelDataTransmission,  noOp};
@@ -330,6 +338,7 @@ void StateMachine::setupTransitions() {
     transitions_[{SystemState::RefuelingComplete, Event::IntakeVolumeEntered}] = {SystemState::RefuelingComplete, noOp};
     transitions_[{SystemState::RefuelingComplete, Event::IntakeComplete}]      = {SystemState::RefuelingComplete, noOp};
     transitions_[{SystemState::RefuelingComplete, Event::CancelPressed}]       = {SystemState::Waiting,           [this]() { onCancelPressed();        }};
+    transitions_[{SystemState::RefuelingComplete, Event::CancelNoFuel}]        = {SystemState::Waiting,           [this]() { onCancelPressed();        }};
     transitions_[{SystemState::RefuelingComplete, Event::Timeout}]             = {SystemState::Waiting,           [this]() { onTimeout();              }};
     transitions_[{SystemState::RefuelingComplete, Event::Error}]               = {SystemState::Error,             noOp};
     transitions_[{SystemState::RefuelingComplete, Event::ErrorRecovery}]       = {SystemState::RefuelingComplete, noOp};
@@ -351,6 +360,7 @@ void StateMachine::setupTransitions() {
     transitions_[{SystemState::IntakeDirectionSelection, Event::IntakeVolumeEntered}] = {SystemState::IntakeDirectionSelection, noOp};
     transitions_[{SystemState::IntakeDirectionSelection, Event::IntakeComplete}]      = {SystemState::IntakeDirectionSelection, noOp};
     transitions_[{SystemState::IntakeDirectionSelection, Event::CancelPressed}]       = {SystemState::Waiting,                  [this]() { onCancelPressed();        }};
+    transitions_[{SystemState::IntakeDirectionSelection, Event::CancelNoFuel}]        = {SystemState::Waiting,                  [this]() { onCancelPressed();        }};
     transitions_[{SystemState::IntakeDirectionSelection, Event::Timeout}]             = {SystemState::Waiting,                  [this]() { onTimeout();              }};
     transitions_[{SystemState::IntakeDirectionSelection, Event::Error}]               = {SystemState::Error,                    noOp};
     transitions_[{SystemState::IntakeDirectionSelection, Event::ErrorRecovery}]       = {SystemState::IntakeDirectionSelection, noOp};
@@ -372,6 +382,7 @@ void StateMachine::setupTransitions() {
     transitions_[{SystemState::IntakeVolumeEntry, Event::IntakeVolumeEntered}] = {SystemState::IntakeDataTransmission, [this]() { onIntakeVolumeEntered(); }};
     transitions_[{SystemState::IntakeVolumeEntry, Event::IntakeComplete}]      = {SystemState::IntakeVolumeEntry, noOp};
     transitions_[{SystemState::IntakeVolumeEntry, Event::CancelPressed}]       = {SystemState::Waiting,           [this]() { onCancelPressed();        }};
+    transitions_[{SystemState::IntakeVolumeEntry, Event::CancelNoFuel}]        = {SystemState::Waiting,           [this]() { onCancelPressed();        }};
     transitions_[{SystemState::IntakeVolumeEntry, Event::Timeout}]             = {SystemState::Waiting,           [this]() { onTimeout();              }};
     transitions_[{SystemState::IntakeVolumeEntry, Event::Error}]               = {SystemState::Error,             noOp};
     transitions_[{SystemState::IntakeVolumeEntry, Event::ErrorRecovery}]       = {SystemState::IntakeVolumeEntry, noOp};
@@ -393,6 +404,7 @@ void StateMachine::setupTransitions() {
     transitions_[{SystemState::IntakeDataTransmission, Event::IntakeVolumeEntered}] = {SystemState::IntakeDataTransmission, noOp};
     transitions_[{SystemState::IntakeDataTransmission, Event::IntakeComplete}]      = {SystemState::IntakeDataTransmission, noOp};
     transitions_[{SystemState::IntakeDataTransmission, Event::CancelPressed}]       = {SystemState::IntakeDataTransmission, noOp};
+    transitions_[{SystemState::IntakeDataTransmission, Event::CancelNoFuel}]        = {SystemState::IntakeDataTransmission, noOp};
     transitions_[{SystemState::IntakeDataTransmission, Event::Timeout}]             = {SystemState::IntakeDataTransmission, noOp};
     transitions_[{SystemState::IntakeDataTransmission, Event::Error}]               = {SystemState::Error,                  noOp};
     transitions_[{SystemState::IntakeDataTransmission, Event::ErrorRecovery}]       = {SystemState::IntakeDataTransmission, noOp};
@@ -414,6 +426,7 @@ void StateMachine::setupTransitions() {
     transitions_[{SystemState::IntakeComplete, Event::IntakeVolumeEntered}] = {SystemState::IntakeComplete,     noOp};
     transitions_[{SystemState::IntakeComplete, Event::IntakeComplete}]      = {SystemState::IntakeComplete,     noOp};
     transitions_[{SystemState::IntakeComplete, Event::CancelPressed}]       = {SystemState::Waiting,            [this]() { onCancelPressed(); }};
+    transitions_[{SystemState::IntakeComplete, Event::CancelNoFuel}]        = {SystemState::Waiting,            [this]() { onCancelPressed(); }};
     transitions_[{SystemState::IntakeComplete, Event::Timeout}]             = {SystemState::Waiting,            [this]() { onTimeout();       }};
     transitions_[{SystemState::IntakeComplete, Event::Error}]               = {SystemState::Error,              noOp};
     transitions_[{SystemState::IntakeComplete, Event::ErrorRecovery}]       = {SystemState::IntakeComplete,     noOp};
@@ -435,6 +448,7 @@ void StateMachine::setupTransitions() {
     transitions_[{SystemState::Error, Event::IntakeVolumeEntered}] = {SystemState::Error,             noOp};
     transitions_[{SystemState::Error, Event::IntakeComplete}]      = {SystemState::Error,             noOp};
     transitions_[{SystemState::Error, Event::CancelPressed}]       = {SystemState::Waiting,          [this]() { onErrorCancelPressed();   }};
+    transitions_[{SystemState::Error, Event::CancelNoFuel}]        = {SystemState::Waiting,          [this]() { onErrorCancelPressed();   }};
     transitions_[{SystemState::Error, Event::Timeout}]             = {SystemState::Error,             noOp};
     transitions_[{SystemState::Error, Event::Error}]               = {SystemState::Error,             noOp};
     transitions_[{SystemState::Error, Event::ErrorRecovery}]       = {SystemState::Waiting,           noOp};

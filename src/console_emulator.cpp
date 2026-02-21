@@ -464,6 +464,11 @@ void ConsoleFlowMeter::setFlowCallback(FlowCallback callback) {
     flowCallback_ = callback;
 }
 
+void ConsoleFlowMeter::setEventCallback(EventCallback callback) {
+    std::lock_guard<std::mutex> lock(callbackMutex_);
+    eventCallback_ = callback;
+}
+
 void ConsoleFlowMeter::simulateFlow(Volume targetVolume) {
     // Stop any existing simulation thread first
     shouldStop_ = true;

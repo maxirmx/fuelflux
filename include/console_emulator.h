@@ -124,6 +124,7 @@ public:
     Volume getCurrentVolume() const override;
     Volume getTotalVolume() const override;
     void setFlowCallback(FlowCallback callback) override;
+    void setEventCallback(EventCallback callback) override;
 
     // Simulation control
     void setFlowRate(Volume ratePerSecond) { flowRate_ = ratePerSecond; }
@@ -137,6 +138,7 @@ private:
     mutable std::mutex volumeMutex_;
     Volume flowRate_; // liters per second
     FlowCallback flowCallback_;
+    EventCallback eventCallback_;
     std::thread simulationThread_;
     std::atomic<bool> shouldStop_;
     mutable std::mutex callbackMutex_;
