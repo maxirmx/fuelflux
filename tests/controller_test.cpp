@@ -2215,7 +2215,7 @@ TEST_F(ControllerTest, DisplayResetInWaitingState) {
     ::testing::Mock::VerifyAndClearExpectations(mockDisplay);
     
     // Expect display shutdown (during reset), initialize, and showMessage (from updateDisplay)
-    // Note: Another shutdown will be called during controller shutdown
+    // Note: shutdown() will be called at least twice: once during display reset, and once during controller shutdown
     EXPECT_CALL(*mockDisplay, shutdown()).Times(::testing::AtLeast(1));
     EXPECT_CALL(*mockDisplay, initialize()).WillOnce(Return(true));
     EXPECT_CALL(*mockDisplay, showMessage(::testing::_)).Times(::testing::AtLeast(1));
@@ -2250,7 +2250,8 @@ TEST_F(ControllerTest, DisplayResetInPinEntryState) {
     // Clear expectations
     ::testing::Mock::VerifyAndClearExpectations(mockDisplay);
     
-    // Expect display shutdown, initialize, and showMessage
+    // Expect display shutdown (during reset), initialize, and showMessage
+    // Note: shutdown() will be called at least twice: once during display reset, and once during controller shutdown
     EXPECT_CALL(*mockDisplay, shutdown()).Times(::testing::AtLeast(1));
     EXPECT_CALL(*mockDisplay, initialize()).WillOnce(Return(true));
     EXPECT_CALL(*mockDisplay, showMessage(::testing::_)).Times(::testing::AtLeast(1));
@@ -2285,7 +2286,8 @@ TEST_F(ControllerTest, DisplayResetInErrorState) {
     // Clear expectations
     ::testing::Mock::VerifyAndClearExpectations(mockDisplay);
     
-    // Expect display shutdown, initialize, and showMessage
+    // Expect display shutdown (during reset), initialize, and showMessage
+    // Note: shutdown() will be called at least twice: once during display reset, and once during controller shutdown
     EXPECT_CALL(*mockDisplay, shutdown()).Times(::testing::AtLeast(1));
     EXPECT_CALL(*mockDisplay, initialize()).WillOnce(Return(true));
     EXPECT_CALL(*mockDisplay, showMessage(::testing::_)).Times(::testing::AtLeast(1));

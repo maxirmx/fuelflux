@@ -194,7 +194,12 @@ void Controller::run() {
         }
 
         if (haveEvent) {
-            // Handle DisplayReset event in the controller thread to avoid race conditions
+            // Handle DisplayReset event in the controller thread to avoid race conditions.
+            // This event bypasses the state machine because display reset is a hardware
+            // operation that doesn't affect logical state transitions. The state machine
+            // state is preserved across display resets, and the display simply shows the
+            // same state information after reinitialization. This design keeps display
+            // hardware management separate from business logic.
             if (event == Event::DisplayReset) {
                 reinitializeDisplay();
             } else {
