@@ -5,12 +5,14 @@
 #pragma once
 
 #include <atomic>
-#include <memory>
-#include <string>
-#include <vector>
-#include <queue>
-#include <mutex>
+#include <chrono>
 #include <condition_variable>
+#include <memory>
+#include <mutex>
+#include <queue>
+#include <string>
+#include <thread>
+#include <vector>
 
 #include "backend.h"
 #include "message_storage.h"
@@ -27,7 +29,9 @@ class UserCache;
 // Main controller class that orchestrates the entire system
 class Controller {
   public:
-    Controller(ControllerId controllerId, std::shared_ptr<IBackend> backend = nullptr);
+    Controller(ControllerId controllerId,
+               std::shared_ptr<IBackend> backend = nullptr,
+               std::chrono::seconds noFlowCancelTimeout = std::chrono::seconds(30));
     ~Controller();
 
     // System lifecycle
@@ -194,6 +198,15 @@ class Controller {
     std::mutex eventQueueMutex_;
     std::condition_variable eventCv_;
 
+    // No-flow watchdog
+    std::chrono::seconds noFlowCancelTimeout_;
+    std::atomic<bool> noFlowMonitorRunning_{false};
+    std::thread noFlowMonitorThread_;
+    std::mutex noFlowMonitorMutex_;
+    bool pumpRunning_ = false;
+    bool noFlowCancelPosted_ = false;
+    std::chrono::steady_clock::time_point lastFlowUpdateTime_ = std::chrono::steady_clock::now();
+
     // Helper methods
     void setupPeripheralCallbacks();
     void processNumericInput();
@@ -221,6 +234,9 @@ class Controller {
      * throwing exceptions.
      */
     void shutdownPeripherals();
+    void startNoFlowMonitorThread();
+    void stopNoFlowMonitorThread();
+    void noFlowMonitorThreadFunction();
 };
 
 } // namespace fuelflux
