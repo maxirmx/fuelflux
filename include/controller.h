@@ -94,6 +94,7 @@ class Controller {
 
     // Display management
     void updateDisplay();
+    void reinitializeDisplay();
 
     void showError(const std::string& message);
     void showMessage(DisplayMessage message);
