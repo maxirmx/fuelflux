@@ -70,6 +70,7 @@ enum class Event {
     IntakeVolumeEntered,
     IntakeComplete,
     CancelPressed,
+    CancelNoFuel,
     Timeout,
     Error,
     ErrorRecovery

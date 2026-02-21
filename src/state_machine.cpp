@@ -50,6 +50,10 @@ bool StateMachine::processEvent(Event event) {
         return false;
     }
 
+    if (event == Event::CancelNoFuel) {
+        event = Event::CancelPressed;
+    }
+
     // Coalesce consecutive InputUpdated events to avoid redundant processing/display refreshes.
     if (event == Event::InputUpdated) {
         controller_->discardPendingInputUpdatedEvents();
