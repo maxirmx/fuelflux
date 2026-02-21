@@ -132,7 +132,7 @@ void HardwareFlowMeter::monitorThread() {
 
     LOG_PERIPH_INFO("Flow meter monitoring thread started");
     
-    while (!stopMonitoring_.load()) {
+    while (!stopMonitoring_.load(std::memory_order_acquire)) {
         struct timespec timeout = { .tv_sec = 0, .tv_nsec = 100000000 }; // 100ms
         errno = 0;
         int rc = gpiod_line_event_wait(line, &timeout);
@@ -147,7 +147,7 @@ void HardwareFlowMeter::monitorThread() {
             struct gpiod_line_event ev;
             errno = 0;
             if (gpiod_line_event_read(line, &ev) == 0) {
-                pulseCount_.fetch_add(1, std::memory_order_release);
+                pulseCount_.fetch_add(1, std::memory_order_relaxed);
             } else {
                 LOG_PERIPH_ERROR("Failed to read flow meter event: {} (errno={})", 
                                std::strerror(errno), errno);
@@ -187,7 +187,7 @@ void HardwareFlowMeter::stopMeasurement() {
         LOG_PERIPH_INFO("Stopping flow measurement...");
         
 #ifdef TARGET_REAL_FLOW_METER
-        stopMonitoring_ = true;
+        stopMonitoring_.store(true, std::memory_order_release);
         if (monitorThread_.joinable()) {
             monitorThread_.join();
         }
