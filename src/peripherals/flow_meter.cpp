@@ -31,7 +31,7 @@ HardwareFlowMeter::HardwareFlowMeter(const std::string& gpioChip,
                                      double ticksPerLiter)
     : gpioChip_(gpioChip)
     , gpioPin_(gpioPin)
-    , ticksPerLiter_(ticksPerLiter)
+    , ticksPerLiter_(ticksPerLiter > 0.0 ? ticksPerLiter : flowmeter_defaults::TICKS_PER_LITER)
     , m_connected(false)
     , m_measuring(false)
     , m_currentVolume(0.0)
@@ -54,7 +54,7 @@ bool HardwareFlowMeter::initialize() {
         errno = 0;
         struct gpiod_chip* chip = gpiod_chip_open(gpioChip_.c_str());
         if (!chip) {
-            LOG_PERIPH_ERROR("Failed to open GPIO chip {}: {} (errno={})", 
+            LOG_PERIPH_ERROR("Failed to open GPIO chip {} during initialization: {} (errno={})", 
                            gpioChip_, std::strerror(errno), errno);
             return false;
         }
@@ -63,7 +63,7 @@ bool HardwareFlowMeter::initialize() {
         errno = 0;
         struct gpiod_line* line = gpiod_chip_get_line(chip, gpioPin_);
         if (!line) {
-            LOG_PERIPH_ERROR("Failed to get GPIO line {}: {} (errno={})", 
+            LOG_PERIPH_ERROR("Failed to get GPIO line {} during initialization: {} (errno={})", 
                            gpioPin_, std::strerror(errno), errno);
             gpiod_chip_close(chip);
             return false;
@@ -175,8 +175,8 @@ void HardwareFlowMeter::startMeasurement() {
         m_currentVolume = 0.0;
         
 #ifdef TARGET_REAL_FLOW_METER
-        pulseCount_ = 0;
-        stopMonitoring_ = false;
+        pulseCount_.store(0, std::memory_order_relaxed);
+        stopMonitoring_.store(false, std::memory_order_release);
         monitorThread_ = std::thread(&HardwareFlowMeter::monitorThread, this);
 #endif
     }
