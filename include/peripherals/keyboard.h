@@ -44,10 +44,10 @@ private:
     std::atomic<bool> shouldStop_{false};
     std::unique_ptr<hardware::MCP23017> mcp_;
     std::string i2cDevice_;
-    uint8_t i2cAddress_;
-    int pollMs_;
-    int debounceMs_;
-    int releaseMs_;
+    uint8_t i2cAddress_{};  // Default to 0 for defensive initialization
+    int pollMs_{};          // Default to 0 ms
+    int debounceMs_{};      // Default to 0 ms
+    int releaseMs_{};       // Default to 0 ms
 #endif
 };
 
