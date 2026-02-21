@@ -85,24 +85,25 @@ Create file:
 
 ``` bash
 sudo nano /etc/chatscripts/sim800
+
+ABORT "BUSY"
+ABORT "NO CARRIER"
+ABORT "NO DIALTONE"
+ABORT "NO ANSWER"
+REPORT CONNECT
+
+TIMEOUT 10
+"" AT
+OK ATZ
+OK AT+CFUN=1
+OK ATE0
+OK AT+CGDCONT=1,"IP","internet"
+
+TIMEOUT 60
+OK ATD*99***1#
+CONNECT ""
+
 ```
-
-Paste:
-
-    ABORT "BUSY"
-    ABORT "NO CARRIER"
-    ABORT "ERROR"
-    REPORT CONNECT
-
-    "" AT
-    OK AT+CFUN=1
-    OK AT+CGATT=1
-    OK AT+SAPBR=3,1,"CONTYPE","GPRS"
-    OK AT+SAPBR=3,1,"APN","internet"
-    OK AT+SAPBR=1,1
-    OK AT+SAPBR=2,1
-    OK ATD*99#
-    CONNECT ""
 
 **Important:** Replace `"internet"` with your carrier APN.
 
