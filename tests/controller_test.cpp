@@ -1202,7 +1202,7 @@ TEST_F(ControllerTest, DisplayMessageVolumeEntryState) {
     // Verify structure
     EXPECT_EQ(msg.line1, "Введите объём");
     // line2 is current input
-    EXPECT_TRUE(msg.line3.find("Макс(*)") != std::string::npos);  // Should show max for customers
+    EXPECT_TRUE(msg.line3.find("макс(*)") != std::string::npos);  // Should show max for customers
     EXPECT_EQ(msg.line4, "Старт(A)/Отмена(B)");
     
     shutdownControllerAndJoinThread(controllerThread);
