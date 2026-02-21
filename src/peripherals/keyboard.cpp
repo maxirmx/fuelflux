@@ -10,10 +10,10 @@
 #include <utility>
 
 #ifdef TARGET_REAL_KEYBOARD
+#include "hardware/hardware_config.h"
 #include "hardware/mcp23017.h"
 
 #include <chrono>
-#include <cstdlib>
 #include <thread>
 #endif
 
@@ -56,27 +56,6 @@ char scanKey(hardware::MCP23017& mcp) {
     mcp.writeOlatA(rowsIdle());
     return found;
 }
-
-bool parseEnvU8(const char* env, uint8_t& out) {
-    if (!env || *env == '\0') return false;
-    char* end = nullptr;
-    long value = std::strtol(env, &end, 0);
-    if (!end || *end != '\0' || value < 0 || value > 0xFF) return false;
-    out = static_cast<uint8_t>(value);
-    return true;
-}
-
-bool parseEnvInt(const char* env, int& out, int minValue) {
-    if (!env || *env == '\0') return false;
-    try {
-        int value = std::stoi(env);
-        if (value < minValue) return false;
-        out = value;
-        return true;
-    } catch (const std::exception&) {
-        return false;
-    }
-}
 } // namespace
 #endif
 
@@ -88,48 +67,13 @@ HardwareKeyboard::~HardwareKeyboard() {
 
 bool HardwareKeyboard::initialize() {
 #ifdef TARGET_REAL_KEYBOARD
+    namespace cfg = hardware::config::keyboard;
     try {
-        i2cDevice_ = "/dev/i2c-3";
-        i2cAddress_ = 0x20;
-        pollMs_ = 5;
-        debounceMs_ = 20;
-        releaseMs_ = 30;
-
-        if (const char* env = std::getenv("FUELFLUX_KBD_I2C_DEV")) {
-            if (*env != '\0') i2cDevice_ = env;
-        }
-        if (const char* env = std::getenv("FUELFLUX_KBD_I2C_ADDR")) {
-            uint8_t addr = i2cAddress_;
-            if (parseEnvU8(env, addr)) {
-                i2cAddress_ = addr;
-            } else {
-                LOG_WARN("Ignoring invalid FUELFLUX_KBD_I2C_ADDR='{}'", env);
-            }
-        }
-        if (const char* env = std::getenv("FUELFLUX_KBD_POLL_MS")) {
-            int value = pollMs_;
-            if (parseEnvInt(env, value, 1)) {
-                pollMs_ = value;
-            } else {
-                LOG_WARN("Ignoring invalid FUELFLUX_KBD_POLL_MS='{}'", env);
-            }
-        }
-        if (const char* env = std::getenv("FUELFLUX_KBD_DEBOUNCE_MS")) {
-            int value = debounceMs_;
-            if (parseEnvInt(env, value, 1)) {
-                debounceMs_ = value;
-            } else {
-                LOG_WARN("Ignoring invalid FUELFLUX_KBD_DEBOUNCE_MS='{}'", env);
-            }
-        }
-        if (const char* env = std::getenv("FUELFLUX_KBD_RELEASE_MS")) {
-            int value = releaseMs_;
-            if (parseEnvInt(env, value, 1)) {
-                releaseMs_ = value;
-            } else {
-                LOG_WARN("Ignoring invalid FUELFLUX_KBD_RELEASE_MS='{}'", env);
-            }
-        }
+        i2cDevice_ = cfg::I2C_DEVICE;
+        i2cAddress_ = cfg::I2C_ADDRESS;
+        pollMs_ = cfg::POLL_MS;
+        debounceMs_ = cfg::DEBOUNCE_MS;
+        releaseMs_ = cfg::RELEASE_MS;
 
         LOG_INFO("Initializing hardware keyboard");
         LOG_INFO("  I2C dev  : {}", i2cDevice_);

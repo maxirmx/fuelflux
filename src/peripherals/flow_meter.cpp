@@ -6,6 +6,7 @@
 #include "logger.h"
 
 #ifdef TARGET_REAL_FLOW_METER
+#include "hardware/hardware_config.h"
 #include <gpiod.h>
 #include <exception>
 #include <cerrno>
@@ -17,9 +18,10 @@ namespace fuelflux::peripherals {
 HardwareFlowMeter::HardwareFlowMeter() 
     : m_connected(false), m_measuring(false), m_currentVolume(0.0), m_totalVolume(0.0) {
 #ifdef TARGET_REAL_FLOW_METER
-    gpioChip_ = flowmeter_defaults::GPIO_CHIP;
-    gpioPin_ = flowmeter_defaults::GPIO_PIN;
-    ticksPerLiter_ = flowmeter_defaults::TICKS_PER_LITER;
+    namespace cfg = hardware::config::flow_meter;
+    gpioChip_ = cfg::GPIO_CHIP;
+    gpioPin_ = cfg::GPIO_PIN;
+    ticksPerLiter_ = cfg::TICKS_PER_LITER;
     stopMonitoring_ = false;
     pulseCount_ = 0;
 #endif
@@ -31,7 +33,7 @@ HardwareFlowMeter::HardwareFlowMeter(const std::string& gpioChip,
                                      double ticksPerLiter)
     : gpioChip_(gpioChip)
     , gpioPin_(gpioPin)
-    , ticksPerLiter_(ticksPerLiter > 0.0 ? ticksPerLiter : flowmeter_defaults::TICKS_PER_LITER)
+    , ticksPerLiter_(ticksPerLiter > 0.0 ? ticksPerLiter : hardware::config::flow_meter::TICKS_PER_LITER)
     , m_connected(false)
     , m_measuring(false)
     , m_currentVolume(0.0)
@@ -133,7 +135,9 @@ void HardwareFlowMeter::monitorThread() {
     LOG_PERIPH_INFO("Flow meter monitoring thread started");
     
     while (!stopMonitoring_.load(std::memory_order_acquire)) {
-        struct timespec timeout = { .tv_sec = 0, .tv_nsec = 100000000 }; // 100ms
+        struct timespec timeout;
+        timeout.tv_sec = 0;
+        timeout.tv_nsec = 100000000; // 100ms
         errno = 0;
         int rc = gpiod_line_event_wait(line, &timeout);
         

@@ -7,6 +7,7 @@
 
 #ifdef TARGET_REAL_PUMP
 #include "hardware/gpio_line.h"
+#include "hardware/hardware_config.h"
 #include <exception>
 #endif
 
@@ -16,9 +17,10 @@ HardwarePump::HardwarePump()
     : m_connected(false)
     , m_running(false) {
 #ifdef TARGET_REAL_PUMP
-    gpioChip_ = pump_defaults::GPIO_CHIP;
-    relayPin_ = pump_defaults::RELAY_PIN;
-    activeLow_ = pump_defaults::ACTIVE_LOW;
+    namespace cfg = hardware::config::pump;
+    gpioChip_ = cfg::GPIO_CHIP;
+    relayPin_ = cfg::RELAY_PIN;
+    activeLow_ = cfg::ACTIVE_LOW;
 #endif
 }
 

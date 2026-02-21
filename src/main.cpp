@@ -21,6 +21,9 @@
 #ifdef TARGET_REAL_PUMP
 #include "peripherals/pump.h"
 #endif
+#ifdef TARGET_REAL_FLOW_METER
+#include "peripherals/flow_meter.h"
+#endif
 #ifdef TARGET_REAL_KEYBOARD
 #include "peripherals/keyboard.h"
 #endif
@@ -208,109 +211,13 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
             msg.line3 = "Насос\\счётчик";
             controller.showMessage(msg);
 #ifdef TARGET_REAL_PUMP
-            std::string pumpChip = peripherals::pump_defaults::GPIO_CHIP;
-            int pumpLine = peripherals::pump_defaults::RELAY_PIN;
-            bool pumpActiveLow = peripherals::pump_defaults::ACTIVE_LOW;
-
-            if (const char* env = std::getenv("FUELFLUX_PUMP_GPIO_CHIP")) {
-                if (*env != '\0') {
-                    pumpChip = env;
-                } else {
-                    LOG_WARN("FUELFLUX_PUMP_GPIO_CHIP is set but empty; using default {}", pumpChip);
-                }
-            }
-            if (const char* env = std::getenv("FUELFLUX_PUMP_RELAY_PIN")) {
-                if (*env != '\0') {
-                    try {
-                        int parsed = std::stoi(env);
-                        if (parsed >= 0) {
-                            pumpLine = parsed;
-                        } else {
-                            LOG_WARN("Ignoring FUELFLUX_PUMP_RELAY_PIN='{}': negative values are invalid; using default {}", env, pumpLine);
-                        }
-                    } catch (const std::exception& ex) {
-                        LOG_WARN("Failed to parse FUELFLUX_PUMP_RELAY_PIN='{}': {}; using default {}", env, ex.what(), pumpLine);
-                    }
-                } else {
-                    LOG_WARN("FUELFLUX_PUMP_RELAY_PIN is set but empty; using default {}", pumpLine);
-                }
-            }
-            if (const char* env = std::getenv("FUELFLUX_PUMP_ACTIVE_LOW")) {
-                if (*env != '\0') {
-                    std::string value = env;
-                    for (auto& ch : value) {
-                        ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
-                    }
-                    pumpActiveLow = (value == "1" || value == "true" || value == "yes" || value == "on");
-                } else {
-                    LOG_WARN("FUELFLUX_PUMP_ACTIVE_LOW is set but empty; using default {}", pumpActiveLow);
-                }
-            }
-
-            LOG_INFO("Pump relay configuration:");
-            LOG_INFO("  GPIO Chip: {}", pumpChip);
-            LOG_INFO("  Relay Line: {}", pumpLine);
-            LOG_INFO("  Active Low: {}", pumpActiveLow);
-
-            controller.setPump(std::make_unique<peripherals::HardwarePump>(
-                pumpChip, pumpLine, pumpActiveLow));
+            controller.setPump(std::make_unique<peripherals::HardwarePump>());
 #else
             controller.setPump(emulator.createPump());
 #endif
 
 #ifdef TARGET_REAL_FLOW_METER
-            // Configure flow meter from environment variables
-            std::string flowmeterChip = peripherals::flowmeter_defaults::GPIO_CHIP;
-            int flowmeterPin = peripherals::flowmeter_defaults::GPIO_PIN;
-            double flowmeterTicksPerLiter = peripherals::flowmeter_defaults::TICKS_PER_LITER;
-
-            if (const char* env = std::getenv("FUELFLUX_FLOWMETER_GPIO_CHIP")) {
-                if (*env != '\0') {
-                    flowmeterChip = env;
-                } else {
-                    LOG_WARN("FUELFLUX_FLOWMETER_GPIO_CHIP is set but empty; using default {}", flowmeterChip);
-                }
-            }
-            if (const char* env = std::getenv("FUELFLUX_FLOWMETER_GPIO_PIN")) {
-                if (*env != '\0') {
-                    try {
-                        int parsed = std::stoi(env);
-                        if (parsed >= 0) {
-                            flowmeterPin = parsed;
-                        } else {
-                            LOG_WARN("Ignoring FUELFLUX_FLOWMETER_GPIO_PIN='{}': negative values are invalid; using default {}", env, flowmeterPin);
-                        }
-                    } catch (const std::exception& ex) {
-                        LOG_WARN("Failed to parse FUELFLUX_FLOWMETER_GPIO_PIN='{}': {}; using default {}", env, ex.what(), flowmeterPin);
-                    }
-                } else {
-                    LOG_WARN("FUELFLUX_FLOWMETER_GPIO_PIN is set but empty; using default {}", flowmeterPin);
-                }
-            }
-            if (const char* env = std::getenv("FUELFLUX_FLOWMETER_TICKS_PER_LITER")) {
-                if (*env != '\0') {
-                    try {
-                        double parsed = std::stod(env);
-                        if (parsed > 0.0) {
-                            flowmeterTicksPerLiter = parsed;
-                        } else {
-                            LOG_WARN("Ignoring FUELFLUX_FLOWMETER_TICKS_PER_LITER='{}': must be positive; using default {}", env, flowmeterTicksPerLiter);
-                        }
-                    } catch (const std::exception& ex) {
-                        LOG_WARN("Failed to parse FUELFLUX_FLOWMETER_TICKS_PER_LITER='{}': {}; using default {}", env, ex.what(), flowmeterTicksPerLiter);
-                    }
-                } else {
-                    LOG_WARN("FUELFLUX_FLOWMETER_TICKS_PER_LITER is set but empty; using default {}", flowmeterTicksPerLiter);
-                }
-            }
-
-            LOG_INFO("Flow meter configuration:");
-            LOG_INFO("  GPIO Chip: {}", flowmeterChip);
-            LOG_INFO("  GPIO Pin: {}", flowmeterPin);
-            LOG_INFO("  Ticks per Liter: {}", flowmeterTicksPerLiter);
-
-            controller.setFlowMeter(std::make_unique<peripherals::HardwareFlowMeter>(
-                flowmeterChip, flowmeterPin, flowmeterTicksPerLiter));
+            controller.setFlowMeter(std::make_unique<peripherals::HardwareFlowMeter>());
 #else
             controller.setFlowMeter(emulator.createFlowMeter());
 #endif

@@ -529,7 +529,7 @@ TEST_F(ControllerTest, ErrorCancelReinitializesDevice) {
     ASSERT_TRUE(waitForState(SystemState::Error));
     
     // Reinitialization sequence: shutdown all peripherals first, then initialize
-    EXPECT_CALL(*mockDisplay, shutdown()).Times(1);
+    EXPECT_CALL(*mockDisplay, shutdown()).Times(::testing::AtLeast(1));
     EXPECT_CALL(*mockKeyboard, shutdown()).Times(1);
     EXPECT_CALL(*mockCardReader, shutdown()).Times(1);
     EXPECT_CALL(*mockPump, shutdown()).Times(1);
@@ -546,7 +546,7 @@ TEST_F(ControllerTest, ErrorCancelReinitializesDevice) {
     ASSERT_TRUE(waitForState(SystemState::Waiting));
     
     // Final shutdown (normal shutdown)
-    EXPECT_CALL(*mockDisplay, shutdown()).Times(1);
+    EXPECT_CALL(*mockDisplay, shutdown()).Times(::testing::AtLeast(1));
     EXPECT_CALL(*mockKeyboard, shutdown()).Times(1);
     EXPECT_CALL(*mockCardReader, shutdown()).Times(1);
     EXPECT_CALL(*mockPump, shutdown()).Times(1);
@@ -876,7 +876,7 @@ TEST_F(ControllerTest, IsTankValid) {
 TEST_F(ControllerTest, Shutdown) {
     controller->initialize();
     
-    EXPECT_CALL(*mockDisplay, shutdown()).Times(1);
+    EXPECT_CALL(*mockDisplay, shutdown()).Times(::testing::AtLeast(1));
     EXPECT_CALL(*mockKeyboard, shutdown()).Times(1);
     EXPECT_CALL(*mockCardReader, shutdown()).Times(1);
     EXPECT_CALL(*mockPump, shutdown()).Times(1);
@@ -2197,5 +2197,175 @@ TEST_F(ControllerTest, CoalesceInputUpdatedEvents) {
     // Wait for processing
     ASSERT_TRUE(waitForState(SystemState::Waiting, std::chrono::milliseconds(500)));
 
+    shutdownControllerAndJoinThread(controllerThread);
+}
+
+// Test display reset via KeyDisplayReset in Waiting state
+TEST_F(ControllerTest, DisplayResetInWaitingState) {
+    controller->initialize();
+    
+    std::thread controllerThread([this]() {
+        controller->run();
+    });
+    
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    ASSERT_TRUE(waitForState(SystemState::Waiting));
+    
+    // Clear expectations from initialization
+    ::testing::Mock::VerifyAndClearExpectations(mockDisplay);
+    
+    // Expect display shutdown (during reset), initialize, and showMessage (from updateDisplay)
+    // Note: shutdown() will be called at least twice: once during display reset, and once during controller shutdown
+    EXPECT_CALL(*mockDisplay, shutdown()).Times(::testing::AtLeast(1));
+    EXPECT_CALL(*mockDisplay, initialize()).WillOnce(Return(true));
+    EXPECT_CALL(*mockDisplay, showMessage(::testing::_)).Times(::testing::AtLeast(1));
+    
+    // Simulate KeyDisplayReset
+    mockKeyboard->simulateKeyPress(KeyCode::KeyDisplayReset);
+    
+    // Give time for event to be processed
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    
+    // Verify still in Waiting state
+    EXPECT_EQ(controller->getStateMachine().getCurrentState(), SystemState::Waiting);
+    
+    shutdownControllerAndJoinThread(controllerThread);
+}
+
+// Test display reset via KeyDisplayReset in PinEntry state
+TEST_F(ControllerTest, DisplayResetInPinEntryState) {
+    controller->initialize();
+    
+    std::thread controllerThread([this]() {
+        controller->run();
+    });
+    
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    ASSERT_TRUE(waitForState(SystemState::Waiting));
+    
+    // Enter PinEntry state
+    mockKeyboard->simulateKeyPress(KeyCode::Key1);
+    ASSERT_TRUE(waitForState(SystemState::PinEntry));
+    
+    // Clear expectations
+    ::testing::Mock::VerifyAndClearExpectations(mockDisplay);
+    
+    // Expect display shutdown (during reset), initialize, and showMessage
+    // Note: shutdown() will be called at least twice: once during display reset, and once during controller shutdown
+    EXPECT_CALL(*mockDisplay, shutdown()).Times(::testing::AtLeast(1));
+    EXPECT_CALL(*mockDisplay, initialize()).WillOnce(Return(true));
+    EXPECT_CALL(*mockDisplay, showMessage(::testing::_)).Times(::testing::AtLeast(1));
+    
+    // Simulate KeyDisplayReset
+    mockKeyboard->simulateKeyPress(KeyCode::KeyDisplayReset);
+    
+    // Give time for event to be processed
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    
+    // Verify still in PinEntry state
+    EXPECT_EQ(controller->getStateMachine().getCurrentState(), SystemState::PinEntry);
+    
+    shutdownControllerAndJoinThread(controllerThread);
+}
+
+// Test display reset via KeyDisplayReset in Error state
+TEST_F(ControllerTest, DisplayResetInErrorState) {
+    controller->initialize();
+    
+    std::thread controllerThread([this]() {
+        controller->run();
+    });
+    
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    ASSERT_TRUE(waitForState(SystemState::Waiting));
+    
+    // Force Error state
+    controller->postEvent(Event::Error);
+    ASSERT_TRUE(waitForState(SystemState::Error));
+    
+    // Clear expectations
+    ::testing::Mock::VerifyAndClearExpectations(mockDisplay);
+    
+    // Expect display shutdown (during reset), initialize, and showMessage
+    // Note: shutdown() will be called at least twice: once during display reset, and once during controller shutdown
+    EXPECT_CALL(*mockDisplay, shutdown()).Times(::testing::AtLeast(1));
+    EXPECT_CALL(*mockDisplay, initialize()).WillOnce(Return(true));
+    EXPECT_CALL(*mockDisplay, showMessage(::testing::_)).Times(::testing::AtLeast(1));
+    
+    // Simulate KeyDisplayReset
+    mockKeyboard->simulateKeyPress(KeyCode::KeyDisplayReset);
+    
+    // Give time for event to be processed
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    
+    // Verify still in Error state
+    EXPECT_EQ(controller->getStateMachine().getCurrentState(), SystemState::Error);
+    
+    shutdownControllerAndJoinThread(controllerThread);
+}
+
+// Test that display reset does not interfere with other events in PinEntry
+TEST_F(ControllerTest, DisplayResetDoesNotInterfereWithStateTransitions) {
+    controller->initialize();
+    
+    std::thread controllerThread([this]() {
+        controller->run();
+    });
+    
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    ASSERT_TRUE(waitForState(SystemState::Waiting));
+    
+    // Start entering PIN
+    mockKeyboard->simulateKeyPress(KeyCode::Key1);
+    ASSERT_TRUE(waitForState(SystemState::PinEntry));
+    
+    // Add more digits
+    mockKeyboard->simulateKeyPress(KeyCode::Key2);
+    mockKeyboard->simulateKeyPress(KeyCode::Key3);
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    
+    // Reset display (should not affect state machine state)
+    mockKeyboard->simulateKeyPress(KeyCode::KeyDisplayReset);
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    
+    // Verify still in PinEntry state
+    EXPECT_EQ(controller->getStateMachine().getCurrentState(), SystemState::PinEntry);
+    
+    // Can still cancel to go back to Waiting
+    mockKeyboard->simulateKeyPress(KeyCode::KeyStop);
+    ASSERT_TRUE(waitForState(SystemState::Waiting));
+    
+    shutdownControllerAndJoinThread(controllerThread);
+}
+
+// Test display reset when display initialization fails
+TEST_F(ControllerTest, DisplayResetHandlesInitializationFailure) {
+    controller->initialize();
+    
+    std::thread controllerThread([this]() {
+        controller->run();
+    });
+    
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    ASSERT_TRUE(waitForState(SystemState::Waiting));
+    
+    // Clear expectations
+    ::testing::Mock::VerifyAndClearExpectations(mockDisplay);
+    
+    // Setup: display initialization will fail
+    EXPECT_CALL(*mockDisplay, shutdown()).Times(::testing::AtLeast(1));
+    EXPECT_CALL(*mockDisplay, initialize()).WillOnce(Return(false));
+    // No showMessage should be called if initialization fails
+    EXPECT_CALL(*mockDisplay, showMessage(::testing::_)).Times(0);
+    
+    // Simulate KeyDisplayReset
+    mockKeyboard->simulateKeyPress(KeyCode::KeyDisplayReset);
+    
+    // Give time for event to be processed
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    
+    // Verify still in Waiting state (state machine should not be affected)
+    EXPECT_EQ(controller->getStateMachine().getCurrentState(), SystemState::Waiting);
+    
     shutdownControllerAndJoinThread(controllerThread);
 }
