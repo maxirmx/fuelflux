@@ -147,7 +147,7 @@ void HardwareFlowMeter::monitorThread() {
             struct gpiod_line_event ev;
             errno = 0;
             if (gpiod_line_event_read(line, &ev) == 0) {
-                pulseCount_.fetch_add(1, std::memory_order_relaxed);
+                pulseCount_.fetch_add(1, std::memory_order_release);
             } else {
                 LOG_PERIPH_ERROR("Failed to read flow meter event: {} (errno={})", 
                                std::strerror(errno), errno);
@@ -193,7 +193,7 @@ void HardwareFlowMeter::stopMeasurement() {
         }
         
         // Calculate final volume from pulse count
-        uint64_t pulses = pulseCount_.load();
+        uint64_t pulses = pulseCount_.load(std::memory_order_acquire);
         m_currentVolume = static_cast<Volume>(pulses) / ticksPerLiter_;
         LOG_PERIPH_INFO("Flow measurement complete: {} pulses = {:.3f} liters", 
                        pulses, m_currentVolume);
@@ -222,7 +222,7 @@ void HardwareFlowMeter::resetCounter() {
 Volume HardwareFlowMeter::getCurrentVolume() const {
 #ifdef TARGET_REAL_FLOW_METER
     if (m_measuring) {
-        uint64_t pulses = pulseCount_.load();
+        uint64_t pulses = pulseCount_.load(std::memory_order_acquire);
         return static_cast<Volume>(pulses) / ticksPerLiter_;
     }
 #endif
