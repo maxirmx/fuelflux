@@ -11,13 +11,6 @@
 #include <atomic>
 
 namespace fuelflux::peripherals {
-#ifdef TARGET_REAL_FLOW_METER
-namespace flowmeter_defaults {
-    constexpr const char* GPIO_CHIP = "/dev/gpiochip0";
-    constexpr int GPIO_PIN = 267;
-    constexpr double TICKS_PER_LITER = 72.0;
-}
-#endif
 
 // Hardware flow meter implementation: uses GPIO pulse counting when TARGET_REAL_FLOW_METER is defined, otherwise behaves as a stub.
 class HardwareFlowMeter : public IFlowMeter {

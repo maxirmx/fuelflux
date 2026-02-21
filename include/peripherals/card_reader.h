@@ -27,7 +27,6 @@ public:
 
 private:
     void pollingLoop();
-    std::string resolveConnstring() const;
 
     std::atomic<bool> isConnected_;
     std::atomic<bool> readingEnabled_;

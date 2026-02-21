@@ -100,7 +100,10 @@ else()
 endif()
 
 if(TARGET_REAL_FLOW_METER)
-    message(STATUS "TARGET_REAL_FLOW_METER enabled (placeholder - not yet implemented)")
+    message(STATUS "TARGET_REAL_FLOW_METER enabled - using real flow meter hardware with GPIO pulse counting")
+    add_compile_definitions(TARGET_REAL_FLOW_METER)
+else()
+    message(STATUS "TARGET_REAL_FLOW_METER disabled - using flow meter simulation")
 endif()
 
 if(ENABLE_AUTH_DELAY)
@@ -183,11 +186,11 @@ if(TARGET_SIM800C AND NOT MSVC)
 endif()
 
 # Conditional dependencies for real hardware
-if(TARGET_REAL_DISPLAY OR TARGET_REAL_PUMP OR TARGET_REAL_CARD_READER)
+if(TARGET_REAL_DISPLAY OR TARGET_REAL_PUMP OR TARGET_REAL_FLOW_METER OR TARGET_REAL_CARD_READER)
     find_package(PkgConfig REQUIRED)
 endif()
 
-if(TARGET_REAL_DISPLAY OR TARGET_REAL_PUMP)
+if(TARGET_REAL_DISPLAY OR TARGET_REAL_PUMP OR TARGET_REAL_FLOW_METER)
     pkg_check_modules(GPIOD REQUIRED libgpiod)
     message(STATUS "Found libgpiod: ${GPIOD_LIBRARIES}")
 endif()
@@ -328,7 +331,7 @@ endif()
 add_library(fuelflux_lib STATIC ${LIB_SOURCES} ${HEADERS})
 
 # Add include directories for real hardware libraries to the library target
-if(TARGET_REAL_DISPLAY OR TARGET_REAL_PUMP)
+if(TARGET_REAL_DISPLAY OR TARGET_REAL_PUMP OR TARGET_REAL_FLOW_METER)
     target_include_directories(fuelflux_lib PUBLIC ${GPIOD_INCLUDE_DIRS})
 endif()
 if(TARGET_REAL_DISPLAY)
@@ -350,7 +353,7 @@ target_link_libraries(fuelflux_lib
 )
 
 # Link real hardware libraries if needed
-if(TARGET_REAL_DISPLAY OR TARGET_REAL_PUMP)
+if(TARGET_REAL_DISPLAY OR TARGET_REAL_PUMP OR TARGET_REAL_FLOW_METER)
     target_link_libraries(fuelflux_lib PUBLIC ${GPIOD_LIBRARIES})
 endif()
 if(TARGET_REAL_DISPLAY)
