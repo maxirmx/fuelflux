@@ -73,7 +73,8 @@ enum class Event {
     CancelNoFuel,
     Timeout,
     Error,
-    ErrorRecovery
+    ErrorRecovery,
+    DisplayReset
 };
 
 // Key codes for keyboard input

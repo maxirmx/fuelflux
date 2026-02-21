@@ -194,7 +194,17 @@ void Controller::run() {
         }
 
         if (haveEvent) {
-            stateMachine_.processEvent(event);
+            // Handle DisplayReset event in the controller thread to avoid race conditions.
+            // This event bypasses the state machine because display reset is a hardware
+            // operation that doesn't affect logical state transitions. The state machine
+            // state is preserved across display resets, and the display simply shows the
+            // same state information after reinitialization. This design keeps display
+            // hardware management separate from business logic.
+            if (event == Event::DisplayReset) {
+                reinitializeDisplay();
+            } else {
+                stateMachine_.processEvent(event);
+            }
         } else {
             // Small sleep to avoid busy loop when no events are present
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
@@ -295,7 +305,7 @@ void Controller::handleKeyPress(KeyCode key) {
             break;
 
         case KeyCode::KeyDisplayReset:
-            reinitializeDisplay();
+            postEvent(Event::DisplayReset);
             break;
     }
 
