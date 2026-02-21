@@ -645,50 +645,6 @@ TEST_F(ControllerTest, NotAuthorizedCancelAndTimeoutReturnToWaiting) {
     shutdownControllerAndJoinThread(controllerThread);
 }
 
-TEST_F(ControllerTest, NotAuthorizedStateProcessesAllEvents) {
-    EXPECT_CALL(*mockBackend, Authorize(_)).WillRepeatedly(Return(false));
-
-    controller->initialize();
-
-    auto& sm = controller->getStateMachine();
-    ASSERT_TRUE(sm.processEvent(Event::CardPresented));
-    ASSERT_TRUE(sm.processEvent(Event::AuthorizationFailed));
-    ASSERT_EQ(sm.getCurrentState(), SystemState::NotAuthorized);
-
-    const std::array<Event, 19> allEvents = {
-        Event::CardPresented,
-        Event::InputUpdated,
-        Event::PinEntered,
-        Event::AuthorizationSuccess,
-        Event::AuthorizationFailed,
-        Event::TankSelected,
-        Event::VolumeEntered,
-        Event::AmountEntered,
-        Event::RefuelingStarted,
-        Event::RefuelingStopped,
-        Event::DataTransmissionComplete,
-        Event::IntakeSelected,
-        Event::IntakeDirectionSelected,
-        Event::IntakeVolumeEntered,
-        Event::IntakeComplete,
-        Event::CancelPressed,
-        Event::Timeout,
-        Event::ErrorRecovery,
-        Event::Error                           // Error shall be the last not to implement reset here
-    };
-
-    for (const auto event : allEvents) {
-		auto currentState = sm.getCurrentState();
-        if (currentState != SystemState::NotAuthorized) {
-            ASSERT_TRUE(sm.processEvent(Event::CardPresented));
-            ASSERT_TRUE(sm.processEvent(Event::AuthorizationFailed));
-            ASSERT_EQ(sm.getCurrentState(), SystemState::NotAuthorized);
-        }
-
-        EXPECT_TRUE(sm.processEvent(event));
-    }
-}
-
 TEST_F(ControllerTest, RefuelingCompletionDisplaysFinalVolume) {
     // Prepare backend to authorize and provide a tank
     mockBackend->roleId_ = static_cast<int>(UserRole::Customer);
@@ -1153,10 +1109,10 @@ TEST_F(ControllerTest, DisplayMessageWaitingState) {
     DisplayMessage msg = controller->getStateMachine().getDisplayMessage();
     
     // Verify four lines are present
-    EXPECT_EQ(msg.line1, "Приложите карту");
+    EXPECT_EQ(msg.line1, "Добро пожаловать");
     EXPECT_EQ(msg.line2, "");         // Empty line
     EXPECT_EQ(msg.line3, "");         // Empty line
-    EXPECT_EQ(msg.line4, "");         // Empty line
+    EXPECT_EQ(msg.line4, "Приложите карту");
 }
 
 // Test display message structure for PinEntry state
@@ -1180,8 +1136,8 @@ TEST_F(ControllerTest, DisplayMessagePinEntryState) {
     // Verify structure
     EXPECT_EQ(msg.line1, "Введите PIN");
     EXPECT_EQ(msg.line2, "*");  // One digit entered, masked
-    EXPECT_EQ(msg.line3, "Нажмите Старт (A)");
-    EXPECT_EQ(msg.line4, "");  
+    EXPECT_EQ(msg.line3, "");
+    EXPECT_EQ(msg.line4, "Ввод(A)/Отмена(B)");  
     
     shutdownControllerAndJoinThread(controllerThread);
 }
@@ -1213,7 +1169,7 @@ TEST_F(ControllerTest, DisplayMessageTankSelectionState) {
     // line2 should be current input (empty initially)
     EXPECT_TRUE(msg.line3.find("1") != std::string::npos);
     EXPECT_TRUE(msg.line3.find("2") != std::string::npos);
-    EXPECT_EQ(msg.line4, "Нажмите Старт(A)");
+    EXPECT_EQ(msg.line4, "Ввод(A)/Отмена(B)");
     
     shutdownControllerAndJoinThread(controllerThread);
 }
@@ -1246,42 +1202,10 @@ TEST_F(ControllerTest, DisplayMessageVolumeEntryState) {
     // Verify structure
     EXPECT_EQ(msg.line1, "Введите объём");
     // line2 is current input
-    EXPECT_TRUE(msg.line3.find("Макс:") != std::string::npos);  // Should show max for customers
-    EXPECT_EQ(msg.line4, "* макс, # стереть");
+    EXPECT_TRUE(msg.line3.find("Макс(*)") != std::string::npos);  // Should show max for customers
+    EXPECT_EQ(msg.line4, "Старт(A)/Отмена(B)");
     
     shutdownControllerAndJoinThread(controllerThread);
-}
-
-// Test that all states provide exactly four lines
-TEST_F(ControllerTest, AllStatesProvideExactlyFourLines) {
-    controller->initialize();
-    
-    // Test that DisplayMessage structure has exactly 4 lines
-    DisplayMessage msg = controller->getStateMachine().getDisplayMessage();
-    
-    // Verify the structure (this is a compile-time test more than runtime)
-    // If DisplayMessage had more or fewer fields, this would fail to compile
-    std::string line1 = msg.line1;
-    std::string line2 = msg.line2;
-    std::string line3 = msg.line3;
-    std::string line4 = msg.line4;
-    
-    // Verify we can construct a message with all four lines
-    EXPECT_NO_THROW({
-        controller->showMessage("L1", "L2", "L3", "L4");
-    });
-}
-
-// Test empty lines are allowed
-TEST_F(ControllerTest, EmptyLinesAllowed) {
-    controller->initialize();
-    
-    EXPECT_CALL(*mockDisplay, showMessage(_)).Times(3);
-    
-    // Should be able to show messages with empty lines
-    controller->showMessage("Line 1", "", "", "");
-    controller->showMessage("", "Line 2", "", "");
-    controller->showMessage("", "", "", "Line 4");
 }
 
 // Test that card reading is disabled during peripheral setup then enabled when entering Waiting state

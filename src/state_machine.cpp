@@ -97,7 +97,10 @@ bool StateMachine::processEvent(Event event) {
             );
         controller_->enableCardReading(cardReadingEnabled);
 
-        if (stateChanged || event == Event::InputUpdated) controller_->updateDisplay();
+        if ((toState == SystemState::Authorization || 
+            toState == SystemState::RefuelDataTransmission ||
+            toState == SystemState::RefuelDataTransmission)) controller_->updateDisplay();
+
     }
 
     // Execute transition action
@@ -111,7 +114,11 @@ bool StateMachine::processEvent(Event event) {
         }
     }
 
-    LOG_SM_INFO("Transition: {} -> {} (event: {})", 
+    if (controller_) {
+        if (stateChanged || event == Event::InputUpdated) controller_->updateDisplay();
+    }
+
+    LOG_SM_INFO("Transition: {} -> {} (event: {})",
                static_cast<int>(previousState_), static_cast<int>(currentState_), 
                static_cast<int>(event));
 
@@ -209,9 +216,9 @@ void StateMachine::setupTransitions() {
     transitions_[{SystemState::Authorization, Event::ErrorRecovery}]       = {SystemState::Authorization,     noOp};
 
     // From NotAuthorized state
-    transitions_[{SystemState::NotAuthorized, Event::CardPresented}]       = {SystemState::NotAuthorized,     noOp};
-    transitions_[{SystemState::NotAuthorized, Event::PinEntered}]          = {SystemState::NotAuthorized,     noOp};
-    transitions_[{SystemState::NotAuthorized, Event::InputUpdated}]        = {SystemState::NotAuthorized,     noOp};
+    transitions_[{SystemState::NotAuthorized, Event::CardPresented}]       = {SystemState::Authorization,     [this]() { doAuthorization(); } };
+    transitions_[{SystemState::NotAuthorized, Event::PinEntered}]          = {SystemState::Authorization,     [this]() { doAuthorization(); } };
+    transitions_[{SystemState::NotAuthorized, Event::InputUpdated}]        = {SystemState::PinEntry,          noOp};
     transitions_[{SystemState::NotAuthorized, Event::AuthorizationSuccess}]= {SystemState::NotAuthorized,     noOp};
     transitions_[{SystemState::NotAuthorized, Event::AuthorizationFailed}] = {SystemState::NotAuthorized,     noOp};
     transitions_[{SystemState::NotAuthorized, Event::TankSelected}]        = {SystemState::NotAuthorized,     noOp};
@@ -449,40 +456,40 @@ DisplayMessage StateMachine::getDisplayMessage() const {
     
     if (!controller_) {
         // No controller means error
-        message.line1 = "ОШИБКА";
-        message.line2 = "Контроллер недоступен";
-        message.line3 = "";
+        message.line1 = "";
+        message.line2 = "ОШИБКА";
+        message.line3 = "Контроллер недоступен";
         message.line4 = "";
         return message;
     }
     
     switch (currentState_) {
         case SystemState::Waiting:
-            message.line1 = "Приложите карту";
-            message.line2 = ""; //  controller_->getCurrentTimeString();
+            message.line1 = "Добро пожаловать";
+            message.line2 = ""; 
             message.line3 = "";
-            message.line4 = ""; // controller_->getDeviceSerialNumber();
+            message.line4 = "Приложите карту"; 
             break;
 
         case SystemState::PinEntry:
             message.line1 = "Введите PIN";
             message.line2 = std::string(controller_->getCurrentInput().length(), '*');
-            message.line3 = "Нажмите Старт (A)";
-            message.line4 = "";
+            message.line3 = "";
+            message.line4 = "Ввод(A)/Отмена(B)";
             break;
 
         case SystemState::Authorization:
-            message.line1 = "Авторизация...";
+            message.line1 = "Проверка...";
             message.line2 = "";
             message.line3 = "";
-            message.line4 = "";
+            message.line4 = "Ожидайте";
             break;
 
         case SystemState::NotAuthorized:
             message.line1 = "Доступ запрещен";
             message.line2 = "";
-            message.line3 = "Нажмите Отмена (B)";
-            message.line4 = "";
+            message.line3 = "";
+            message.line4 = "Приложите карту";
             break;
 
         case SystemState::TankSelection:
@@ -492,7 +499,7 @@ DisplayMessage StateMachine::getDisplayMessage() const {
             for (const auto& tank : controller_->getAvailableTanks()) {
                 message.line3 += std::to_string(tank.number) + " ";
             }
-            message.line4 = "Нажмите Старт(A)";
+            message.line4 = "Ввод(A)/Отмена(B)";
             break;
 
         case SystemState::VolumeEntry:
@@ -505,25 +512,26 @@ DisplayMessage StateMachine::getDisplayMessage() const {
                 if (tankVolume > 0.0) {
                     maxVolume = std::min(maxVolume, tankVolume);
                 }
-                message.line3 = "Макс: " + controller_->formatVolume(maxVolume);
+
+                message.line3 = controller_->formatVolume(maxVolume) + " макс(*)";
             } else {
                 message.line3 = "";
             }
-            message.line4 = "* макс, # стереть";
+            message.line4 = "Старт(A)/Отмена(B)"; 
             break;
 
         case SystemState::Refueling:
             message.line1 = "Заправка " + controller_->formatVolume(controller_->getEnteredVolume());
             message.line2 = controller_->formatVolume(controller_->getCurrentRefuelVolume());
             message.line3 = "";
-            message.line4 = "";
+            message.line4 = "Стоп(B)";
             break;
 
         case SystemState::RefuelDataTransmission:
             message.line1 = "Передача данных...";
-            message.line2 = "";
+            message.line2 = controller_->formatVolume(controller_->getCurrentRefuelVolume());
             message.line3 = "";
-            message.line4 = "";
+            message.line4 = "Ожидайте";
             break;
 
         case SystemState::RefuelingComplete:
@@ -536,24 +544,23 @@ DisplayMessage StateMachine::getDisplayMessage() const {
         case SystemState::IntakeDirectionSelection:
             message.line1 = "1 - Приём / 2 - Слив";
             message.line2 = controller_->getCurrentInput();
-            message.line3 = "Нажмите Старт (A)";
-            message.line4 = "Цистерна " + std::to_string(controller_->getSelectedTank());
-            break;
+            message.line3 = "Цистерна " + std::to_string(controller_->getSelectedTank());  
+            message.line4 = "Ввод(A)/Отмена(B)";
+            break;                               
 
         case SystemState::IntakeVolumeEntry:
             message.line1 = "Введите объём";
             message.line2 = controller_->getCurrentInput();
-            message.line3 = "Цистерна " + std::to_string(controller_->getSelectedTank());
-            message.line4 = (controller_->getSelectedIntakeDirection() == IntakeDirection::In)
-                ? "Приём топлива"
-                : "Слив топлива";
+            message.line3 = "Цистерна " + std::to_string(controller_->getSelectedTank()) +
+                             ((controller_->getSelectedIntakeDirection() == IntakeDirection::In) ? " приём" : " слив");
+            message.line4 = "Ввод(A)/Отмена(B)";
             break;
 
         case SystemState::IntakeDataTransmission:
             message.line1 = "Передача данных...";
-            message.line2 = "";
+            message.line2 = controller_->formatVolume(controller_->getEnteredVolume());;
             message.line3 = "";
-            message.line4 = "";
+            message.line4 = "Ожидайте";
             break;
 
         case SystemState::IntakeComplete:
@@ -561,15 +568,15 @@ DisplayMessage StateMachine::getDisplayMessage() const {
                 ? "Приём завершён"
                 : "Слив завершён";
             message.line2 = controller_->formatVolume(controller_->getEnteredVolume());
-            message.line3 = "";
+            message.line3 = "Цистерна " + std::to_string(controller_->getSelectedTank());
             message.line4 = "Приложите карту";
             break;
 
         case SystemState::Error:
-            message.line1 = "ОШИБКА";
-            message.line2 = "";
+            message.line1 = "";
+            message.line2 = "ОШИБКА";
             message.line3 = controller_->getLastErrorMessage();
-            message.line4 = "Нажмите Отмена (B)";
+            message.line4 = "Сброс(B)";
             break;
             
         default:

@@ -3,7 +3,7 @@
 # This file is a part of fuelflux application
 
 cmake_minimum_required(VERSION 3.16)
-project(FuelFlux VERSION 0.0.8 LANGUAGES CXX)
+project(FuelFlux VERSION 0.0.9 LANGUAGES CXX)
 
 # Generate version header from template
 configure_file(
@@ -44,7 +44,7 @@ else()
     option(TARGET_REAL_KEYBOARD "Use real keyboard hardware" ON)
     option(TARGET_REAL_CARD_READER "Use real card reader hardware" ON)
     option(TARGET_REAL_PUMP "Use real pump hardware" ON)
-    option(TARGET_REAL_FLOW_METER "Use real flow meter hardware" OFF)
+    option(TARGET_REAL_FLOW_METER "Use real flow meter hardware" ON)
     option(ENABLE_TESTING "Enable testing" OFF)
     option(ENABLE_AUTH_DELAY "Enable 3-second authorization delay for testing/simulation" OFF)
     option(CODE_COVERAGE "Enable code coverage instrumentation" OFF)
