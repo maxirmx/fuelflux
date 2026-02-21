@@ -1,0 +1,52 @@
+[Unit]
+Description=FuelFlux Fuel Dispensing Controller
+Documentation=https://github.com/maxirmx/fuelflux
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=fuelflux
+Group=fuelflux
+WorkingDirectory=/opt/fuelflux
+
+# Main executable
+ExecStart=/opt/fuelflux/bin/fuelflux
+
+# Environment configuration
+# Override controller ID if needed
+# Environment="FUELFLUX_CONTROLLER_ID=232390330480218"
+
+# Or use an environment file for all settings:
+EnvironmentFile=-/etc/fuelflux/fuelflux.env
+
+# Restart policy
+Restart=on-failure
+RestartSec=5
+
+# Graceful shutdown timeout
+TimeoutStopSec=30
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/fuelflux
+
+# Hardware access - add groups as needed for GPIO, I2C, SPI, serial
+SupplementaryGroups=gpio dialout i2c spi
+
+# Logging - output goes to journald
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=fuelflux
+
+# Resource limits (optional, adjust as needed)
+# MemoryMax=256M
+# CPUQuota=80%
+
+[Install]
+WantedBy=multi-user.target

@@ -35,6 +35,7 @@
 #include <chrono>
 #ifdef _WIN32
 #include <windows.h>
+#include <io.h>
 #include <conio.h>
 #else
 #include <unistd.h>
@@ -279,8 +280,17 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
                 emulator.setUserCache(controller.getUserCache());
             }
             
-            // Start input dispatcher thread (handles both command and key modes)
-            emulator.startInputDispatcher(g_running);
+            // Start input dispatcher only if running interactively
+#ifndef _WIN32
+            bool isInteractive = isatty(STDIN_FILENO);
+#else
+            bool isInteractive = _isatty(_fileno(stdin));
+#endif
+            if (isInteractive) {
+                emulator.startInputDispatcher(g_running);
+            } else {
+                LOG_INFO("Running in non-interactive mode (no console input)");
+            }
             
             // Start controller main loop in a separate thread
             controller.updateDisplay();

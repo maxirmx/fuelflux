@@ -1,15 +1,9 @@
 {
   "sinks": [
     {
-      "name": "console",
-      "type": "stdout_color",
-      "level": "warn",
-      "pattern": "[%Y-%m-%d %H:%M:%S.%e] [%n] [%l] %v"
-    },
-    {
       "name": "file",
       "type": "rotating_file",
-      "filename": "logs/fuelflux.log",
+      "filename": "/var/fuelflux/logs/fuelflux.log",
       "max_size": "10MB",
       "max_files": 5,
       "level": "debug",
@@ -18,7 +12,7 @@
     {
       "name": "error_file",
       "type": "rotating_file",
-      "filename": "logs/fuelflux_error.log",
+      "filename": "/var/fuelflux/logs/fuelflux_error.log",
       "max_size": "5MB",
       "max_files": 3,
       "level": "warn",

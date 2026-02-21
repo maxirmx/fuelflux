@@ -210,9 +210,6 @@ bool Logger::loadConfig(const std::string& configPath) {
         nlohmann::json config;
         configFile >> config;
 
-        // Create logs directory if it doesn't exist
-        std::filesystem::create_directories("logs");
-
         // Parse async configuration
         bool asyncEnabled = config.value("async", nlohmann::json{}).value("enabled", true);
         if (asyncEnabled) {
@@ -236,6 +233,18 @@ bool Logger::loadConfig(const std::string& configPath) {
                 std::string filename = sinkConfig["filename"];
                 std::string maxSizeStr = sinkConfig.value("max_size", "10MB");
                 int maxFiles = sinkConfig.value("max_files", 5);
+
+                // Ensure parent directory exists for log file
+                std::filesystem::path logPath(filename);
+                if (logPath.has_parent_path()) {
+                    std::error_code ec;
+                    std::filesystem::create_directories(logPath.parent_path(), ec);
+                    if (ec) {
+                        std::cerr << "[Logger] Failed to create log directory '" 
+                                  << logPath.parent_path() << "': " << ec.message() << std::endl;
+                        throw std::runtime_error("Failed to create log directory: " + ec.message());
+                    }
+                }
 
                 // Parse size string (e.g., "10MB" -> bytes)
                 size_t maxSize = 1024 * 1024 * 10; // Default 10MB
