@@ -237,10 +237,10 @@ void HardwareFlowMeter::stopMeasurement() {
                        pulses, m_currentVolume);
 #endif
         
-        m_measuring.store(false, std::memory_order_release);
-        
-        // Add current volume to total
+        // Add current volume to total before releasing m_measuring
         m_totalVolume += m_currentVolume;
+        
+        m_measuring.store(false, std::memory_order_release);
         
         if (m_callback) {
             m_callback(m_currentVolume);
