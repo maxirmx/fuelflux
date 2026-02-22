@@ -1,0 +1,33 @@
+ABORT "BUSY"
+ABORT "NO CARRIER"
+ABORT "NO DIALTONE"
+ABORT "NO ANSWER"
+REPORT CONNECT
+
+TIMEOUT 10
+
+# Initialize modem
+"" AT
+OK AT+CFUN=1
+OK ATZ
+
+# Detach from GPRS first (ignore errors if not attached)
+OK-AT AT+CGATT=0
+OK-AT AT+SAPBR=0,1
+
+# Small delay for cleanup
+OK AT
+OK AT+CGATT=1
+
+# Configure bearer
+OK AT+SAPBR=3,1,"CONTYPE","GPRS"
+OK AT+SAPBR=3,1,"APN","internet"
+
+# Open bearer (retry once if fails)
+OK-AT+SAPBR=1,1 AT+SAPBR=1,1
+OK AT+SAPBR=2,1
+
+# Dial
+TIMEOUT 30
+OK ATD*99#
+CONNECT ""
