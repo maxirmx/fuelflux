@@ -258,6 +258,11 @@ void HardwareFlowMeter::stopMeasurement() {
 }
 
 void HardwareFlowMeter::resetCounter() {
+    if (m_measuring.load(std::memory_order_acquire)) {
+        LOG_PERIPH_WARN("Cannot reset counter while measuring");
+        return;
+    }
+    
     LOG_PERIPH_INFO("Resetting volume counter...");
     std::lock_guard<std::mutex> lock(m_volumeMutex);
     m_currentVolume = 0.0;
@@ -269,11 +274,14 @@ void HardwareFlowMeter::resetCounter() {
 
 Volume HardwareFlowMeter::getCurrentVolume() const {
 #ifdef TARGET_REAL_FLOW_METER
+    // When measuring, calculate from atomic pulse count without mutex
+    // (pulseCount_ is atomic and m_currentVolume is not accessed in this path)
     if (m_measuring.load(std::memory_order_acquire)) {
         uint64_t pulses = pulseCount_.load(std::memory_order_acquire);
         return static_cast<Volume>(pulses) / ticksPerLiter_;
     }
 #endif
+    // When not measuring, read from m_currentVolume with mutex protection
     std::lock_guard<std::mutex> lock(m_volumeMutex);
     return m_currentVolume;
 }
