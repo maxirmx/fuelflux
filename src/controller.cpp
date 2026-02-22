@@ -512,7 +512,11 @@ void Controller::requestAuthorization(const UserId& userId) {
         // Post event instead of processing it directly to maintain sequential event processing
         postEvent(Event::AuthorizationSuccess);
     } else {
-        if (backend_->IsNetworkError() && userCache_ && messageStorage_) {
+        // Check if it's a network error
+        bool isNetworkError = backend_->IsNetworkError();
+        
+        // Try cache fallback if network error and cache is available
+        if (isNetworkError && userCache_ && messageStorage_) {
             auto cached = userCache_->GetEntry(userId);
             if (cached.has_value()) {
                 sessionAuthorizedFromCache_ = true;
@@ -526,9 +530,15 @@ void Controller::requestAuthorization(const UserId& userId) {
                 return;
             }
         }
-
-        // Post event instead of processing it directly to maintain sequential event processing
-        postEvent(Event::AuthorizationFailed);
+        
+        // Post appropriate failure event
+        if (isNetworkError) {
+            // Network error (with or without cache) - cannot authorize
+            postEvent(Event::AuthorizationFailed);
+        } else {
+            // Not a network error - authorization denied
+            postEvent(Event::AuthorizationDenied);
+        }
     }
 }
 
