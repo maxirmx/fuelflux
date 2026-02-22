@@ -56,7 +56,7 @@ private:
 #endif
 
     bool m_connected;
-    bool m_measuring;
+    std::atomic<bool> m_measuring;
     Volume m_currentVolume;
     Volume m_totalVolume;
     FlowCallback m_callback;
