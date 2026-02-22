@@ -3,7 +3,7 @@
 # This file is a part of fuelflux application
 
 cmake_minimum_required(VERSION 3.16)
-project(FuelFlux VERSION 0.0.10 LANGUAGES CXX)
+project(FuelFlux VERSION 0.1.0 LANGUAGES CXX)
 
 # Generate version header from template
 configure_file(
