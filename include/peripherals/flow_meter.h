@@ -56,8 +56,8 @@ private:
 
     bool m_connected;
     std::atomic<bool> m_measuring;
-    Volume m_currentVolume;
-    Volume m_totalVolume;
+    std::atomic<Volume> m_currentVolume;
+    std::atomic<Volume> m_totalVolume;
     FlowCallback m_callback;
 };
 
