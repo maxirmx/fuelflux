@@ -1180,8 +1180,8 @@ TEST_F(ControllerTest, DisplayMessageWaitingState) {
     // Verify four lines are present
     EXPECT_EQ(msg.line1, "Добро пожаловать");
     EXPECT_EQ(msg.line2, "");         // Empty line
-    EXPECT_EQ(msg.line3, "");         // Empty line
-    EXPECT_EQ(msg.line4, "Приложите карту");
+    EXPECT_EQ(msg.line3, "Для заправки");         
+    EXPECT_EQ(msg.line4, "приложите карту");
 }
 
 // Test display message structure for PinEntry state

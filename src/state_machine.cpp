@@ -518,8 +518,8 @@ DisplayMessage StateMachine::getDisplayMessage() const {
         case SystemState::Waiting:
             message.line1 = "Добро пожаловать";
             message.line2 = ""; 
-            message.line3 = "";
-            message.line4 = "Приложите карту"; 
+            message.line3 = "Для заправки";
+            message.line4 = "приложите карту"; 
             break;
 
         case SystemState::PinEntry:
