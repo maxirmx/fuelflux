@@ -51,7 +51,7 @@ private:
     std::atomic<bool> stopMonitoring_;
     std::atomic<uint64_t> pulseCount_;
     std::atomic<bool> simulationEnabled_;
-    double simulationFlowRateLitersPerSecond_;
+    std::atomic<double> simulationFlowRateLitersPerSecond_;
 #endif
 
     bool m_connected;
