@@ -10,6 +10,7 @@
 #include <condition_variable>
 #include <queue>
 #include <memory>
+#include <functional>
 
 #ifndef _WIN32
 #include <termios.h>
@@ -169,6 +170,7 @@ public:
     // Set cache manager and user cache for cache commands
     void setCacheManager(std::shared_ptr<CacheManager> cacheManager);
     void setUserCache(std::shared_ptr<UserCache> userCache);
+    void setFlowMeterSimulationHandler(std::function<bool(bool)> handler);
 
     // Dispatcher helper: forward a raw character to the keyboard (if available)
     void dispatchKey(char c);
@@ -195,6 +197,7 @@ private:
     // Cache manager for cache commands
     std::shared_ptr<CacheManager> cacheManager_;
     std::shared_ptr<UserCache> userCache_;
+    std::function<bool(bool)> flowMeterSimulationHandler_;
 
     // command assembly in command mode
     std::string commandBuffer_;

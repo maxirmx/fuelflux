@@ -450,6 +450,7 @@ if(ENABLE_TESTING)
         tests/url_utils_test.cpp
         tests/console_emulator_test.cpp
         tests/four_line_display_test.cpp
+        tests/flow_meter_test.cpp
     )
     
     # Add four_line_display_impl tests only for real display builds
