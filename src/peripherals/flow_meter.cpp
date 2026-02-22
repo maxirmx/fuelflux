@@ -180,7 +180,10 @@ void HardwareFlowMeter::startMeasurement() {
     
     if (!m_measuring.load(std::memory_order_acquire)) {
         LOG_PERIPH_INFO("Starting flow measurement...");
-        m_currentVolume = 0.0;
+        {
+            std::lock_guard<std::mutex> lock(m_volumeMutex);
+            m_currentVolume = 0.0;
+        }
         
 #ifdef TARGET_REAL_FLOW_METER
         pulseCount_.store(0, std::memory_order_relaxed);
@@ -232,13 +235,19 @@ void HardwareFlowMeter::stopMeasurement() {
         
         // Calculate final volume from pulse count
         uint64_t pulses = pulseCount_.load(std::memory_order_acquire);
-        m_currentVolume = static_cast<Volume>(pulses) / ticksPerLiter_;
+        {
+            std::lock_guard<std::mutex> lock(m_volumeMutex);
+            m_currentVolume = static_cast<Volume>(pulses) / ticksPerLiter_;
+        }
         LOG_PERIPH_INFO("Flow measurement complete: {} pulses = {:.3f} liters", 
                        pulses, m_currentVolume);
 #endif
         
         // Add current volume to total before releasing m_measuring
-        m_totalVolume += m_currentVolume;
+        {
+            std::lock_guard<std::mutex> lock(m_volumeMutex);
+            m_totalVolume += m_currentVolume;
+        }
         
         m_measuring.store(false, std::memory_order_release);
         
@@ -250,6 +259,7 @@ void HardwareFlowMeter::stopMeasurement() {
 
 void HardwareFlowMeter::resetCounter() {
     LOG_PERIPH_INFO("Resetting volume counter...");
+    std::lock_guard<std::mutex> lock(m_volumeMutex);
     m_currentVolume = 0.0;
     m_totalVolume = 0.0;
 #ifdef TARGET_REAL_FLOW_METER
@@ -264,10 +274,12 @@ Volume HardwareFlowMeter::getCurrentVolume() const {
         return static_cast<Volume>(pulses) / ticksPerLiter_;
     }
 #endif
+    std::lock_guard<std::mutex> lock(m_volumeMutex);
     return m_currentVolume;
 }
 
 Volume HardwareFlowMeter::getTotalVolume() const {
+    std::lock_guard<std::mutex> lock(m_volumeMutex);
     return m_totalVolume;
 }
 
