@@ -17,7 +17,7 @@
 namespace fuelflux::peripherals {
 
 HardwareFlowMeter::HardwareFlowMeter() 
-    : m_connected(false), m_measuring(false), m_currentVolume(0.0), m_totalVolume(0.0) {
+    : m_connected(false), m_measuring{false}, m_currentVolume{0.0}, m_totalVolume{0.0} {
 #ifdef TARGET_REAL_FLOW_METER
     namespace cfg = hardware::config::flow_meter;
     gpioChip_ = cfg::GPIO_CHIP;
@@ -38,13 +38,13 @@ HardwareFlowMeter::HardwareFlowMeter(const std::string& gpioChip,
     , gpioPin_(gpioPin)
     , ticksPerLiter_(ticksPerLiter > 0.0 ? ticksPerLiter : hardware::config::flow_meter::TICKS_PER_LITER)
     , m_connected(false)
-    , m_measuring(false)
-    , m_currentVolume(0.0)
-    , m_totalVolume(0.0)
-    , stopMonitoring_(false)
-    , pulseCount_(0)
-    , simulationEnabled_(false)
-    , simulationFlowRateLitersPerSecond_(1.0) {
+    , m_measuring{false}
+    , m_currentVolume{0.0}
+    , m_totalVolume{0.0}
+    , stopMonitoring_{false}
+    , pulseCount_{0}
+    , simulationEnabled_{false}
+    , simulationFlowRateLitersPerSecond_{1.0} {
 }
 #endif
 
