@@ -173,6 +173,7 @@ void StateMachine::setupTransitions() {
     transitions_[{SystemState::Waiting, Event::PinEntered}]           = {SystemState::Authorization,     [this]() { doAuthorization(); }};
     transitions_[{SystemState::Waiting, Event::InputUpdated}]         = {SystemState::PinEntry,          noOp};
     transitions_[{SystemState::Waiting, Event::AuthorizationSuccess}] = {SystemState::Waiting,           noOp};
+    transitions_[{SystemState::Waiting, Event::AuthorizationDenied}]  = {SystemState::Waiting,           noOp};
     transitions_[{SystemState::Waiting, Event::AuthorizationFailed}]  = {SystemState::Waiting,           noOp};
     transitions_[{SystemState::Waiting, Event::TankSelected}]         = {SystemState::Waiting,           noOp};
     transitions_[{SystemState::Waiting, Event::VolumeEntered}]        = {SystemState::Waiting,           noOp};
@@ -194,6 +195,7 @@ void StateMachine::setupTransitions() {
     transitions_[{SystemState::PinEntry, Event::PinEntered}]          = {SystemState::Authorization,     [this]() { doAuthorization(); }};
     transitions_[{SystemState::PinEntry, Event::InputUpdated}]        = {SystemState::PinEntry,          noOp};
     transitions_[{SystemState::PinEntry, Event::AuthorizationSuccess}]= {SystemState::PinEntry,          noOp};
+    transitions_[{SystemState::PinEntry, Event::AuthorizationDenied}] = {SystemState::PinEntry,          noOp};
     transitions_[{SystemState::PinEntry, Event::AuthorizationFailed}] = {SystemState::PinEntry,          noOp};
     transitions_[{SystemState::PinEntry, Event::TankSelected}]        = {SystemState::PinEntry,          noOp};
     transitions_[{SystemState::PinEntry, Event::VolumeEntered}]       = {SystemState::PinEntry,          noOp};
@@ -215,7 +217,8 @@ void StateMachine::setupTransitions() {
     transitions_[{SystemState::Authorization, Event::PinEntered}]          = {SystemState::Authorization,     noOp};
     transitions_[{SystemState::Authorization, Event::InputUpdated}]        = {SystemState::Authorization,     noOp};
     transitions_[{SystemState::Authorization, Event::AuthorizationSuccess}]= {SystemState::TankSelection,     noOp};
-    transitions_[{SystemState::Authorization, Event::AuthorizationFailed}] = {SystemState::NotAuthorized,     noOp};
+    transitions_[{SystemState::Authorization, Event::AuthorizationDenied}] = {SystemState::NotAuthorized,     noOp};
+    transitions_[{SystemState::Authorization, Event::AuthorizationFailed}] = {SystemState::CannotAuthorize,   noOp};
     transitions_[{SystemState::Authorization, Event::TankSelected}]        = {SystemState::Authorization,     noOp};
     transitions_[{SystemState::Authorization, Event::VolumeEntered}]       = {SystemState::Authorization,     noOp};
     transitions_[{SystemState::Authorization, Event::AmountEntered}]       = {SystemState::Authorization,     noOp};
@@ -236,6 +239,7 @@ void StateMachine::setupTransitions() {
     transitions_[{SystemState::NotAuthorized, Event::PinEntered}]          = {SystemState::Authorization,     [this]() { doAuthorization(); } };
     transitions_[{SystemState::NotAuthorized, Event::InputUpdated}]        = {SystemState::PinEntry,          noOp};
     transitions_[{SystemState::NotAuthorized, Event::AuthorizationSuccess}]= {SystemState::NotAuthorized,     noOp};
+    transitions_[{SystemState::NotAuthorized, Event::AuthorizationDenied}] = {SystemState::NotAuthorized,     noOp};
     transitions_[{SystemState::NotAuthorized, Event::AuthorizationFailed}] = {SystemState::NotAuthorized,     noOp};
     transitions_[{SystemState::NotAuthorized, Event::TankSelected}]        = {SystemState::NotAuthorized,     noOp};
     transitions_[{SystemState::NotAuthorized, Event::VolumeEntered}]       = {SystemState::NotAuthorized,     noOp};
@@ -252,11 +256,34 @@ void StateMachine::setupTransitions() {
     transitions_[{SystemState::NotAuthorized, Event::Error}]               = {SystemState::Error,             noOp};
     transitions_[{SystemState::NotAuthorized, Event::ErrorRecovery}]       = {SystemState::NotAuthorized,     noOp};
 
+    // From CannotAuthorize state
+    transitions_[{SystemState::CannotAuthorize, Event::CardPresented}]       = {SystemState::Authorization,     [this]() { doAuthorization(); } };
+    transitions_[{SystemState::CannotAuthorize, Event::PinEntered}]          = {SystemState::Authorization,     [this]() { doAuthorization(); } };
+    transitions_[{SystemState::CannotAuthorize, Event::InputUpdated}]        = {SystemState::PinEntry,          noOp};
+    transitions_[{SystemState::CannotAuthorize, Event::AuthorizationSuccess}]= {SystemState::CannotAuthorize,   noOp};
+    transitions_[{SystemState::CannotAuthorize, Event::AuthorizationDenied}] = {SystemState::CannotAuthorize,   noOp};
+    transitions_[{SystemState::CannotAuthorize, Event::AuthorizationFailed}] = {SystemState::CannotAuthorize,   noOp};
+    transitions_[{SystemState::CannotAuthorize, Event::TankSelected}]        = {SystemState::CannotAuthorize,   noOp};
+    transitions_[{SystemState::CannotAuthorize, Event::VolumeEntered}]       = {SystemState::CannotAuthorize,   noOp};
+    transitions_[{SystemState::CannotAuthorize, Event::AmountEntered}]       = {SystemState::CannotAuthorize,   noOp};
+    transitions_[{SystemState::CannotAuthorize, Event::RefuelingStarted}]    = {SystemState::CannotAuthorize,   noOp};
+    transitions_[{SystemState::CannotAuthorize, Event::RefuelingStopped}]    = {SystemState::CannotAuthorize,   noOp};
+    transitions_[{SystemState::CannotAuthorize, Event::DataTransmissionComplete}] = {SystemState::CannotAuthorize, noOp};
+    transitions_[{SystemState::CannotAuthorize, Event::IntakeSelected}]      = {SystemState::CannotAuthorize,   noOp};
+    transitions_[{SystemState::CannotAuthorize, Event::IntakeDirectionSelected}] = {SystemState::CannotAuthorize, noOp};
+    transitions_[{SystemState::CannotAuthorize, Event::IntakeVolumeEntered}] = {SystemState::CannotAuthorize,   noOp};
+    transitions_[{SystemState::CannotAuthorize, Event::IntakeComplete}]      = {SystemState::CannotAuthorize,   noOp};
+    transitions_[{SystemState::CannotAuthorize, Event::CancelPressed}]       = {SystemState::Waiting,           [this]() { onCancelPressed();        }};
+    transitions_[{SystemState::CannotAuthorize, Event::Timeout}]             = {SystemState::Waiting,           [this]() { onTimeout();              }};
+    transitions_[{SystemState::CannotAuthorize, Event::Error}]               = {SystemState::Error,             noOp};
+    transitions_[{SystemState::CannotAuthorize, Event::ErrorRecovery}]       = {SystemState::CannotAuthorize,   noOp};
+
     // From TankSelection state
     transitions_[{SystemState::TankSelection, Event::CardPresented}]       = {SystemState::TankSelection,     noOp};
     transitions_[{SystemState::TankSelection, Event::PinEntered}]          = {SystemState::TankSelection,     noOp};
     transitions_[{SystemState::TankSelection, Event::InputUpdated}]        = {SystemState::TankSelection,     noOp};
     transitions_[{SystemState::TankSelection, Event::AuthorizationSuccess}]= {SystemState::TankSelection,     noOp};
+    transitions_[{SystemState::TankSelection, Event::AuthorizationDenied}] = {SystemState::TankSelection,     noOp};
     transitions_[{SystemState::TankSelection, Event::AuthorizationFailed}] = {SystemState::TankSelection,     noOp};
     transitions_[{SystemState::TankSelection, Event::TankSelected}]        = {SystemState::VolumeEntry,       [this]() { onTankSelected();         }};
     transitions_[{SystemState::TankSelection, Event::VolumeEntered}]       = {SystemState::TankSelection,     noOp};
@@ -278,6 +305,7 @@ void StateMachine::setupTransitions() {
     transitions_[{SystemState::VolumeEntry, Event::PinEntered}]          = {SystemState::VolumeEntry,       noOp};
     transitions_[{SystemState::VolumeEntry, Event::InputUpdated}]        = {SystemState::VolumeEntry,       noOp};
     transitions_[{SystemState::VolumeEntry, Event::AuthorizationSuccess}]= {SystemState::VolumeEntry,       noOp};
+    transitions_[{SystemState::VolumeEntry, Event::AuthorizationDenied}] = {SystemState::VolumeEntry,       noOp};
     transitions_[{SystemState::VolumeEntry, Event::AuthorizationFailed}] = {SystemState::VolumeEntry,       noOp};
     transitions_[{SystemState::VolumeEntry, Event::TankSelected}]        = {SystemState::VolumeEntry,       noOp};
     transitions_[{SystemState::VolumeEntry, Event::VolumeEntered}]       = {SystemState::Refueling,         [this]() { onVolumeEntered();        }};
@@ -299,6 +327,7 @@ void StateMachine::setupTransitions() {
     transitions_[{SystemState::Refueling, Event::PinEntered}]          = {SystemState::Refueling,         noOp};
     transitions_[{SystemState::Refueling, Event::InputUpdated}]        = {SystemState::Refueling,         noOp};
     transitions_[{SystemState::Refueling, Event::AuthorizationSuccess}]= {SystemState::Refueling,         noOp};
+    transitions_[{SystemState::Refueling, Event::AuthorizationDenied}] = {SystemState::Refueling,         noOp};
     transitions_[{SystemState::Refueling, Event::AuthorizationFailed}] = {SystemState::Refueling,         noOp};
     transitions_[{SystemState::Refueling, Event::TankSelected}]        = {SystemState::Refueling,         noOp};
     transitions_[{SystemState::Refueling, Event::VolumeEntered}]       = {SystemState::Refueling,         noOp};
@@ -320,6 +349,7 @@ void StateMachine::setupTransitions() {
     transitions_[{SystemState::RefuelDataTransmission, Event::PinEntered}]          = {SystemState::RefuelDataTransmission,  noOp};
     transitions_[{SystemState::RefuelDataTransmission, Event::InputUpdated}]        = {SystemState::RefuelDataTransmission,  noOp};
     transitions_[{SystemState::RefuelDataTransmission, Event::AuthorizationSuccess}]= {SystemState::RefuelDataTransmission,  noOp};
+    transitions_[{SystemState::RefuelDataTransmission, Event::AuthorizationDenied}] = {SystemState::RefuelDataTransmission,  noOp};
     transitions_[{SystemState::RefuelDataTransmission, Event::AuthorizationFailed}] = {SystemState::RefuelDataTransmission,  noOp};
     transitions_[{SystemState::RefuelDataTransmission, Event::TankSelected}]        = {SystemState::RefuelDataTransmission,  noOp};
     transitions_[{SystemState::RefuelDataTransmission, Event::VolumeEntered}]       = {SystemState::RefuelDataTransmission,  noOp};
@@ -341,6 +371,7 @@ void StateMachine::setupTransitions() {
     transitions_[{SystemState::RefuelingComplete, Event::PinEntered}]          = {SystemState::Authorization,     [this]() { doAuthorization(); }};
     transitions_[{SystemState::RefuelingComplete, Event::InputUpdated}]        = {SystemState::PinEntry,          noOp};
     transitions_[{SystemState::RefuelingComplete, Event::AuthorizationSuccess}]= {SystemState::RefuelingComplete, noOp};
+    transitions_[{SystemState::RefuelingComplete, Event::AuthorizationDenied}] = {SystemState::RefuelingComplete, noOp};
     transitions_[{SystemState::RefuelingComplete, Event::AuthorizationFailed}] = {SystemState::RefuelingComplete, noOp};
     transitions_[{SystemState::RefuelingComplete, Event::TankSelected}]        = {SystemState::RefuelingComplete, noOp};
     transitions_[{SystemState::RefuelingComplete, Event::VolumeEntered}]       = {SystemState::RefuelingComplete, noOp};
@@ -362,6 +393,7 @@ void StateMachine::setupTransitions() {
     transitions_[{SystemState::IntakeDirectionSelection, Event::PinEntered}]          = {SystemState::IntakeDirectionSelection, noOp};
     transitions_[{SystemState::IntakeDirectionSelection, Event::InputUpdated}]        = {SystemState::IntakeDirectionSelection, noOp};
     transitions_[{SystemState::IntakeDirectionSelection, Event::AuthorizationSuccess}]= {SystemState::IntakeDirectionSelection, noOp};
+    transitions_[{SystemState::IntakeDirectionSelection, Event::AuthorizationDenied}] = {SystemState::IntakeDirectionSelection, noOp};
     transitions_[{SystemState::IntakeDirectionSelection, Event::AuthorizationFailed}] = {SystemState::IntakeDirectionSelection, noOp};
     transitions_[{SystemState::IntakeDirectionSelection, Event::TankSelected}]        = {SystemState::IntakeDirectionSelection, noOp};
     transitions_[{SystemState::IntakeDirectionSelection, Event::VolumeEntered}]       = {SystemState::IntakeDirectionSelection, noOp};
@@ -383,6 +415,7 @@ void StateMachine::setupTransitions() {
     transitions_[{SystemState::IntakeVolumeEntry, Event::PinEntered}]          = {SystemState::IntakeVolumeEntry, noOp};
     transitions_[{SystemState::IntakeVolumeEntry, Event::InputUpdated}]        = {SystemState::IntakeVolumeEntry, noOp};
     transitions_[{SystemState::IntakeVolumeEntry, Event::AuthorizationSuccess}]= {SystemState::IntakeVolumeEntry, noOp};
+    transitions_[{SystemState::IntakeVolumeEntry, Event::AuthorizationDenied}] = {SystemState::IntakeVolumeEntry, noOp};
     transitions_[{SystemState::IntakeVolumeEntry, Event::AuthorizationFailed}] = {SystemState::IntakeVolumeEntry, noOp};
     transitions_[{SystemState::IntakeVolumeEntry, Event::TankSelected}]        = {SystemState::IntakeVolumeEntry, noOp};
     transitions_[{SystemState::IntakeVolumeEntry, Event::VolumeEntered}]       = {SystemState::IntakeVolumeEntry, noOp};
@@ -404,6 +437,7 @@ void StateMachine::setupTransitions() {
     transitions_[{SystemState::IntakeDataTransmission, Event::PinEntered}]          = {SystemState::IntakeDataTransmission, noOp};
     transitions_[{SystemState::IntakeDataTransmission, Event::InputUpdated}]        = {SystemState::IntakeDataTransmission, noOp};
     transitions_[{SystemState::IntakeDataTransmission, Event::AuthorizationSuccess}]= {SystemState::IntakeDataTransmission, noOp};
+    transitions_[{SystemState::IntakeDataTransmission, Event::AuthorizationDenied}] = {SystemState::IntakeDataTransmission, noOp};
     transitions_[{SystemState::IntakeDataTransmission, Event::AuthorizationFailed}] = {SystemState::IntakeDataTransmission, noOp};
     transitions_[{SystemState::IntakeDataTransmission, Event::TankSelected}]        = {SystemState::IntakeDataTransmission, noOp};
     transitions_[{SystemState::IntakeDataTransmission, Event::VolumeEntered}]       = {SystemState::IntakeDataTransmission, noOp};
@@ -425,6 +459,7 @@ void StateMachine::setupTransitions() {
     transitions_[{SystemState::IntakeComplete, Event::PinEntered}]          = {SystemState::Authorization,      [this]() { doAuthorization(); }};
     transitions_[{SystemState::IntakeComplete, Event::InputUpdated}]        = {SystemState::PinEntry,           noOp};
     transitions_[{SystemState::IntakeComplete, Event::AuthorizationSuccess}]= {SystemState::IntakeComplete,     noOp};
+    transitions_[{SystemState::IntakeComplete, Event::AuthorizationDenied}] = {SystemState::IntakeComplete,     noOp};
     transitions_[{SystemState::IntakeComplete, Event::AuthorizationFailed}] = {SystemState::IntakeComplete,     noOp};
     transitions_[{SystemState::IntakeComplete, Event::TankSelected}]        = {SystemState::IntakeComplete,     noOp};
     transitions_[{SystemState::IntakeComplete, Event::VolumeEntered}]       = {SystemState::IntakeComplete,     noOp};
@@ -483,8 +518,8 @@ DisplayMessage StateMachine::getDisplayMessage() const {
         case SystemState::Waiting:
             message.line1 = "Добро пожаловать";
             message.line2 = ""; 
-            message.line3 = "";
-            message.line4 = "Приложите карту"; 
+            message.line3 = "Для заправки";
+            message.line4 = "приложите карту"; 
             break;
 
         case SystemState::PinEntry:
@@ -502,10 +537,17 @@ DisplayMessage StateMachine::getDisplayMessage() const {
             break;
 
         case SystemState::NotAuthorized:
-            message.line1 = "Доступ запрещен";
+            message.line1 = "Доступ запрещён";
             message.line2 = "";
-            message.line3 = "";
-            message.line4 = "Приложите карту";
+            message.line3 = "Для новой заправки";
+            message.line4 = "приложите карту";
+            break;
+
+        case SystemState::CannotAuthorize:
+            message.line1 = "Ошибка связи";
+            message.line2 = "";
+            message.line3 = "Для новой заправки";
+            message.line4 = "приложите карту";
             break;
 
         case SystemState::TankSelection:
