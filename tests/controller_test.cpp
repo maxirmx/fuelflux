@@ -2393,7 +2393,8 @@ TEST_F(ControllerTest, AuthorizationDeniedTransitionsToNotAuthorized) {
 
     DisplayMessage msg = controller->getStateMachine().getDisplayMessage();
     EXPECT_EQ(msg.line1, "Доступ запрещён");
-    EXPECT_EQ(msg.line4, "Приложите карту");
+    EXPECT_EQ(msg.line2, "Для новой заправки");
+    EXPECT_EQ(msg.line3, "приложите карту");
 
     shutdownControllerAndJoinThread(controllerThread);
 }
@@ -2415,7 +2416,8 @@ TEST_F(ControllerTest, AuthorizationFailedTransitionsToCannotAuthorize) {
 
     DisplayMessage msg = controller->getStateMachine().getDisplayMessage();
     EXPECT_EQ(msg.line1, "Нет связи с сервером");
-    EXPECT_EQ(msg.line4, "Приложите карту");
+    EXPECT_EQ(msg.line2, "Для новой заправки");
+    EXPECT_EQ(msg.line3, "приложите карту");
 
     shutdownControllerAndJoinThread(controllerThread);
 }

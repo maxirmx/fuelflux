@@ -538,16 +538,16 @@ DisplayMessage StateMachine::getDisplayMessage() const {
 
         case SystemState::NotAuthorized:
             message.line1 = "Доступ запрещён";
-            message.line2 = "";
-            message.line3 = "";
-            message.line4 = "Приложите карту";
+            message.line2 = "Для новой заправки";
+            message.line3 = "приложите карту";
+            message.line4 = "";
             break;
 
         case SystemState::CannotAuthorize:
             message.line1 = "Нет связи с сервером";
-            message.line2 = "";
-            message.line3 = "";
-            message.line4 = "Приложите карту";
+            message.line2 = "Для новой заправки";
+            message.line3 = "приложите карту";
+            message.line4 = "";
             break;
 
         case SystemState::TankSelection:
