@@ -178,14 +178,18 @@ void HardwareFlowMeter::startMeasurement() {
         return;
     }
     
-    if (!m_measuring) {
+    if (!m_measuring.load(std::memory_order_acquire)) {
         LOG_PERIPH_INFO("Starting flow measurement...");
-        m_measuring = true;
         m_currentVolume = 0.0;
         
 #ifdef TARGET_REAL_FLOW_METER
         pulseCount_.store(0, std::memory_order_relaxed);
         stopMonitoring_.store(false, std::memory_order_release);
+#endif
+        
+        m_measuring.store(true, std::memory_order_release);
+        
+#ifdef TARGET_REAL_FLOW_METER
         if (simulationEnabled_.load(std::memory_order_acquire)) {
             LOG_PERIPH_WARN("Flow meter simulation mode is ON");
             monitorThread_ = std::thread([this]() {
@@ -217,7 +221,7 @@ void HardwareFlowMeter::startMeasurement() {
 }
 
 void HardwareFlowMeter::stopMeasurement() {
-    if (m_measuring) {
+    if (m_measuring.load(std::memory_order_acquire)) {
         LOG_PERIPH_INFO("Stopping flow measurement...");
         
 #ifdef TARGET_REAL_FLOW_METER
@@ -233,10 +237,10 @@ void HardwareFlowMeter::stopMeasurement() {
                        pulses, m_currentVolume);
 #endif
         
-        m_measuring = false;
-        
-        // Add current volume to total
+        // Add current volume to total before releasing m_measuring
         m_totalVolume += m_currentVolume;
+        
+        m_measuring.store(false, std::memory_order_release);
         
         if (m_callback) {
             m_callback(m_currentVolume);
@@ -255,7 +259,7 @@ void HardwareFlowMeter::resetCounter() {
 
 Volume HardwareFlowMeter::getCurrentVolume() const {
 #ifdef TARGET_REAL_FLOW_METER
-    if (m_measuring) {
+    if (m_measuring.load(std::memory_order_acquire)) {
         uint64_t pulses = pulseCount_.load(std::memory_order_acquire);
         return static_cast<Volume>(pulses) / ticksPerLiter_;
     }
@@ -273,7 +277,7 @@ void HardwareFlowMeter::setFlowCallback(FlowCallback callback) {
 
 bool HardwareFlowMeter::setSimulationEnabled(bool enabled) {
 #ifdef TARGET_REAL_FLOW_METER
-    if (m_measuring) {
+    if (m_measuring.load(std::memory_order_acquire)) {
         LOG_PERIPH_WARN("Cannot change flow meter simulation mode while measuring");
         return false;
     }
