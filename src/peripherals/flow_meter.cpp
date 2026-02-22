@@ -180,12 +180,16 @@ void HardwareFlowMeter::startMeasurement() {
     
     if (!m_measuring.load(std::memory_order_acquire)) {
         LOG_PERIPH_INFO("Starting flow measurement...");
-        m_measuring.store(true, std::memory_order_release);
         m_currentVolume = 0.0;
         
 #ifdef TARGET_REAL_FLOW_METER
         pulseCount_.store(0, std::memory_order_relaxed);
         stopMonitoring_.store(false, std::memory_order_release);
+#endif
+        
+        m_measuring.store(true, std::memory_order_release);
+        
+#ifdef TARGET_REAL_FLOW_METER
         if (simulationEnabled_.load(std::memory_order_acquire)) {
             LOG_PERIPH_WARN("Flow meter simulation mode is ON");
             monitorThread_ = std::thread([this]() {
@@ -233,10 +237,10 @@ void HardwareFlowMeter::stopMeasurement() {
                        pulses, m_currentVolume);
 #endif
         
-        m_measuring.store(false, std::memory_order_release);
-        
-        // Add current volume to total
+        // Add current volume to total before releasing m_measuring
         m_totalVolume += m_currentVolume;
+        
+        m_measuring.store(false, std::memory_order_release);
         
         if (m_callback) {
             m_callback(m_currentVolume);
