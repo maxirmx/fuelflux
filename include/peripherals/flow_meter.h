@@ -9,6 +9,7 @@
 #include <string>
 #include <thread>
 #include <atomic>
+#include <mutex>
 
 namespace fuelflux::peripherals {
 
@@ -36,6 +37,11 @@ public:
     Volume getTotalVolume() const override;
     void setFlowCallback(FlowCallback callback) override;
 
+    // Runtime simulation mode for real flow meter builds.
+    // Returns false when simulation mode is not supported by the current build.
+    bool setSimulationEnabled(bool enabled);
+    bool isSimulationEnabled() const;
+
 private:
 #ifdef TARGET_REAL_FLOW_METER
     void monitorThread();
@@ -45,6 +51,8 @@ private:
     std::thread monitorThread_;
     std::atomic<bool> stopMonitoring_;
     std::atomic<uint64_t> pulseCount_;
+    std::atomic<bool> simulationEnabled_;
+    double simulationFlowRateLitersPerSecond_;
 #endif
 
     bool m_connected;

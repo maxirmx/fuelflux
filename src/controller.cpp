@@ -10,6 +10,7 @@
 #include "cache_manager.h"
 #include "message_storage.h"
 #include "logger.h"
+#include "peripherals/flow_meter.h"
 #include <sstream>
 #include <iomanip>
 #include <ctime>
@@ -750,6 +751,21 @@ void Controller::enableCardReading(bool enabled) {
         cardReader_->enableReading(enabled);
         LOG_CTRL_DEBUG("Card reading {}", enabled ? "enabled" : "disabled");
     }
+}
+
+bool Controller::setFlowMeterSimulationEnabled(bool enabled) {
+    if (!flowMeter_) {
+        LOG_CTRL_WARN("Cannot toggle flow meter simulation: flow meter not configured");
+        return false;
+    }
+
+    auto* hardwareFlowMeter = dynamic_cast<peripherals::HardwareFlowMeter*>(flowMeter_.get());
+    if (!hardwareFlowMeter) {
+        LOG_CTRL_WARN("Cannot toggle flow meter simulation for non-hardware flow meter");
+        return false;
+    }
+
+    return hardwareFlowMeter->setSimulationEnabled(enabled);
 }
 
 // Private helper methods

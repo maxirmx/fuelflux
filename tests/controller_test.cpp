@@ -2369,3 +2369,10 @@ TEST_F(ControllerTest, DisplayResetHandlesInitializationFailure) {
     
     shutdownControllerAndJoinThread(controllerThread);
 }
+
+TEST_F(ControllerTest, SetFlowMeterSimulationEnabledRejectsNonHardwareFlowMeter) {
+    createController();
+    ASSERT_TRUE(controller->initialize());
+
+    EXPECT_FALSE(controller->setFlowMeterSimulationEnabled(true));
+}

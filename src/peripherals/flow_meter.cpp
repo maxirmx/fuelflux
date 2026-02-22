@@ -11,6 +11,7 @@
 #include <exception>
 #include <cerrno>
 #include <cstring>
+#include <cmath>
 #endif
 
 namespace fuelflux::peripherals {
@@ -24,6 +25,8 @@ HardwareFlowMeter::HardwareFlowMeter()
     ticksPerLiter_ = cfg::TICKS_PER_LITER;
     stopMonitoring_ = false;
     pulseCount_ = 0;
+    simulationEnabled_ = false;
+    simulationFlowRateLitersPerSecond_ = 1.0;
 #endif
 }
 
@@ -39,7 +42,9 @@ HardwareFlowMeter::HardwareFlowMeter(const std::string& gpioChip,
     , m_currentVolume(0.0)
     , m_totalVolume(0.0)
     , stopMonitoring_(false)
-    , pulseCount_(0) {
+    , pulseCount_(0)
+    , simulationEnabled_(false)
+    , simulationFlowRateLitersPerSecond_(1.0) {
 }
 #endif
 
@@ -181,7 +186,32 @@ void HardwareFlowMeter::startMeasurement() {
 #ifdef TARGET_REAL_FLOW_METER
         pulseCount_.store(0, std::memory_order_relaxed);
         stopMonitoring_.store(false, std::memory_order_release);
-        monitorThread_ = std::thread(&HardwareFlowMeter::monitorThread, this);
+        if (simulationEnabled_.load(std::memory_order_acquire)) {
+            LOG_PERIPH_WARN("Flow meter simulation mode is ON");
+            monitorThread_ = std::thread([this]() {
+                auto lastTick = std::chrono::steady_clock::now();
+                while (!stopMonitoring_.load(std::memory_order_acquire)) {
+                    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                    const auto now = std::chrono::steady_clock::now();
+                    const auto elapsedSeconds =
+                        std::chrono::duration<double>(now - lastTick).count();
+                    lastTick = now;
+
+                    const auto pulsesToAdd = static_cast<uint64_t>(std::llround(
+                        elapsedSeconds * simulationFlowRateLitersPerSecond_ * ticksPerLiter_));
+                    if (pulsesToAdd == 0) {
+                        continue;
+                    }
+                    pulseCount_.fetch_add(pulsesToAdd, std::memory_order_relaxed);
+
+                    if (m_callback) {
+                        m_callback(getCurrentVolume());
+                    }
+                }
+            });
+        } else {
+            monitorThread_ = std::thread(&HardwareFlowMeter::monitorThread, this);
+        }
 #endif
     }
 }
@@ -239,6 +269,29 @@ Volume HardwareFlowMeter::getTotalVolume() const {
 
 void HardwareFlowMeter::setFlowCallback(FlowCallback callback) {
     m_callback = callback;
+}
+
+bool HardwareFlowMeter::setSimulationEnabled(bool enabled) {
+#ifdef TARGET_REAL_FLOW_METER
+    if (m_measuring) {
+        LOG_PERIPH_WARN("Cannot change flow meter simulation mode while measuring");
+        return false;
+    }
+    simulationEnabled_.store(enabled, std::memory_order_release);
+    LOG_PERIPH_INFO("Flow meter simulation mode {}", enabled ? "enabled" : "disabled");
+    return true;
+#else
+    (void)enabled;
+    return false;
+#endif
+}
+
+bool HardwareFlowMeter::isSimulationEnabled() const {
+#ifdef TARGET_REAL_FLOW_METER
+    return simulationEnabled_.load(std::memory_order_acquire);
+#else
+    return false;
+#endif
 }
 
 } // namespace fuelflux::peripherals

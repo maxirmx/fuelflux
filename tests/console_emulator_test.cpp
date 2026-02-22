@@ -536,3 +536,25 @@ TEST_F(ConsoleEmulatorTest, ProcessCommandCardDispatchesToCardReaderWhenEnabled)
     }));
     EXPECT_EQ(receivedUserId, "2222-2222-2222-2222");
 }
+
+TEST_F(ConsoleEmulatorTest, ProcessCommandFlowSimInvokesHandler) {
+    bool enabled = false;
+    int calls = 0;
+    emulator->setFlowMeterSimulationHandler([&](bool value) {
+        enabled = value;
+        ++calls;
+        return true;
+    });
+
+    emulator->processCommand("flow_sim on");
+    EXPECT_TRUE(enabled);
+    EXPECT_EQ(calls, 1);
+
+    emulator->processCommand("flow_sim off");
+    EXPECT_FALSE(enabled);
+    EXPECT_EQ(calls, 2);
+}
+
+TEST_F(ConsoleEmulatorTest, ProcessCommandFlowSimWithoutHandlerDoesNotCrash) {
+    EXPECT_NO_THROW(emulator->processCommand("flow_sim on"));
+}

@@ -141,6 +141,7 @@ class Controller {
 
     // Peripheral control
     void enableCardReading(bool enabled);
+    bool setFlowMeterSimulationEnabled(bool enabled);
     
     // Cache management
     std::shared_ptr<CacheManager> getCacheManager() const { return cacheManager_; }

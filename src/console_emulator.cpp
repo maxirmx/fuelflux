@@ -813,6 +813,7 @@ void ConsoleEmulator::printHelp() const {
 #endif
     help += "cache_count        : Show number of cached users\n";
     help += "cache_show <uid>   : Show cached info for specific UID\n";
+    help += "flow_sim <on|off>  : Toggle flow meter simulation mode\n";
     help += "keymode            : Switch to key input mode\n";
     help += "help               : Show this help\n";
     help += "exit               : Exit application\n";
@@ -869,6 +870,18 @@ void ConsoleEmulator::processCommand(const std::string& command) {
         } else {
             logLine("Cache not available");
         }
+    } else if (cmd == "flow_sim") {
+        std::string mode;
+        iss >> mode;
+        if (mode != "on" && mode != "off") {
+            logBlock("Usage: flow_sim <on|off>\nExample: flow_sim on");
+        } else if (!flowMeterSimulationHandler_) {
+            logLine("Flow meter simulation command not available");
+        } else if (flowMeterSimulationHandler_(mode == "on")) {
+            logLine(fmt::format("Flow meter simulation {}", mode == "on" ? "enabled" : "disabled"));
+        } else {
+            logLine("Flow meter simulation toggle failed");
+        }
     } else if (cmd == "help") {
         printHelp();
     }
@@ -897,11 +910,15 @@ void ConsoleEmulator::setUserCache(std::shared_ptr<UserCache> userCache) {
     userCache_ = std::move(userCache);
 }
 
+void ConsoleEmulator::setFlowMeterSimulationHandler(std::function<bool(bool)> handler) {
+    flowMeterSimulationHandler_ = std::move(handler);
+}
+
 void ConsoleEmulator::printAvailableCommands() const {
 #ifndef TARGET_REAL_CARD_READER
-    logLine("Available commands: card, cache_count, cache_show <uid>, keymode, help, exit");
+    logLine("Available commands: card, cache_count, cache_show <uid>, flow_sim <on|off>, keymode, help, exit");
 #else
-    logLine("Available commands: cache_count, cache_show <uid>, keymode, help, exit");
+    logLine("Available commands: cache_count, cache_show <uid>, flow_sim <on|off>, keymode, help, exit");
 #endif
 }
 
