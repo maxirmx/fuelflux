@@ -310,12 +310,12 @@ TEST_F(FlowMeterSimulationTest, SimulationAlwaysEnabledInNonHardwareMode) {
 
 TEST_F(FlowMeterSimulationTest, SimulationCannotBeDisabledInNonHardwareMode) {
     // In non-hardware builds, simulation is always enabled and cannot be toggled.
-    // setSimulationEnabled returns false to indicate the operation had no effect
-    // (simulation state cannot be changed).
+    // setSimulationEnabled returns false to indicate the state cannot be changed
+    // (not that the operation failed, but that it had no effect because the state is locked).
     EXPECT_FALSE(flowMeter->setSimulationEnabled(false));
     EXPECT_TRUE(flowMeter->isSimulationEnabled());
     
-    // Trying to enable when it's already enabled also returns false
+    // Trying to enable when it's already enabled also returns false (state unchanged)
     EXPECT_FALSE(flowMeter->setSimulationEnabled(true));
     EXPECT_TRUE(flowMeter->isSimulationEnabled());
 }
