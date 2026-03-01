@@ -295,7 +295,7 @@ void HardwareFlowMeter::stopMeasurement() {
             monitorThread_.get_id() != std::this_thread::get_id()) {
             monitorThread_.join();
         }
-        else if (monitorThread_.joinable() && monitorThread_.get_id() == std::this_thread::get_id()) {
+        else if (monitorThread_.get_id() == std::this_thread::get_id()) {
             // Called from within the monitor thread (e.g., via callback) - detach to avoid self-join
             LOG_PERIPH_WARN("stopMeasurement called from monitor thread - detaching");
             monitorThread_.detach();
@@ -303,12 +303,10 @@ void HardwareFlowMeter::stopMeasurement() {
 
 #ifdef TARGET_REAL_FLOW_METER
         // Calculate final volume from pulse count
-        if (simulationEnabled_.load(std::memory_order_acquire) || !simulationEnabled_.load(std::memory_order_acquire)) {
-            uint64_t pulses = pulseCount_.load(std::memory_order_acquire);
-            m_currentVolume = static_cast<Volume>(pulses) / ticksPerLiter_;
-            LOG_PERIPH_INFO("Flow measurement complete: {} pulses = {:.3f} liters", 
-                           pulses, m_currentVolume);
-        }
+        uint64_t pulses = pulseCount_.load(std::memory_order_acquire);
+        m_currentVolume = static_cast<Volume>(pulses) / ticksPerLiter_;
+        LOG_PERIPH_INFO("Flow measurement complete: {} pulses = {:.3f} liters", 
+                       pulses, m_currentVolume);
 #else
         // Non-hardware builds: volume is already calculated in simulation thread
         LOG_PERIPH_INFO("Flow measurement complete: {:.3f} liters", m_currentVolume);
