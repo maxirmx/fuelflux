@@ -9,6 +9,7 @@
 #include <string>
 #include <thread>
 #include <atomic>
+#include <mutex>
 
 namespace fuelflux::peripherals {
 
@@ -48,6 +49,7 @@ private:
     std::atomic<bool> m_measuring;
     Volume m_currentVolume;
     Volume m_totalVolume;
+    mutable std::mutex m_volumeMutex;  // Protects m_currentVolume and m_totalVolume
     FlowCallback m_callback;
     
     std::thread monitorThread_;

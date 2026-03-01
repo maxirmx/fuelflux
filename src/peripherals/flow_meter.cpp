@@ -212,7 +212,10 @@ void HardwareFlowMeter::startMeasurement() {
     
     if (!m_measuring.load(std::memory_order_acquire)) {
         LOG_PERIPH_INFO("Starting flow measurement...");
-        m_currentVolume = 0.0;
+        {
+            std::lock_guard<std::mutex> lock(m_volumeMutex);
+            m_currentVolume = 0.0;
+        }
         
         stopMonitoring_.store(false, std::memory_order_release);
         m_measuring.store(true, std::memory_order_release);
@@ -262,9 +265,10 @@ void HardwareFlowMeter::startMeasurement() {
                         std::chrono::duration<double>(now - lastTick).count();
                     lastTick = now;
 
-                    // Directly update volume in non-hardware builds
+                    // Update volume with mutex protection
                     const auto volumeToAdd = elapsedSeconds * simulationFlowRateLitersPerSecond_;
                     if (volumeToAdd > 0.0) {
+                        std::lock_guard<std::mutex> lock(m_volumeMutex);
                         m_currentVolume += volumeToAdd;
                     }
 
@@ -313,7 +317,10 @@ void HardwareFlowMeter::stopMeasurement() {
 #endif
         
         // Add current volume to total before releasing m_measuring
-        m_totalVolume += m_currentVolume;
+        {
+            std::lock_guard<std::mutex> lock(m_volumeMutex);
+            m_totalVolume += m_currentVolume;
+        }
         
         m_measuring.store(false, std::memory_order_release);
         
@@ -325,8 +332,11 @@ void HardwareFlowMeter::stopMeasurement() {
 
 void HardwareFlowMeter::resetCounter() {
     LOG_PERIPH_INFO("Resetting volume counter...");
-    m_currentVolume = 0.0;
-    m_totalVolume = 0.0;
+    {
+        std::lock_guard<std::mutex> lock(m_volumeMutex);
+        m_currentVolume = 0.0;
+        m_totalVolume = 0.0;
+    }
 #ifdef TARGET_REAL_FLOW_METER
     pulseCount_ = 0;
 #endif
@@ -338,11 +348,14 @@ Volume HardwareFlowMeter::getCurrentVolume() const {
         uint64_t pulses = pulseCount_.load(std::memory_order_acquire);
         return static_cast<Volume>(pulses) / ticksPerLiter_;
     }
+#else
+    std::lock_guard<std::mutex> lock(m_volumeMutex);
 #endif
     return m_currentVolume;
 }
 
 Volume HardwareFlowMeter::getTotalVolume() const {
+    std::lock_guard<std::mutex> lock(m_volumeMutex);
     return m_totalVolume;
 }
 
