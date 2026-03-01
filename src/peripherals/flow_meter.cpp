@@ -117,7 +117,7 @@ void HardwareFlowMeter::monitorThread() {
                        gpioChip_, std::strerror(errno), errno);
         return;
     }
-    
+
     // Get GPIO line
     errno = 0;
     struct gpiod_line* line = gpiod_chip_get_line(chip, gpioPin_);
@@ -127,7 +127,7 @@ void HardwareFlowMeter::monitorThread() {
         gpiod_chip_close(chip);
         return;
     }
-    
+
     // Request falling edge events (assuming active-low pulses like in reference)
     errno = 0;
     if (gpiod_line_request_falling_edge_events(line, "fuelflux-flowmeter-monitor") != 0) {
@@ -138,34 +138,55 @@ void HardwareFlowMeter::monitorThread() {
     }
 
     LOG_PERIPH_INFO("Flow meter monitoring thread started");
-    
+
+    auto lastCallbackTime = std::chrono::steady_clock::now();
+    constexpr auto callbackInterval = std::chrono::seconds(1);
+
     while (!stopMonitoring_.load(std::memory_order_acquire)) {
         struct timespec timeout;
         timeout.tv_sec = 0;
         timeout.tv_nsec = 100000000; // 100ms
         errno = 0;
         int rc = gpiod_line_event_wait(line, &timeout);
-        
+
         if (rc < 0) {
             LOG_PERIPH_ERROR("Flow meter event wait failed: {} (errno={})", 
                            std::strerror(errno), errno);
             break;
         }
-        
+
+        // Drain all pending events to prevent buffer overflow at high pulse rates
         if (rc == 1) {
             struct gpiod_line_event ev;
-            errno = 0;
-            if (gpiod_line_event_read(line, &ev) == 0) {
-                pulseCount_.fetch_add(1, std::memory_order_relaxed);
-            } else {
-                LOG_PERIPH_ERROR("Failed to read flow meter event: {} (errno={})", 
-                               std::strerror(errno), errno);
+            uint64_t batchCount = 0;
+            struct timespec zeroTimeout = {0, 0};
+
+            do {
+                errno = 0;
+                if (gpiod_line_event_read(line, &ev) == 0) {
+                    ++batchCount;
+                } else {
+                    LOG_PERIPH_ERROR("Failed to read flow meter event: {} (errno={})", 
+                                   std::strerror(errno), errno);
+                    break;
+                }
+            } while (gpiod_line_event_wait(line, &zeroTimeout) == 1);
+
+            if (batchCount > 0) {
+                pulseCount_.fetch_add(batchCount, std::memory_order_relaxed);
             }
         }
+
+        // Invoke callback approximately once per second
+        auto now = std::chrono::steady_clock::now();
+        if (m_callback && (now - lastCallbackTime) >= callbackInterval) {
+            lastCallbackTime = now;
+            m_callback(getCurrentVolume());
+        }
     }
-    
+
     LOG_PERIPH_INFO("Flow meter monitoring thread stopped");
-    
+
     // Clean up
     gpiod_line_release(line);
     gpiod_chip_close(chip);
@@ -194,6 +215,9 @@ void HardwareFlowMeter::startMeasurement() {
             LOG_PERIPH_WARN("Flow meter simulation mode is ON");
             monitorThread_ = std::thread([this]() {
                 auto lastTick = std::chrono::steady_clock::now();
+                auto lastCallbackTime = std::chrono::steady_clock::now();
+                constexpr auto callbackInterval = std::chrono::seconds(1);
+
                 while (!stopMonitoring_.load(std::memory_order_acquire)) {
                     std::this_thread::sleep_for(std::chrono::milliseconds(100));
                     const auto now = std::chrono::steady_clock::now();
@@ -208,7 +232,9 @@ void HardwareFlowMeter::startMeasurement() {
                     }
                     pulseCount_.fetch_add(pulsesToAdd, std::memory_order_relaxed);
 
-                    if (m_callback) {
+                    // Invoke callback approximately once per second
+                    if (m_callback && (now - lastCallbackTime) >= callbackInterval) {
+                        lastCallbackTime = now;
                         m_callback(getCurrentVolume());
                     }
                 }
