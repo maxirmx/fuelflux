@@ -62,6 +62,5 @@ private:
     std::atomic<uint64_t> pulseCount_;
 #endif
 };
-};
 
 } // namespace fuelflux::peripherals
