@@ -736,15 +736,16 @@ void ConsoleEmulator::setFlowMeterSimulationHandler(std::function<bool(bool)> ha
 }
 
 void ConsoleEmulator::printAvailableCommands() const {
-#if !defined(TARGET_REAL_CARD_READER) && defined(TARGET_REAL_FLOW_METER)
-    logLine("Available commands: card, cache_count, cache_show <uid>, flow_sim <on|off>, keymode, help, exit");
-#elif !defined(TARGET_REAL_CARD_READER)
-    logLine("Available commands: card, cache_count, cache_show <uid>, keymode, help, exit");
-#elif defined(TARGET_REAL_FLOW_METER)
-    logLine("Available commands: cache_count, cache_show <uid>, flow_sim <on|off>, keymode, help, exit");
-#else
-    logLine("Available commands: cache_count, cache_show <uid>, keymode, help, exit");
+    std::string commands = "Available commands: ";
+#ifndef TARGET_REAL_CARD_READER
+    commands += "card, ";
 #endif
+    commands += "cache_count, cache_show <uid>, ";
+#ifdef TARGET_REAL_FLOW_METER
+    commands += "flow_sim <on|off>, ";
+#endif
+    commands += "keymode, help, exit";
+    logLine(commands);
 }
 
 void ConsoleEmulator::setInputMode(bool commandMode) {
