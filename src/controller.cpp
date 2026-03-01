@@ -334,18 +334,9 @@ void Controller::handlePumpStateChanged(bool isRunning) {
             flowMeter_->resetCounter();
             flowMeter_->startMeasurement();
             
-            // For console emulator, automatically start the flow simulation
-            // This is safe because the interface doesn't expose simulateFlow, 
-            // so we need to cast to the concrete type for console emulation
-            auto* consoleFlowMeter = dynamic_cast<ConsoleFlowMeter*>(flowMeter_.get());
-            if (consoleFlowMeter && targetRefuelVolume_ > 0.0) {
-                LOG_CTRL_INFO("Starting automatic flow simulation for {} liters", targetRefuelVolume_);
-                consoleFlowMeter->simulateFlow(targetRefuelVolume_);
-            } else if (consoleFlowMeter) {
-                LOG_CTRL_WARN("Target volume is {}, cannot start flow simulation", targetRefuelVolume_);
-            } else {
-                LOG_CTRL_DEBUG("Using hardware flow meter (not console emulator)");
-            }
+            // HardwareFlowMeter with simulation mode enabled will automatically
+            // generate flow without needing explicit simulateFlow() call
+            LOG_CTRL_DEBUG("Flow meter measurement started");
         }
         refuelStartTime_ = std::chrono::steady_clock::now();
     } else if (!isRunning) {

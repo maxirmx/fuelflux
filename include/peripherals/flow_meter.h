@@ -43,10 +43,17 @@ public:
 
 private:
     void monitorThread();
+    
+    bool m_connected;
+    std::atomic<bool> m_measuring;
+    Volume m_currentVolume;
+    Volume m_totalVolume;
+    FlowCallback m_callback;
+    
     std::thread monitorThread_;
     std::atomic<bool> stopMonitoring_;
-    std::atomic<bool> simulationEnabled_;
     double simulationFlowRateLitersPerSecond_;
+    std::atomic<bool> simulationEnabled_;
 
 #ifdef TARGET_REAL_FLOW_METER
     std::string gpioChip_;
@@ -54,12 +61,7 @@ private:
     double ticksPerLiter_;
     std::atomic<uint64_t> pulseCount_;
 #endif
-
-    bool m_connected;
-    std::atomic<bool> m_measuring;
-    Volume m_currentVolume;
-    Volume m_totalVolume;
-    FlowCallback m_callback;
+};
 };
 
 } // namespace fuelflux::peripherals

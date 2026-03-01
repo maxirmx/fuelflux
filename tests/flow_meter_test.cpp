@@ -423,7 +423,8 @@ TEST_F(FlowMeterSimulationTest, StubModeBasicFunctionality) {
     flowMeter->startMeasurement();
     
     // Allow some time for simulation to generate volume
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    // Need at least 200ms to ensure the simulation thread runs at least once
+    std::this_thread::sleep_for(std::chrono::milliseconds(250));
     
     // In non-hardware mode with simulation, we should have some volume
     if (gpioAvailable) {

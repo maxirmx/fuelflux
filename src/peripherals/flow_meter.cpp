@@ -18,16 +18,18 @@ namespace fuelflux::peripherals {
 
 HardwareFlowMeter::HardwareFlowMeter() 
     : m_connected(false)
-    , m_measuring(false)
+    , m_measuring{false}
     , m_currentVolume(0.0)
     , m_totalVolume(0.0)
     , stopMonitoring_{false}
-#ifdef TARGET_REAL_FLOW_METER
-    , simulationEnabled_{false}
-#else
-    , simulationEnabled_{true}  // Always enabled in non-hardware builds
-#endif
     , simulationFlowRateLitersPerSecond_(1.0)
+    , simulationEnabled_{
+#ifdef TARGET_REAL_FLOW_METER
+        false
+#else
+        true  // Always enabled in non-hardware builds
+#endif
+    }
 {
 #ifdef TARGET_REAL_FLOW_METER
     namespace cfg = hardware::config::flow_meter;
