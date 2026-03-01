@@ -42,16 +42,17 @@ public:
     bool isSimulationEnabled() const;
 
 private:
-#ifdef TARGET_REAL_FLOW_METER
     void monitorThread();
+    std::thread monitorThread_;
+    std::atomic<bool> stopMonitoring_;
+    std::atomic<bool> simulationEnabled_;
+    double simulationFlowRateLitersPerSecond_;
+
+#ifdef TARGET_REAL_FLOW_METER
     std::string gpioChip_;
     int gpioPin_;
     double ticksPerLiter_;
-    std::thread monitorThread_;
-    std::atomic<bool> stopMonitoring_;
     std::atomic<uint64_t> pulseCount_;
-    std::atomic<bool> simulationEnabled_;
-    double simulationFlowRateLitersPerSecond_;
 #endif
 
     bool m_connected;

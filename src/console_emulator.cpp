@@ -6,6 +6,7 @@
 #include "display/console_display.h"
 #include "peripherals/display.h"
 #include "peripherals/keyboard_utils.h"
+#include "peripherals/flow_meter.h"
 #include "cache_manager.h"
 #include "user_cache.h"
 #include "logger.h"
@@ -375,192 +376,9 @@ void ConsolePump::notifyStateChange() {
     }
 }
 
-// ConsoleFlowMeter implementation
-ConsoleFlowMeter::ConsoleFlowMeter()
-    : isConnected_(false)
-    , isMeasuring_(false)
-    , currentVolume_(0.0)
-    , totalVolume_(0.0)
-    , flowRate_(0.05) 
-    , shouldStop_(false)
-{
-}
-
-ConsoleFlowMeter::~ConsoleFlowMeter() {
-    shutdown();
-}
-
-bool ConsoleFlowMeter::initialize() {
-    isConnected_ = true;
-    return true;
-}
-
-void ConsoleFlowMeter::shutdown() {
-    stopMeasurement();
-    shouldStop_ = true;
-    if (simulationThread_.joinable()) {
-        simulationThread_.join();
-    }
-    isConnected_ = false;
-}
-
-bool ConsoleFlowMeter::isConnected() const {
-    return isConnected_;
-}
-
-void ConsoleFlowMeter::startMeasurement() {
-    if (!isConnected_) return;
-
-    // Use atomic compare_exchange to ensure only one thread prints the message
-     bool expected = false;
-    // if (isMeasuring_.compare_exchange_strong(expected, true)) {
-        // logLine(fmt::format("[FlowMeter] Started measurement at {:.2f} L/s", flowRate_));
-    // }
-    isMeasuring_.compare_exchange_strong(expected, true);
-}
-
-void ConsoleFlowMeter::stopMeasurement() {
-    bool wasMeasuring = isMeasuring_.exchange(false);
-    if (wasMeasuring) {
-        shouldStop_ = true;
-
-        // Only join if we're not being called from the simulation thread itself
-        if (simulationThread_.joinable()) {
-            // Check if we're on the simulation thread
-            if (std::this_thread::get_id() != simulationThread_.get_id()) {
-                simulationThread_.join();
-            } else {
-                // If we're on the simulation thread, detach to avoid leaving a joinable thread
-                simulationThread_.detach();
-            }
-        }
-
-        shouldStop_ = false;
-        // logLine("[FlowMeter] Stopped measurement");
-    }
-}
-
-void ConsoleFlowMeter::resetCounter() {
-    {
-        std::lock_guard<std::mutex> lock(volumeMutex_);
-        currentVolume_ = 0.0;
-    }
-    // logLine("[FlowMeter] Counter reset");
-    notifyFlowUpdate();
-}
-
-Volume ConsoleFlowMeter::getCurrentVolume() const {
-    std::lock_guard<std::mutex> lock(volumeMutex_);
-    return currentVolume_;
-}
-
-Volume ConsoleFlowMeter::getTotalVolume() const {
-    std::lock_guard<std::mutex> lock(volumeMutex_);
-    return totalVolume_;
-}
-
-void ConsoleFlowMeter::setFlowCallback(FlowCallback callback) {
-    std::lock_guard<std::mutex> lock(callbackMutex_);
-    flowCallback_ = callback;
-}
-
-void ConsoleFlowMeter::simulateFlow(Volume targetVolume) {
-    // Stop any existing simulation thread first
-    shouldStop_ = true;
-    if (simulationThread_.joinable()) {
-        simulationThread_.join();
-    }
-
-    // Reset the stop flag and start new simulation
-    shouldStop_ = false;
-
-    // Ensure measurement is active using atomic store
-    isMeasuring_.store(true);
-
-    // Create and start the simulation thread
-    simulationThread_ = std::thread(&ConsoleFlowMeter::simulationThreadFunction, this, targetVolume);
-
-    // logLine(fmt::format("[FlowMeter] Simulation thread started for target: {:.2f} L", targetVolume));
-}
-
-void ConsoleFlowMeter::simulationThreadFunction(Volume targetVolume) {
-    const auto updateInterval = std::chrono::milliseconds(100);
-    const Volume volumePerUpdate = flowRate_ * 0.1; // 100ms updates = 0.1 seconds
-
-    //logLine(fmt::format("[FlowMeter] Simulation thread running - Target: {:.2f} L at {:.2f} L/s",
-    //                    targetVolume, flowRate_));
-    //logLine(fmt::format("[FlowMeter] Volume per update: {:.2f} L", volumePerUpdate));
-
-    int updateCount = 0;
-
-    while (!shouldStop_) {
-        // Check if measurement is still active
-        if (!isMeasuring_) {
-            // logLine("[FlowMeter] Measurement stopped, exiting simulation thread");
-            break;
-        }
-
-        Volume currentVol;
-        {
-            std::lock_guard<std::mutex> lock(volumeMutex_);
-            currentVol = currentVolume_;
-        }
-
-        // Check if we've reached the target
-        if (currentVol >= targetVolume) {
-            // logLine(fmt::format("[FlowMeter] Target volume reached: {:.2f} L after {} updates",
-            //                    currentVol, updateCount));
-            break;
-        }
-
-        // Sleep before updating
-        std::this_thread::sleep_for(updateInterval);
-
-        // Check flags again after sleep
-        if (!isMeasuring_ || shouldStop_) {
-            // logLine(fmt::format("[FlowMeter] Stopping: isMeasuring={}, shouldStop={}",
-            //                    isMeasuring_.load(), shouldStop_.load()));
-            break;
-        }
-         
-        // Update volume
-        Volume newVolume;
-        {
-            std::lock_guard<std::mutex> lock(volumeMutex_);
-            newVolume = std::min(currentVolume_ + volumePerUpdate, targetVolume);
-            currentVolume_ = newVolume;
-            totalVolume_ += volumePerUpdate;
-        }
-
-        // Notify callback - but don't call stopMeasurement from within callback!
-        notifyFlowUpdate();
-        
-        updateCount++;
-        
-        // Print progress every update
-        // logLine(fmt::format("[FlowMeter] Volume: {:.2f} L / {:.2f} L ({})",
-        //                    newVolume, targetVolume, updateCount));
-    }
-
-    // logLine("[FlowMeter] Simulation thread exiting");
-}
-
-void ConsoleFlowMeter::notifyFlowUpdate() {
-    Volume current;
-    {
-        std::lock_guard<std::mutex> lock(volumeMutex_);
-        current = currentVolume_;
-    }
-    std::lock_guard<std::mutex> lock(callbackMutex_);
-    if (flowCallback_) {
-        flowCallback_(current);
-    }
-}
-
 // ConsoleEmulator implementation
 ConsoleEmulator::ConsoleEmulator()
     : cardReader_(nullptr)
-    , flowMeter_(nullptr)
     , keyboard_(nullptr)
     , commandBuffer_()
     , runningFlag_(nullptr)
@@ -594,8 +412,7 @@ std::unique_ptr<peripherals::IPump> ConsoleEmulator::createPump() {
 }
 
 std::unique_ptr<peripherals::IFlowMeter> ConsoleEmulator::createFlowMeter() {
-    auto meter = std::make_unique<ConsoleFlowMeter>();
-    flowMeter_ = meter.get();
+    auto meter = std::make_unique<peripherals::HardwareFlowMeter>();
     return meter;
 }
 
@@ -813,7 +630,9 @@ void ConsoleEmulator::printHelp() const {
 #endif
     help += "cache_count        : Show number of cached users\n";
     help += "cache_show <uid>   : Show cached info for specific UID\n";
+#ifdef TARGET_REAL_FLOW_METER
     help += "flow_sim <on|off>  : Toggle flow meter simulation mode\n";
+#endif
     help += "keymode            : Switch to key input mode\n";
     help += "help               : Show this help\n";
     help += "exit               : Exit application\n";
@@ -870,6 +689,7 @@ void ConsoleEmulator::processCommand(const std::string& command) {
         } else {
             logLine("Cache not available");
         }
+#ifdef TARGET_REAL_FLOW_METER
     } else if (cmd == "flow_sim") {
         std::string mode;
         iss >> mode;
@@ -882,6 +702,7 @@ void ConsoleEmulator::processCommand(const std::string& command) {
         } else {
             logLine("Flow meter simulation toggle failed");
         }
+#endif
     } else if (cmd == "help") {
         printHelp();
     }
@@ -915,10 +736,14 @@ void ConsoleEmulator::setFlowMeterSimulationHandler(std::function<bool(bool)> ha
 }
 
 void ConsoleEmulator::printAvailableCommands() const {
-#ifndef TARGET_REAL_CARD_READER
+#if !defined(TARGET_REAL_CARD_READER) && defined(TARGET_REAL_FLOW_METER)
     logLine("Available commands: card, cache_count, cache_show <uid>, flow_sim <on|off>, keymode, help, exit");
-#else
+#elif !defined(TARGET_REAL_CARD_READER)
+    logLine("Available commands: card, cache_count, cache_show <uid>, keymode, help, exit");
+#elif defined(TARGET_REAL_FLOW_METER)
     logLine("Available commands: cache_count, cache_show <uid>, flow_sim <on|off>, keymode, help, exit");
+#else
+    logLine("Available commands: cache_count, cache_show <uid>, keymode, help, exit");
 #endif
 }
 

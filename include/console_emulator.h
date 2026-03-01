@@ -107,45 +107,6 @@ private:
     void notifyStateChange();
 };
 
-// Console-based flow meter emulation
-class ConsoleFlowMeter : public peripherals::IFlowMeter {
-public:
-    ConsoleFlowMeter();
-    ~ConsoleFlowMeter() override;
-
-    // IPeripheral implementation
-    bool initialize() override;
-    void shutdown() override;
-    bool isConnected() const override;
-
-    // IFlowMeter implementation
-    void startMeasurement() override;
-    void stopMeasurement() override;
-    void resetCounter() override;
-    Volume getCurrentVolume() const override;
-    Volume getTotalVolume() const override;
-    void setFlowCallback(FlowCallback callback) override;
-
-    // Simulation control
-    void setFlowRate(Volume ratePerSecond) { flowRate_ = ratePerSecond; }
-    void simulateFlow(Volume targetVolume);
-
-private:
-    bool isConnected_;
-    std::atomic<bool> isMeasuring_;
-    Volume currentVolume_;
-    Volume totalVolume_;
-    mutable std::mutex volumeMutex_;
-    Volume flowRate_; // liters per second
-    FlowCallback flowCallback_;
-    std::thread simulationThread_;
-    std::atomic<bool> shouldStop_;
-    mutable std::mutex callbackMutex_;
-
-    void simulationThreadFunction(Volume targetVolume);
-    void notifyFlowUpdate();
-};
-
 // Console emulator that manages all peripheral emulations
 class ConsoleEmulator {
 public:
@@ -191,7 +152,6 @@ public:
 private:
     // Keep weak references to created peripherals for command processing
     ConsoleCardReader* cardReader_;
-    ConsoleFlowMeter* flowMeter_;
     ConsoleKeyboard* keyboard_;
     
     // Cache manager for cache commands

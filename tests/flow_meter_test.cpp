@@ -301,25 +301,136 @@ TEST_F(FlowMeterSimulationTest, CallbackInvokedOnStopMeasurement) {
 }
 
 #else
-// Tests for non-TARGET_REAL_FLOW_METER builds (stub mode)
+// Tests for non-TARGET_REAL_FLOW_METER builds (stub mode with simulation always on)
 
-TEST_F(FlowMeterSimulationTest, SimulationNotSupportedInStubMode) {
-    // setSimulationEnabled should return false in stub mode
-    EXPECT_FALSE(flowMeter->setSimulationEnabled(true));
+TEST_F(FlowMeterSimulationTest, SimulationAlwaysEnabledInNonHardwareMode) {
+    // In non-hardware builds, simulation is always enabled
+    EXPECT_TRUE(flowMeter->isSimulationEnabled());
+}
+
+TEST_F(FlowMeterSimulationTest, SimulationCannotBeDisabledInNonHardwareMode) {
+    // setSimulationEnabled should return false in non-hardware mode
     EXPECT_FALSE(flowMeter->setSimulationEnabled(false));
+    EXPECT_TRUE(flowMeter->isSimulationEnabled());
     
-    // isSimulationEnabled should always return false
-    EXPECT_FALSE(flowMeter->isSimulationEnabled());
+    // Trying to enable it should also return false (it's already enabled and locked)
+    EXPECT_FALSE(flowMeter->setSimulationEnabled(true));
+    EXPECT_TRUE(flowMeter->isSimulationEnabled());
+}
+
+TEST_F(FlowMeterSimulationTest, NonHardwareSimulationGeneratesVolume) {
+    if (!gpioAvailable) {
+        GTEST_SKIP() << "This test requires initialization to succeed";
+    }
+    
+    // Simulation is always on in non-hardware builds
+    EXPECT_TRUE(flowMeter->isSimulationEnabled());
+    
+    // Start measurement
+    flowMeter->startMeasurement();
+    
+    // Wait for some simulated volume to be generated
+    std::this_thread::sleep_for(std::chrono::milliseconds(250));
+    
+    Volume volume = flowMeter->getCurrentVolume();
+    
+    // Stop measurement
+    flowMeter->stopMeasurement();
+    
+    // Volume should be greater than 0 due to simulation
+    EXPECT_GT(volume, 0.0);
+    // Should be roughly 0.25 liters (1.0 L/s * 0.25s), allow for timing variance
+    EXPECT_LT(volume, 0.5);
+}
+
+TEST_F(FlowMeterSimulationTest, NonHardwareSimulationInvokesCallback) {
+    if (!gpioAvailable) {
+        GTEST_SKIP() << "This test requires initialization to succeed";
+    }
+    
+    std::atomic<int> callbackCount{0};
+    Volume lastCallbackVolume = 0.0;
+    
+    flowMeter->setFlowCallback([&callbackCount, &lastCallbackVolume](Volume vol) {
+        callbackCount++;
+        lastCallbackVolume = vol;
+    });
+    
+    // Start measurement (simulation is always on)
+    flowMeter->startMeasurement();
+    
+    // Wait for callbacks
+    std::this_thread::sleep_for(std::chrono::milliseconds(1500));
+    
+    flowMeter->stopMeasurement();
+    
+    // Should have received at least one callback during measurement
+    EXPECT_GT(callbackCount.load(), 0);
+    // Last callback volume should be non-zero
+    EXPECT_GT(lastCallbackVolume, 0.0);
+}
+
+TEST_F(FlowMeterSimulationTest, NonHardwareResetCounterClearsVolume) {
+    if (!gpioAvailable) {
+        GTEST_SKIP() << "This test requires initialization to succeed";
+    }
+    
+    // Measure some volume
+    flowMeter->startMeasurement();
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    flowMeter->stopMeasurement();
+    
+    Volume volumeBeforeReset = flowMeter->getTotalVolume();
+    EXPECT_GT(volumeBeforeReset, 0.0);
+    
+    // Reset counter
+    flowMeter->resetCounter();
+    
+    // Both current and total should be zero
+    EXPECT_EQ(flowMeter->getCurrentVolume(), 0.0);
+    EXPECT_EQ(flowMeter->getTotalVolume(), 0.0);
+}
+
+TEST_F(FlowMeterSimulationTest, NonHardwareTotalVolumeAccumulates) {
+    if (!gpioAvailable) {
+        GTEST_SKIP() << "This test requires initialization to succeed";
+    }
+    
+    // First measurement
+    flowMeter->startMeasurement();
+    std::this_thread::sleep_for(std::chrono::milliseconds(150));
+    flowMeter->stopMeasurement();
+    Volume firstMeasurement = flowMeter->getCurrentVolume();
+    Volume totalAfterFirst = flowMeter->getTotalVolume();
+    
+    EXPECT_GT(firstMeasurement, 0.0);
+    EXPECT_EQ(totalAfterFirst, firstMeasurement);
+    
+    // Second measurement
+    flowMeter->startMeasurement();
+    std::this_thread::sleep_for(std::chrono::milliseconds(150));
+    flowMeter->stopMeasurement();
+    Volume secondMeasurement = flowMeter->getCurrentVolume();
+    Volume totalAfterSecond = flowMeter->getTotalVolume();
+    
+    EXPECT_GT(secondMeasurement, 0.0);
+    // Total should be sum of both measurements
+    EXPECT_DOUBLE_EQ(totalAfterSecond, firstMeasurement + secondMeasurement);
 }
 
 TEST_F(FlowMeterSimulationTest, StubModeBasicFunctionality) {
-    // Verify basic flow meter operations work in stub mode
+    // Verify basic flow meter operations work in non-hardware mode
     flowMeter->startMeasurement();
-    EXPECT_EQ(flowMeter->getCurrentVolume(), 0.0);
+    
+    // Allow some time for simulation to generate volume
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    
+    // In non-hardware mode with simulation, we should have some volume
+    if (gpioAvailable) {
+        EXPECT_GT(flowMeter->getCurrentVolume(), 0.0);
+    }
     
     flowMeter->stopMeasurement();
-    EXPECT_EQ(flowMeter->getCurrentVolume(), 0.0);
-    EXPECT_EQ(flowMeter->getTotalVolume(), 0.0);
 }
 
 #endif
