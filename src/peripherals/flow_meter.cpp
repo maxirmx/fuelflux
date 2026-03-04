@@ -220,12 +220,12 @@ void HardwareFlowMeter::startMeasurement() {
             LOG_PERIPH_WARN("Flow meter simulation mode is ON");
             pulseCount_.store(0, std::memory_order_relaxed);
             monitorThread_ = std::thread([this]() {
+                // tickMs is invariant for the duration of a measurement session.
+                const auto tickMs = std::max(1, static_cast<int>(
+                    1000.0 / (simulationFlowRateLitersPerSecond_ * ticksPerLiter_)));
                 auto lastTick = std::chrono::steady_clock::now();
 
                 while (!stopMonitoring_.load(std::memory_order_acquire)) {
-                    // Sleep for one tick period so the callback fires once per simulated pulse
-                    const auto tickMs = std::max(1, static_cast<int>(
-                        1000.0 / (simulationFlowRateLitersPerSecond_ * ticksPerLiter_)));
                     std::this_thread::sleep_for(std::chrono::milliseconds(tickMs));
                     const auto now = std::chrono::steady_clock::now();
                     const auto elapsedSeconds =
@@ -253,12 +253,12 @@ void HardwareFlowMeter::startMeasurement() {
                 // Use the same tick rate as the hardware flow meter to match pulse frequency.
                 constexpr double kSimulationTicksPerLiter =
                     hardware::config::flow_meter::TICKS_PER_LITER;
+                // tickMs is invariant for the duration of a measurement session.
+                const auto tickMs = std::max(1, static_cast<int>(
+                    1000.0 / (simulationFlowRateLitersPerSecond_ * kSimulationTicksPerLiter)));
                 auto lastTick = std::chrono::steady_clock::now();
 
                 while (!stopMonitoring_.load(std::memory_order_acquire)) {
-                    // Sleep for one tick period so the callback fires once per simulated pulse
-                    const auto tickMs = std::max(1, static_cast<int>(
-                        1000.0 / (simulationFlowRateLitersPerSecond_ * kSimulationTicksPerLiter)));
                     std::this_thread::sleep_for(std::chrono::milliseconds(tickMs));
                     const auto now = std::chrono::steady_clock::now();
                     const auto elapsedSeconds =
