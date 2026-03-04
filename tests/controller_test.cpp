@@ -854,6 +854,58 @@ TEST_F(ControllerTest, HandleFlowUpdate) {
     // This test just verifies the method doesn't crash
 }
 
+// Test that handleFlowUpdate stops the pump immediately when target volume is reached,
+// even without waiting for the 1-second display throttle interval.
+TEST_F(ControllerTest, HandleFlowUpdateStopsPumpOnTarget) {
+    controller->initialize();
+
+    // Set target volume to 0.5 L via enterVolume (no tanks or allowances configured,
+    // so enterVolume proceeds and sets targetRefuelVolume_ directly).
+    controller->enterVolume(0.5);
+
+    // Start the pump to simulate active refueling
+    mockPump->start();
+    ASSERT_TRUE(mockPump->running_);
+
+    // Flow update below target – pump should stay running
+    controller->handleFlowUpdate(0.3);
+    EXPECT_TRUE(mockPump->running_);
+
+    // Flow update at/above target – pump must stop immediately (no 1-second wait)
+    controller->handleFlowUpdate(0.5);
+    EXPECT_FALSE(mockPump->running_);
+}
+
+// Test that handleFlowUpdate throttles InputUpdated events so that 20 rapid
+// consecutive calls do not each trigger a separate display update.
+TEST_F(ControllerTest, HandleFlowUpdateThrottlesDisplayUpdates) {
+    controller->initialize();
+
+    std::atomic<int> showCount{0};
+    EXPECT_CALL(*mockDisplay, showMessage(_)).WillRepeatedly([&](const DisplayMessage&) {
+        showCount++;
+    });
+
+    std::thread controllerThread([this]() { controller->run(); });
+
+    // Fire 20 rapid flow updates within microseconds (well under the 1-second throttle).
+    // Only the very first call (lastDisplayUpdateTime_ == epoch) should post InputUpdated;
+    // the remaining 19 must be suppressed by the display throttle.
+    for (int i = 0; i < 20; ++i) {
+        controller->handleFlowUpdate(static_cast<double>(i) * 0.01);
+    }
+
+    // Give the event loop time to process all queued events
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+    // The 20 rapid flow updates should have produced far fewer than 20 display refreshes.
+    // Only the first call (lastDisplayUpdateTime_ == epoch) posts InputUpdated; the rest
+    // are suppressed. Allowing a small slack for state-machine transitions.
+    EXPECT_LE(showCount.load(), 5);
+
+    shutdownControllerAndJoinThread(controllerThread);
+}
+
 // Test postEvent
 TEST_F(ControllerTest, PostEvent) {
     controller->initialize();

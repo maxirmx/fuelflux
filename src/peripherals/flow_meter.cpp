@@ -3,10 +3,10 @@
 // This file is a part of fuelflux application
 
 #include "peripherals/flow_meter.h"
+#include "hardware/hardware_config.h"
 #include "logger.h"
 
 #ifdef TARGET_REAL_FLOW_METER
-#include "hardware/hardware_config.h"
 #include <gpiod.h>
 #include <exception>
 #include <cerrno>
@@ -150,9 +150,6 @@ void HardwareFlowMeter::monitorThread() {
 
     LOG_PERIPH_INFO("Flow meter monitoring thread started");
 
-    auto lastCallbackTime = std::chrono::steady_clock::now();
-    constexpr auto callbackInterval = std::chrono::seconds(1);
-
     while (!stopMonitoring_.load(std::memory_order_acquire)) {
         struct timespec timeout;
         timeout.tv_sec = 0;
@@ -183,16 +180,14 @@ void HardwareFlowMeter::monitorThread() {
                 }
             } while (gpiod_line_event_wait(line, &zeroTimeout) == 1);
 
+            // Invoke callback on each pulse batch so the controller can stop the pump
+            // as soon as the target volume is reached, without a 1-second delay.
             if (batchCount > 0) {
                 pulseCount_.fetch_add(batchCount, std::memory_order_relaxed);
+                if (m_callback) {
+                    m_callback(getCurrentVolume());
+                }
             }
-        }
-
-        // Invoke callback approximately once per second
-        auto now = std::chrono::steady_clock::now();
-        if (m_callback && (now - lastCallbackTime) >= callbackInterval) {
-            lastCallbackTime = now;
-            m_callback(getCurrentVolume());
         }
     }
 
@@ -226,11 +221,12 @@ void HardwareFlowMeter::startMeasurement() {
             pulseCount_.store(0, std::memory_order_relaxed);
             monitorThread_ = std::thread([this]() {
                 auto lastTick = std::chrono::steady_clock::now();
-                auto lastCallbackTime = std::chrono::steady_clock::now();
-                constexpr auto callbackInterval = std::chrono::seconds(1);
 
                 while (!stopMonitoring_.load(std::memory_order_acquire)) {
-                    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                    // Sleep for one tick period so the callback fires once per simulated pulse
+                    const auto tickMs = std::max(1, static_cast<int>(
+                        1000.0 / (simulationFlowRateLitersPerSecond_ * ticksPerLiter_)));
+                    std::this_thread::sleep_for(std::chrono::milliseconds(tickMs));
                     const auto now = std::chrono::steady_clock::now();
                     const auto elapsedSeconds =
                         std::chrono::duration<double>(now - lastTick).count();
@@ -243,9 +239,9 @@ void HardwareFlowMeter::startMeasurement() {
                     }
                     pulseCount_.fetch_add(pulsesToAdd, std::memory_order_relaxed);
 
-                    // Invoke callback approximately once per second
-                    if (m_callback && (now - lastCallbackTime) >= callbackInterval) {
-                        lastCallbackTime = now;
+                    // Invoke callback on each tick so the controller can stop the pump
+                    // as soon as the target volume is reached, without a 1-second delay.
+                    if (m_callback) {
                         m_callback(getCurrentVolume());
                     }
                 }
@@ -254,28 +250,35 @@ void HardwareFlowMeter::startMeasurement() {
             // Non-hardware builds: simulate by directly updating volume
             LOG_PERIPH_INFO("Flow meter simulation mode (non-hardware build)");
             monitorThread_ = std::thread([this]() {
+                // Use the same tick rate as the hardware flow meter to match pulse frequency.
+                constexpr double kSimulationTicksPerLiter =
+                    hardware::config::flow_meter::TICKS_PER_LITER;
                 auto lastTick = std::chrono::steady_clock::now();
-                auto lastCallbackTime = std::chrono::steady_clock::now();
-                constexpr auto callbackInterval = std::chrono::seconds(1);
 
                 while (!stopMonitoring_.load(std::memory_order_acquire)) {
-                    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                    // Sleep for one tick period so the callback fires once per simulated pulse
+                    const auto tickMs = std::max(1, static_cast<int>(
+                        1000.0 / (simulationFlowRateLitersPerSecond_ * kSimulationTicksPerLiter)));
+                    std::this_thread::sleep_for(std::chrono::milliseconds(tickMs));
                     const auto now = std::chrono::steady_clock::now();
                     const auto elapsedSeconds =
                         std::chrono::duration<double>(now - lastTick).count();
                     lastTick = now;
 
-                    // Update volume with mutex protection
+                    // Update volume with mutex protection, then invoke callback outside the lock
                     const auto volumeToAdd = elapsedSeconds * simulationFlowRateLitersPerSecond_;
                     if (volumeToAdd > 0.0) {
-                        std::lock_guard<std::mutex> lock(m_volumeMutex);
-                        m_currentVolume += volumeToAdd;
-                    }
-
-                    // Invoke callback approximately once per second
-                    if (m_callback && (now - lastCallbackTime) >= callbackInterval) {
-                        lastCallbackTime = now;
-                        m_callback(getCurrentVolume());
+                        Volume currentVol;
+                        {
+                            std::lock_guard<std::mutex> lock(m_volumeMutex);
+                            m_currentVolume += volumeToAdd;
+                            currentVol = m_currentVolume;
+                        }
+                        // Invoke callback on each tick so the controller can stop the pump
+                        // as soon as the target volume is reached, without a 1-second delay.
+                        if (m_callback) {
+                            m_callback(currentVol);
+                        }
                     }
                 }
             });

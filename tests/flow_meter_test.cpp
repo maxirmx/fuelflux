@@ -361,13 +361,14 @@ TEST_F(FlowMeterSimulationTest, NonHardwareSimulationInvokesCallback) {
     // Start measurement (simulation is always on)
     flowMeter->startMeasurement();
     
-    // Wait for callbacks
-    std::this_thread::sleep_for(std::chrono::milliseconds(1500));
+    // With per-tick callbacks at ~72 ticks/liter and 1 L/s, 200 ms yields ~14 callbacks.
+    // Use a shorter wait than the original 1500 ms to exercise the new tick-rate.
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));
     
     flowMeter->stopMeasurement();
     
-    // Should have received at least one callback during measurement
-    EXPECT_GT(callbackCount.load(), 0);
+    // Should have received multiple per-tick callbacks during measurement
+    EXPECT_GT(callbackCount.load(), 5);
     // Last callback volume should be non-zero
     EXPECT_GT(lastCallbackVolume, 0.0);
 }

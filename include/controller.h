@@ -209,6 +209,11 @@ class Controller {
     bool noFlowCancelPosted_ = false;
     std::chrono::steady_clock::time_point lastFlowUpdateTime_ = std::chrono::steady_clock::now();
 
+    // Tracks the last time the display was updated from a flow callback,
+    // so that InputUpdated events are throttled to once per second while
+    // the pump-stop check still runs on every tick.
+    std::chrono::steady_clock::time_point lastDisplayUpdateTime_{};
+
     // Helper methods
     void setupPeripheralCallbacks();
     void processNumericInput();
