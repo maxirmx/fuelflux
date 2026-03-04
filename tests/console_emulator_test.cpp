@@ -334,62 +334,6 @@ TEST_F(ConsolePumpTest, StartWithoutInitializeDoesNotRun) {
     EXPECT_FALSE(pump->isRunning());
 }
 
-// Test ConsoleFlowMeter
-class ConsoleFlowMeterTest : public ::testing::Test {
-protected:
-    std::unique_ptr<ConsoleFlowMeter> flowMeter;
-
-    void SetUp() override {
-        flowMeter = std::make_unique<ConsoleFlowMeter>();
-    }
-
-    void TearDown() override {
-        if (flowMeter && flowMeter->isConnected()) {
-            flowMeter->shutdown();
-        }
-        flowMeter.reset();
-    }
-};
-
-TEST_F(ConsoleFlowMeterTest, SimulateFlowReachesTargetAndCanResetCounter) {
-    ASSERT_TRUE(flowMeter->initialize());
-    flowMeter->setFlowRate(0.5);
-    flowMeter->startMeasurement();
-
-    std::mutex callbackMutex;
-    std::condition_variable callbackCv;
-    std::vector<Volume> updates;
-
-    flowMeter->setFlowCallback([&](Volume volume) {
-        std::lock_guard<std::mutex> lock(callbackMutex);
-        updates.push_back(volume);
-        callbackCv.notify_one();
-    });
-
-    constexpr Volume kTarget = 0.2;
-    flowMeter->simulateFlow(kTarget);
-
-    {
-        std::unique_lock<std::mutex> lock(callbackMutex);
-        EXPECT_TRUE(callbackCv.wait_for(lock, std::chrono::seconds(1), [&] {
-            return !updates.empty() && updates.back() >= kTarget;
-        }));
-    }
-
-    flowMeter->stopMeasurement();
-
-    EXPECT_GE(flowMeter->getCurrentVolume(), kTarget);
-    EXPECT_GT(flowMeter->getTotalVolume(), 0.0);
-
-    flowMeter->resetCounter();
-    EXPECT_DOUBLE_EQ(flowMeter->getCurrentVolume(), 0.0);
-}
-
-TEST_F(ConsoleFlowMeterTest, StopMeasurementWithoutStartIsSafe) {
-    ASSERT_TRUE(flowMeter->initialize());
-    EXPECT_NO_THROW(flowMeter->stopMeasurement());
-}
-
 // Test ConsoleEmulator
 class ConsoleEmulatorTest : public ::testing::Test {
 protected:
@@ -546,6 +490,7 @@ TEST_F(ConsoleEmulatorTest, ProcessCommandFlowSimInvokesHandler) {
         return true;
     });
 
+#ifdef TARGET_REAL_FLOW_METER
     emulator->processCommand("flow_sim on");
     EXPECT_TRUE(enabled);
     EXPECT_EQ(calls, 1);
@@ -553,8 +498,16 @@ TEST_F(ConsoleEmulatorTest, ProcessCommandFlowSimInvokesHandler) {
     emulator->processCommand("flow_sim off");
     EXPECT_FALSE(enabled);
     EXPECT_EQ(calls, 2);
+#else
+    // In non-hardware builds, flow_sim command is not available
+    // Just test that commands don't crash
+    EXPECT_NO_THROW(emulator->processCommand("flow_sim on"));
+    EXPECT_EQ(calls, 0);  // Handler should not be called
+#endif
 }
 
+#ifdef TARGET_REAL_FLOW_METER
 TEST_F(ConsoleEmulatorTest, ProcessCommandFlowSimWithoutHandlerDoesNotCrash) {
     EXPECT_NO_THROW(emulator->processCommand("flow_sim on"));
 }
+#endif

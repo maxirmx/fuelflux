@@ -242,9 +242,11 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
             if (controller.getUserCache()) {
                 emulator.setUserCache(controller.getUserCache());
             }
+#ifdef TARGET_REAL_FLOW_METER
             emulator.setFlowMeterSimulationHandler([&controller](bool enabled) {
                 return controller.setFlowMeterSimulationEnabled(enabled);
             });
+#endif
             
             // Start input dispatcher only if running interactively
 #ifndef _WIN32
