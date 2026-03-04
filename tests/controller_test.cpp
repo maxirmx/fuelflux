@@ -876,6 +876,34 @@ TEST_F(ControllerTest, HandleFlowUpdateStopsPumpOnTarget) {
     EXPECT_FALSE(mockPump->running_);
 }
 
+// Test that the immediate InputUpdated on target reach is emitted only once,
+// and subsequent above-target callbacks remain throttled.
+TEST_F(ControllerTest, HandleFlowUpdateImmediateUpdateOnlyOnFirstTargetTransition) {
+    controller->initialize();
+    controller->enterVolume(0.5);
+
+    std::atomic<int> showCount{0};
+    EXPECT_CALL(*mockDisplay, showMessage(_)).WillRepeatedly([&](const DisplayMessage&) {
+        showCount++;
+    });
+
+    std::thread controllerThread([this]() { controller->run(); });
+
+    // Cross the target once, then keep sending above-target updates rapidly.
+    controller->handleFlowUpdate(0.49);
+    controller->handleFlowUpdate(0.5);
+    for (int i = 0; i < 20; ++i) {
+        controller->handleFlowUpdate(0.5 + static_cast<double>(i) * 0.01);
+    }
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+    // Only the first transition to target reached should bypass the 1-second gate.
+    EXPECT_LE(showCount.load(), 6);
+
+    shutdownControllerAndJoinThread(controllerThread);
+}
+
 // Test that handleFlowUpdate throttles InputUpdated events so that 20 rapid
 // consecutive calls do not each trigger a separate display update.
 TEST_F(ControllerTest, HandleFlowUpdateThrottlesDisplayUpdates) {

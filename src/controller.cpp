@@ -365,7 +365,9 @@ void Controller::handleFlowUpdate(Volume currentVolume) {
     // This runs on every tick so the overshoot is bounded to one tick (~14 ms at
     // 72 ticks/liter and 1.0 L/s), rather than the previous 1-second callback interval.
     const bool targetReached = targetRefuelVolume_ > 0.0 && currentVolume >= targetRefuelVolume_;
+    const bool targetReachedTransition = targetReached && !targetReachedTransitionHandled_;
     if (targetReached) {
+        targetReachedTransitionHandled_ = true;
         if (pump_) {
             pump_->stop();
         }
@@ -374,7 +376,7 @@ void Controller::handleFlowUpdate(Volume currentVolume) {
     // Throttle display refreshes to at most once per second to avoid flooding the
     // event queue, but always update immediately when the target volume is reached.
     const auto now = std::chrono::steady_clock::now();
-    if (targetReached || (now - lastDisplayUpdateTime_) >= std::chrono::seconds(1)) {
+    if (targetReachedTransition || (now - lastDisplayUpdateTime_) >= std::chrono::seconds(1)) {
         lastDisplayUpdateTime_ = now;
         postEvent(Event::InputUpdated);
     }
@@ -896,6 +898,7 @@ void Controller::resetSessionData() {
     // Reset to epoch so the first flow callback of a new session always triggers
     // an immediate display update.
     lastDisplayUpdateTime_ = std::chrono::steady_clock::time_point{};
+    targetReachedTransitionHandled_ = false;
 }
 
 bool Controller::initializePeripherals() {

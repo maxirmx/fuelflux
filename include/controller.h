@@ -214,6 +214,10 @@ class Controller {
     // the pump-stop check still runs on every tick.
     std::chrono::steady_clock::time_point lastDisplayUpdateTime_{};
 
+    // Ensures the immediate display update on target reach is emitted only once
+    // per session, preserving throttling if callbacks continue during stop delays.
+    bool targetReachedTransitionHandled_ = false;
+
     // Helper methods
     void setupPeripheralCallbacks();
     void processNumericInput();
