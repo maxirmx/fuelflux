@@ -9,6 +9,7 @@
 #include <string>
 #include <thread>
 #include <atomic>
+#include <mutex>
 
 namespace fuelflux::peripherals {
 
@@ -16,11 +17,6 @@ namespace fuelflux::peripherals {
 class HardwareFlowMeter : public IFlowMeter {
 public:
     HardwareFlowMeter();
-#ifdef TARGET_REAL_FLOW_METER
-    HardwareFlowMeter(const std::string& gpioChip,
-                     int gpioPin,
-                     double ticksPerLiter);
-#endif
     ~HardwareFlowMeter() override;
 
     // IPeripheral interface
@@ -42,23 +38,26 @@ public:
     bool isSimulationEnabled() const;
 
 private:
-#ifdef TARGET_REAL_FLOW_METER
     void monitorThread();
-    std::string gpioChip_;
-    int gpioPin_;
-    double ticksPerLiter_;
-    std::thread monitorThread_;
-    std::atomic<bool> stopMonitoring_;
-    std::atomic<uint64_t> pulseCount_;
-    std::atomic<bool> simulationEnabled_;
-    double simulationFlowRateLitersPerSecond_;
-#endif
-
+    
     bool m_connected;
     std::atomic<bool> m_measuring;
     Volume m_currentVolume;
     Volume m_totalVolume;
+    mutable std::mutex m_volumeMutex;  // Protects m_currentVolume and m_totalVolume
     FlowCallback m_callback;
+    
+    std::thread monitorThread_;
+    std::atomic<bool> stopMonitoring_;
+    double simulationFlowRateLitersPerSecond_;
+    std::atomic<bool> simulationEnabled_;
+
+#ifdef TARGET_REAL_FLOW_METER
+    std::string gpioChip_;
+    int gpioPin_;
+    double ticksPerLiter_;
+    std::atomic<uint64_t> pulseCount_;
+#endif
 };
 
 } // namespace fuelflux::peripherals
