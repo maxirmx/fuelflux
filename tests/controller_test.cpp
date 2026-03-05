@@ -746,7 +746,8 @@ TEST_F(ControllerTest, NoFlowWatchdogCancelsRefuelingAfterPartialFlow) {
     // Simulate partial flow (5 liters) to update lastFlowUpdateTime_
     controller->handleFlowUpdate(5.0);
 
-    // After flow stops, the watchdog should fire 1 second after the last update
+    // After flow stops, the watchdog fires 1s after the last flow update (controller uses 1s timeout).
+    // Allow 2500ms for the watchdog to fire and the state to reach RefuelingComplete.
     ASSERT_TRUE(waitForState(SystemState::RefuelingComplete, std::chrono::milliseconds(2500)));
 
     shutdownControllerAndJoinThread(controllerThread);
