@@ -714,6 +714,44 @@ TEST_F(ControllerTest, NoFlowWatchdogCancelsRefueling) {
     shutdownControllerAndJoinThread(controllerThread);
 }
 
+TEST_F(ControllerTest, NoFlowWatchdogCancelsRefuelingAfterPartialFlow) {
+    // When flow starts, then stops, the watchdog should fire 30s after the LAST flow update
+    controller->shutdown();
+    createController(std::chrono::seconds(1));
+
+    mockBackend->roleId_ = static_cast<int>(UserRole::Customer);
+    mockBackend->allowance_ = 100.0;
+    mockBackend->price_ = 1.0;
+    mockBackend->tanksStorage_ = { BackendTankInfo{1, "Tank A"} };
+
+    EXPECT_CALL(*mockBackend, Authorize("customer-card")).WillOnce([this]() {
+        mockBackend->authorized_ = true;
+        return true;
+    });
+
+    controller->initialize();
+
+    std::thread controllerThread([this]() { controller->run(); });
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+
+    controller->handleCardPresented("customer-card");
+    ASSERT_TRUE(waitForState(SystemState::TankSelection));
+
+    controller->selectTank(1);
+    ASSERT_TRUE(waitForState(SystemState::VolumeEntry));
+
+    controller->enterVolume(10.0);
+    ASSERT_TRUE(waitForState(SystemState::Refueling));
+
+    // Simulate partial flow (5 liters) to update lastFlowUpdateTime_
+    controller->handleFlowUpdate(5.0);
+
+    // After flow stops, the watchdog should fire 1 second after the last update
+    ASSERT_TRUE(waitForState(SystemState::RefuelingComplete, std::chrono::milliseconds(2500)));
+
+    shutdownControllerAndJoinThread(controllerThread);
+}
+
 TEST_F(ControllerTest, RefuelingCompletionDisplaysFinalVolume) {
     // Prepare backend to authorize and provide a tank
     mockBackend->roleId_ = static_cast<int>(UserRole::Customer);
