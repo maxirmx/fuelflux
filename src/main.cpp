@@ -62,7 +62,6 @@ void signalHandler(int signal) {
 }
 
 
-// Display failure message on a display interface
 #ifdef TARGET_REAL_DISPLAY
 static void displayFailureMessage(peripherals::IDisplay* display, bool fatal) {
     if (display) {
