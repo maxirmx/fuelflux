@@ -165,7 +165,7 @@ Flow meter configuration is defined in `include/hardware/hardware_config.h`:
 | Setting | Default Value | Description |
 |---------|---------------|-------------|
 | GPIO_CHIP | `/dev/gpiochip0` | GPIO chip path |
-| GPIO_PIN | `267` | GPIO line offset for pulse input |
+| GPIO_PIN | `76` | GPIO line offset for pulse input |
 | TICKS_PER_LITER | `72.0` | Pulse count per liter of fuel |
 
 ## Pump (GPIO relay control)

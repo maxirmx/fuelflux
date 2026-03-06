@@ -17,16 +17,6 @@
 
 namespace fuelflux::hardware::config {
 
-// Common GPIO configuration
-namespace gpio {
-    constexpr const char* CHIP = "/dev/gpiochip0";
-}
-
-// Common I2C configuration
-namespace i2c {
-    constexpr const char* DEVICE = "/dev/i2c-3";
-}
-
 // Keyboard configuration (MCP23017 I2C GPIO expander with 4x4 matrix keypad)
 namespace keyboard {
     constexpr const char* I2C_DEVICE = "/dev/i2c-3";
@@ -46,7 +36,7 @@ namespace card_reader {
 // Flow Meter configuration (GPIO pulse counting)
 namespace flow_meter {
     constexpr const char* GPIO_CHIP = "/dev/gpiochip0";
-    constexpr int GPIO_PIN = 267;
+    constexpr int GPIO_PIN = 76;
     constexpr double TICKS_PER_LITER = 72.0;
 }
 
