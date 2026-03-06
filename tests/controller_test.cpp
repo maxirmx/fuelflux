@@ -854,6 +854,45 @@ TEST_F(ControllerTest, HandleFlowUpdate) {
     // This test just verifies the method doesn't crash
 }
 
+// Test that rapid handleFlowUpdate calls post InputUpdated at most once per
+// kFlowDisplayRefreshInterval (display-refresh throttle).
+TEST_F(ControllerTest, HandleFlowUpdateThrottlesDisplayRefresh) {
+    controller->initialize();
+
+    std::thread controllerThread([this]() {
+        controller->run();
+    });
+
+    // Move to PinEntry state so that InputUpdated stays in PinEntry (no
+    // further state transitions) and triggers exactly one showMessage call each
+    // time an InputUpdated event is actually processed.
+    controller->postEvent(Event::InputUpdated);
+    ASSERT_TRUE(waitForState(SystemState::PinEntry, std::chrono::milliseconds(300)));
+
+    // Drain any display updates caused by the state transition.
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    ::testing::Mock::VerifyAndClearExpectations(mockDisplay);
+
+    // 10 rapid handleFlowUpdate calls should produce exactly one InputUpdated
+    // event (the throttle suppresses the rest within the 500 ms interval).
+    EXPECT_CALL(*mockDisplay, showMessage(::testing::_)).Times(1);
+    for (int i = 0; i < 10; ++i) {
+        controller->handleFlowUpdate(static_cast<double>(i) * 0.1);
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    ::testing::Mock::VerifyAndClearExpectations(mockDisplay);
+
+    // After the full throttle interval has elapsed, the next handleFlowUpdate
+    // call should be allowed through and trigger exactly one display update.
+    std::this_thread::sleep_for(timing::kFlowDisplayRefreshInterval + std::chrono::milliseconds(50));
+    EXPECT_CALL(*mockDisplay, showMessage(::testing::_)).Times(1);
+    controller->handleFlowUpdate(1.0);
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    ::testing::Mock::VerifyAndClearExpectations(mockDisplay);
+
+    shutdownControllerAndJoinThread(controllerThread);
+}
+
 // Test postEvent
 TEST_F(ControllerTest, PostEvent) {
     controller->initialize();
