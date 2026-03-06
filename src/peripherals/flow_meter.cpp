@@ -430,22 +430,21 @@ void HardwareFlowMeter::invokeCallback(Volume volume) {
 }
 
 void HardwareFlowMeter::ensureThreadStopped() {
-    // If there's a thread running, ensure it's stopped and cleaned up
+    // If there's a thread running, ensure it's stopped and cleaned up.
+    // This method is only called from external threads (shutdown, startMeasurement).
+    // The monitor thread stops itself via stopMeasurement() which handles the
+    // self-call case: it sets stopMonitoring_ and returns, letting the thread
+    // exit its loop and clean up resources naturally.
     if (monitorThread_.joinable()) {
+        LOG_PERIPH_WARN("Cleaning up previous monitor thread");
+
         // Signal the thread to stop
         stopMonitoring_.store(true, std::memory_order_release);
 
-        if (monitorThread_.get_id() == std::this_thread::get_id()) {
-            // Called from within the monitor thread itself (e.g., via a callback).
-            // Joining would deadlock; detach so the thread cleans up on its own
-            // once the callback returns.
-            monitorThread_.detach();
-            LOG_PERIPH_INFO("Monitor thread detached (self-call case)");
-        } else {
-            LOG_PERIPH_WARN("Cleaning up previous monitor thread");
-            monitorThread_.join();
-            LOG_PERIPH_INFO("Previous monitor thread cleaned up successfully");
-        }
+        // Wait for it to finish
+        monitorThread_.join();
+
+        LOG_PERIPH_INFO("Previous monitor thread cleaned up successfully");
     }
 }
 
