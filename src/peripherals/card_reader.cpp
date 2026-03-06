@@ -4,6 +4,7 @@
 
 #include "peripherals/card_reader.h"
 #include "logger.h"
+#include "system_config.h"
 
 #ifdef TARGET_REAL_CARD_READER
 #include "hardware/hardware_config.h"
@@ -19,8 +20,8 @@ namespace fuelflux::peripherals {
 
 #ifdef TARGET_REAL_CARD_READER
 namespace {
-constexpr auto kPollDelay = std::chrono::milliseconds(150);
-constexpr auto kReadCooldown = std::chrono::milliseconds(500);
+constexpr auto kPollDelay = config::card_reader::POLL_DELAY;
+constexpr auto kReadCooldown = config::card_reader::READ_COOLDOWN;
 
 std::string toString(const uint8_t* data, size_t len) {
     std::ostringstream oss;

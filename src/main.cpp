@@ -3,6 +3,7 @@
 // This file is a part of fuelflux application
 
 #include "config.h"
+#include "system_config.h"
 #include "controller.h"
 #include "backlog_worker.h"
 #include "backend.h"
@@ -113,7 +114,7 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
     }
     
     // Retry limit to prevent infinite restart on persistent errors
-    const int MAX_RETRIES = 10;
+    const int MAX_RETRIES = config::application::MAX_RETRIES;
     int retryCount = 0;
     auto lastRetryTime = std::chrono::steady_clock::now();
 #ifdef USE_CARES
@@ -128,7 +129,7 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
             // Reset retry count if enough time has passed since last failure (1 hour)
             auto now = std::chrono::steady_clock::now();
             auto timeSinceLastRetry = std::chrono::duration_cast<std::chrono::hours>(now - lastRetryTime);
-            if (timeSinceLastRetry.count() >= 1) {
+            if (timeSinceLastRetry >= config::application::RETRY_RESET_INTERVAL) {
                 retryCount = 0;
             }
             
@@ -175,7 +176,7 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
             auto storage = std::make_shared<MessageStorage>(STORAGE_DB_PATH);
             auto backend = Controller::CreateDefaultBackend(storage);
             auto backlogBackend = Controller::CreateDefaultBackendShared(controllerId, nullptr);
-            BacklogWorker backlogWorker(storage, backlogBackend, std::chrono::seconds(30));
+            BacklogWorker backlogWorker(storage, backlogBackend, config::application::BACKLOG_WORKER_INTERVAL);
             backlogWorker.Start();
 
 
@@ -270,7 +271,7 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
             try {
                 // Main thread waits for shutdown signal
                 while (g_running) {
-                    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                    std::this_thread::sleep_for(config::application::MAIN_LOOP_SLEEP);
                 }
                 
                 LOG_INFO("Shutting down...");
@@ -325,11 +326,11 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
                 
                 // Sleep forever - embedded application should not exit
                 while (true) {
-                    std::this_thread::sleep_for(std::chrono::hours(24));
+                    std::this_thread::sleep_for(config::application::PERMANENT_FAILURE_SLEEP);
                 }
             }
             LOG_WARN("Recovering after error (attempt {}/{}); restarting controller loop", retryCount, MAX_RETRIES);
-            std::this_thread::sleep_for(std::chrono::seconds(1));
+            std::this_thread::sleep_for(config::application::RECOVERY_RETRY_DELAY);
         }
     }
     
