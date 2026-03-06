@@ -118,13 +118,13 @@ constexpr std::chrono::seconds kAuthDelay{3};
 // Console input dispatcher: sleep interval between keyboard input checks.
 constexpr std::chrono::milliseconds kConsoleInputPollInterval{10};
 
-// ─── Flow meter simulation ────────────────────────────────────────────────────
+// ─── Flow meter ───────────────────────────────────────────────────────────────
 
 // Simulation thread: tick interval (controls simulation accuracy vs CPU usage).
 constexpr std::chrono::milliseconds kFlowMeterSimTickInterval{100};
 
 // Simulation / hardware monitor: callback interval (how often to invoke the
 // volume-updated callback; smaller values increase CPU load).
-constexpr std::chrono::seconds kFlowMeterCallbackInterval{1};
+constexpr std::chrono::milliseconds kFlowMeterCallbackInterval{100};
 
 } // namespace fuelflux::timing
