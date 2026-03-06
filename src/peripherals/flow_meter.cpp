@@ -138,6 +138,7 @@ void HardwareFlowMeter::monitorThread() {
     // Reuses kFlowMeterSimTickInterval to keep the polling granularity consistent.
     constexpr long kPollTimeoutNs = std::chrono::duration_cast<std::chrono::nanoseconds>(
         timing::kFlowMeterSimTickInterval).count();
+    uint64_t lastReportedPulseCount = pulseCount_.load(std::memory_order_relaxed);
 
     while (!stopMonitoring_.load(std::memory_order_acquire)) {
         struct timespec timeout;
@@ -174,10 +175,13 @@ void HardwareFlowMeter::monitorThread() {
             }
         }
 
-        // Invoke callback approximately once per second
+        // Invoke callback approximately once per second, but only when flow is occurring
+        uint64_t currentPulseCount = pulseCount_.load(std::memory_order_relaxed);
         auto now = std::chrono::steady_clock::now();
-        if (m_callback && (now - lastCallbackTime) >= callbackInterval) {
+        if (m_callback && (now - lastCallbackTime) >= callbackInterval &&
+            currentPulseCount != lastReportedPulseCount) {
             lastCallbackTime = now;
+            lastReportedPulseCount = currentPulseCount;
             m_callback(getCurrentVolume());
         }
     }
@@ -251,17 +255,19 @@ void HardwareFlowMeter::startMeasurement() {
                         std::chrono::duration<double>(now - lastTick).count();
                     lastTick = now;
 
-                    // Update volume with mutex protection
+                    // Update volume with mutex protection, only invoke callback when flow is occurring
                     const auto volumeToAdd = elapsedSeconds * simulationFlowRateLitersPerSecond_;
                     if (volumeToAdd > 0.0) {
-                        std::lock_guard<std::mutex> lock(m_volumeMutex);
-                        m_currentVolume += volumeToAdd;
-                    }
+                        {
+                            std::lock_guard<std::mutex> lock(m_volumeMutex);
+                            m_currentVolume += volumeToAdd;
+                        }
 
-                    // Invoke callback approximately once per second
-                    if (m_callback && (now - lastCallbackTime) >= callbackInterval) {
-                        lastCallbackTime = now;
-                        m_callback(getCurrentVolume());
+                        // Invoke callback approximately once per second
+                        if (m_callback && (now - lastCallbackTime) >= callbackInterval) {
+                            lastCallbackTime = now;
+                            m_callback(getCurrentVolume());
+                        }
                     }
                 }
             });
