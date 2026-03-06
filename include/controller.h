@@ -212,7 +212,7 @@ class Controller {
 
     // Display update throttle for flow callbacks: limits InputUpdated events to avoid
     // swamping the event queue while still allowing accurate pump-stop checks per tick.
-    std::chrono::steady_clock::time_point lastFlowCallbackTime_ = std::chrono::steady_clock::now();
+    std::chrono::steady_clock::time_point lastFlowCallbackTime_ = std::chrono::steady_clock::time_point{};
 
     // Helper methods
     void setupPeripheralCallbacks();
