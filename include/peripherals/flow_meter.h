@@ -40,7 +40,7 @@ public:
 private:
     void monitorThread();
     
-    bool m_connected;
+    std::atomic<bool> m_connected;
     std::atomic<bool> m_measuring;
     Volume m_currentVolume;
     Volume m_totalVolume;

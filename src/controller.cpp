@@ -604,6 +604,7 @@ void Controller::enterVolume(Volume volume) {
 
 // Refueling operations
 void Controller::startRefueling() {
+    currentRefuelVolume_ = 0.0;
     if (pump_) {
         pump_->start();
     }
