@@ -132,6 +132,8 @@ void HardwareFlowMeter::monitorThread() {
         return;
     }
 
+    // GPIO initialized successfully — now officially measuring
+    m_measuring.store(true, std::memory_order_release);
     LOG_PERIPH_INFO("Flow meter monitoring thread started");
 
     while (!stopMonitoring_.load(std::memory_order_acquire)) {
@@ -178,6 +180,7 @@ void HardwareFlowMeter::monitorThread() {
     // Clean up
     gpiod_line_release(line);
     gpiod_chip_close(chip);
+    m_measuring.store(false, std::memory_order_release);
 }
 #endif
 
@@ -207,14 +210,14 @@ void HardwareFlowMeter::startMeasurement() {
 #endif
     }
 
-    // Set flags before starting thread
+    // Allow the monitor thread to run; m_measuring will be set by the thread itself
     stopMonitoring_.store(false, std::memory_order_release);
-    m_measuring.store(true, std::memory_order_release);
 
     if (simulationEnabled_.load(std::memory_order_acquire)) {
 #ifdef TARGET_REAL_FLOW_METER
         LOG_PERIPH_WARN("Flow meter simulation mode is ON");
         monitorThread_ = std::thread([this]() {
+            m_measuring.store(true, std::memory_order_release);
             // tickMs is invariant for the duration of a measurement session.
             const auto tickMs = std::max(1, static_cast<int>(
                 1000.0 / (simulationFlowRateLitersPerSecond_ * ticksPerLiter_)));
@@ -237,11 +240,13 @@ void HardwareFlowMeter::startMeasurement() {
                 // Thread-safe callback invocation
                 invokeCallback(getCurrentVolume());
             }
+            m_measuring.store(false, std::memory_order_release);
         });
 #else
         // Non-hardware builds: simulate by directly updating volume
         LOG_PERIPH_INFO("Flow meter simulation mode (non-hardware build)");
         monitorThread_ = std::thread([this]() {
+            m_measuring.store(true, std::memory_order_release);
             // Use the same tick rate as the hardware flow meter to match pulse frequency.
             constexpr double kSimulationTicksPerLiter =
                 hardware::config::flow_meter::TICKS_PER_LITER;
@@ -270,6 +275,7 @@ void HardwareFlowMeter::startMeasurement() {
                     invokeCallback(currentVol);
                 }
             }
+            m_measuring.store(false, std::memory_order_release);
         });
 #endif
     }
@@ -281,8 +287,9 @@ void HardwareFlowMeter::startMeasurement() {
 }
 
 void HardwareFlowMeter::stopMeasurement() {
-    if (!m_measuring.load(std::memory_order_acquire)) {
-        return;  // Already stopped
+    // Guard: skip if no monitor thread is active (including the startup race window)
+    if (!monitorThread_.joinable()) {
+        return;  // Already stopped or never started
     }
 
     LOG_PERIPH_INFO("Stopping flow measurement...");
