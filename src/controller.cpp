@@ -361,14 +361,20 @@ void Controller::handleFlowUpdate(Volume currentVolume) {
         lastFlowUpdateTime_ = std::chrono::steady_clock::now();
     }
     
-    // Check if target volume reached
+    // Check if target volume reached — runs on every tick to minimize overfill.
     if (targetRefuelVolume_ > 0.0 && currentVolume >= targetRefuelVolume_) {
         if (pump_) {
             pump_->stop();
         }
     }
     
-    postEvent(Event::InputUpdated);
+    // Throttle display/UI updates: post InputUpdated at most once per callback
+    // interval to avoid saturating the event queue at high pulse rates.
+    auto now = std::chrono::steady_clock::now();
+    if ((now - lastFlowCallbackTime_) >= timing::kFlowDisplayRefreshInterval) {
+        lastFlowCallbackTime_ = now;
+        postEvent(Event::InputUpdated);
+    }
 }
 
 // Display management

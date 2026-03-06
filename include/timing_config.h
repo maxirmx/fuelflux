@@ -123,8 +123,9 @@ constexpr std::chrono::milliseconds kConsoleInputPollInterval{10};
 // Simulation thread: tick interval (controls simulation accuracy vs CPU usage).
 constexpr std::chrono::milliseconds kFlowMeterSimTickInterval{100};
 
-// Simulation / hardware monitor: callback interval (how often to invoke the
-// volume-updated callback; smaller values increase CPU load).
-constexpr std::chrono::milliseconds kFlowMeterCallbackInterval{100};
+// Controller display-throttle interval: how often Controller::handleFlowUpdate
+// posts an InputUpdated event for display refresh.  The pump-stop check runs on
+// every callback tick regardless of this value.
+constexpr std::chrono::milliseconds kFlowDisplayRefreshInterval{500};
 
 } // namespace fuelflux::timing
