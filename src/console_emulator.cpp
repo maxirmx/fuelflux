@@ -10,6 +10,7 @@
 #include "cache_manager.h"
 #include "user_cache.h"
 #include "logger.h"
+#include "timing_config.h"
 #include "version.h"
 #include <iostream>
 #include <sstream>
@@ -573,7 +574,7 @@ void ConsoleEmulator::inputDispatcherLoop() {
             }
         }
 #endif
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        std::this_thread::sleep_for(timing::kConsoleInputPollInterval);
     }
 
 #ifndef _WIN32

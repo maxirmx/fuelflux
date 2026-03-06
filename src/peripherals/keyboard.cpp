@@ -23,7 +23,7 @@ namespace fuelflux::peripherals {
 namespace {
 constexpr uint8_t kRowMask = 0b0000'1111;
 constexpr uint8_t kColMask = 0b1111'0000;
-constexpr int kScanDelayUs = 300;
+constexpr int kScanDelayUs = hardware::config::keyboard::SCAN_DELAY_US;
 
 constexpr char kKeymap[4][4] = {
     {'1', '2', '3', 'A'},

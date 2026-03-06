@@ -19,8 +19,8 @@ namespace fuelflux::peripherals {
 
 #ifdef TARGET_REAL_CARD_READER
 namespace {
-constexpr auto kPollDelay = std::chrono::milliseconds(150);
-constexpr auto kReadCooldown = std::chrono::milliseconds(500);
+constexpr auto kPollDelay = std::chrono::milliseconds(hardware::config::card_reader::POLL_DELAY_MS);
+constexpr auto kReadCooldown = std::chrono::milliseconds(hardware::config::card_reader::READ_COOLDOWN_MS);
 
 std::string toString(const uint8_t* data, size_t len) {
     std::ostringstream oss;

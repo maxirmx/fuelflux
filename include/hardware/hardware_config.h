@@ -24,6 +24,7 @@ namespace keyboard {
     constexpr int POLL_MS = 5;          // Polling interval in milliseconds
     constexpr int DEBOUNCE_MS = 20;     // Debounce delay in milliseconds
     constexpr int RELEASE_MS = 30;      // Key release delay in milliseconds
+    constexpr int SCAN_DELAY_US = 300;  // Row scan delay in microseconds
 }
 
 // NFC Card Reader configuration (PN532 via libnfc)
@@ -31,6 +32,8 @@ namespace card_reader {
     constexpr const char* I2C_DEVICE = "/dev/i2c-3";
     // Connection string format: "pn532_i2c:<device>"
     // If empty, will be auto-generated from I2C_DEVICE
+    constexpr int POLL_DELAY_MS = 150;    // Delay between NFC target polls in milliseconds
+    constexpr int READ_COOLDOWN_MS = 500; // Cooldown after a successful card read in milliseconds
 }
 
 // Flow Meter configuration (GPIO pulse counting)

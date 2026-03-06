@@ -11,6 +11,7 @@
 #include <chrono>
 #include <functional>
 #include <optional>
+#include "timing_config.h"
 
 namespace fuelflux {
 
@@ -64,7 +65,7 @@ private:
     bool IsBackendApiHostname(const std::string& hostname) const;
     bool HasValidBackendCacheEntry() const;
 
-    static constexpr auto kBackendApiCacheTtl = std::chrono::hours(24);
+    static constexpr auto kBackendApiCacheTtl = timing::kBackendApiDnsCacheTtl;
 
     std::string cached_hostname_;
     TimeProvider time_provider_;
