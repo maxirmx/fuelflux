@@ -61,13 +61,14 @@ void signalHandler(int signal) {
     g_running = false;
 }
 
+
 // Display failure message on a display interface
-static void displayFailureMessage(peripherals::IDisplay* display) {
+static void displayFailureMessage(peripherals::IDisplay* display, bool fatal) {
     if (display) {
         try {
             DisplayMessage msg;
             msg.line1 = "";
-            msg.line2 = "Отказ";
+            msg.line2 = fatal ? "Отказ" : "Ошибка";
             msg.line3 = "";
             msg.line4 = "";
             display->showMessage(msg);
@@ -113,7 +114,7 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
     }
     
     // Retry limit to prevent infinite restart on persistent errors
-    const int MAX_RETRIES = 10;
+    const int MAX_RETRIES = 3;
     int retryCount = 0;
     auto lastRetryTime = std::chrono::steady_clock::now();
 #ifdef USE_CARES
@@ -229,8 +230,8 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
 
             bool initOk = controller.initialize();
             if (!initOk) {
-                LOG_ERROR("Failed to initialize controller; entering error state; awaiting reinitialization");
                 emulator.logLine("[Main] Controller failed to initialize");
+                throw std::runtime_error("Controller failed to initialize");
             } else {
                 LOG_INFO("Controller initialized successfully");
             }
@@ -305,8 +306,6 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
             if (retryCount >= MAX_RETRIES) {
                 LOG_CRITICAL("Maximum retry limit ({}) reached, entering permanent failure state", MAX_RETRIES);
                 
-                // Display failure message if display was created
-                displayFailureMessage(display.get());
                 
 #ifdef USE_CARES
                 if (caresInitialized) {
@@ -321,7 +320,13 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
                     loggerReady = false;
                 }
                 
-                // Sleep forever - embedded application should not exit
+#ifdef TARGET_REAL_DISPLAY
+                display = std::make_unique<peripherals::Display>();
+#else
+                display = emulator.createDisplay();
+#endif
+                display->initialize();
+                displayFailureMessage(display.get(), true);
                 while (true) {
                     std::this_thread::sleep_for(std::chrono::hours(24));
                 }
