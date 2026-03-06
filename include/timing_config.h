@@ -126,6 +126,6 @@ constexpr std::chrono::milliseconds kFlowMeterSimTickInterval{100};
 // Controller display-throttle interval: how often Controller::handleFlowUpdate
 // posts an InputUpdated event for display refresh.  The pump-stop check runs on
 // every callback tick regardless of this value.
-constexpr std::chrono::milliseconds kFlowMeterCallbackInterval{500};
+constexpr std::chrono::milliseconds kFlowDisplayRefreshInterval{500};
 
 } // namespace fuelflux::timing

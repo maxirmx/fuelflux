@@ -371,7 +371,7 @@ void Controller::handleFlowUpdate(Volume currentVolume) {
     // Throttle display/UI updates: post InputUpdated at most once per callback
     // interval to avoid saturating the event queue at high pulse rates.
     auto now = std::chrono::steady_clock::now();
-    if ((now - lastFlowCallbackTime_) >= timing::kFlowMeterCallbackInterval) {
+    if ((now - lastFlowCallbackTime_) >= timing::kFlowDisplayRefreshInterval) {
         lastFlowCallbackTime_ = now;
         postEvent(Event::InputUpdated);
     }
