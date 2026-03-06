@@ -48,8 +48,8 @@ public:
         
         struct ares_options options;
         std::memset(&options, 0, sizeof(options));
-        options.timeout = 10000; // 10 seconds timeout for slow mobile networks
-        options.tries = 3;       // 3 retries
+        options.timeout = timing::kDnsChannelTimeoutMs;
+        options.tries = timing::kDnsChannelRetries;
         
         int status = ares_init_options(&channel_, &options, ARES_OPT_TIMEOUT | ARES_OPT_TRIES);
         if (status != ARES_SUCCESS) {
@@ -281,9 +281,9 @@ std::string CaresResolver::Resolve(const std::string& hostname, const std::strin
     ares_gethostbyname(channel.get(), hostname.c_str(), AF_INET, HostCallback, &ctx);
     
     // Wait for resolution to complete with overall timeout protection
-    // c-ares has its own retry logic (10s timeout * 3 retries = 30s max)
+    // c-ares has its own retry logic (kDnsChannelTimeoutMs * kDnsChannelRetries max)
     // Add extra margin for processing delays
-    constexpr int kMaxResolutionTimeSeconds = 45;
+    constexpr int kMaxResolutionTimeSeconds = timing::kDnsResolutionOverallTimeoutSec;
     auto startTime = std::chrono::steady_clock::now();
     
     int nfds;
@@ -311,8 +311,8 @@ std::string CaresResolver::Resolve(const std::string& hostname, const std::strin
             break;
         }
         
-        // Set select timeout (max 2 seconds per iteration)
-        max_tv.tv_sec = 2;
+        // Set select timeout (max kDnsSelectTimeoutSec seconds per iteration)
+        max_tv.tv_sec = timing::kDnsSelectTimeoutSec;
         max_tv.tv_usec = 0;
         struct timeval* tvp = ares_timeout(channel.get(), &max_tv, &tv);
         

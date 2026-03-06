@@ -123,10 +123,10 @@ void Controller::shutdown() {
         
         // Wait for the event loop thread to actually exit
         // The thread checks isRunning_ at the top of the loop and the 
-        // condition variable wait has a 100ms timeout, so this waits up to 2 seconds
-        const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(2000);
+        // condition variable wait has a kEventLoopWaitInterval timeout, so this waits up to kShutdownDeadline
+        const auto deadline = std::chrono::steady_clock::now() + timing::kShutdownDeadline;
         while (!threadExited_ && std::chrono::steady_clock::now() < deadline) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            std::this_thread::sleep_for(timing::kEventLoopIdleSleep);
         }
         
         if (!threadExited_) {
@@ -185,7 +185,7 @@ void Controller::run() {
             std::unique_lock<std::mutex> lock(eventQueueMutex_);
             if (eventQueue_.empty()) {
                 // wait for an event or timeout periodically to allow shutdown
-                eventCv_.wait_for(lock, std::chrono::milliseconds(100), [this] { return !eventQueue_.empty() || !isRunning_; });
+                eventCv_.wait_for(lock, timing::kEventLoopWaitInterval, [this] { return !eventQueue_.empty() || !isRunning_; });
             }
             if (!eventQueue_.empty()) {
                 event = eventQueue_.front();
@@ -208,7 +208,7 @@ void Controller::run() {
             }
         } else {
             // Small sleep to avoid busy loop when no events are present
-            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            std::this_thread::sleep_for(timing::kEventLoopIdleSleep);
         }
     }
     
@@ -334,18 +334,9 @@ void Controller::handlePumpStateChanged(bool isRunning) {
             flowMeter_->resetCounter();
             flowMeter_->startMeasurement();
             
-            // For console emulator, automatically start the flow simulation
-            // This is safe because the interface doesn't expose simulateFlow, 
-            // so we need to cast to the concrete type for console emulation
-            auto* consoleFlowMeter = dynamic_cast<ConsoleFlowMeter*>(flowMeter_.get());
-            if (consoleFlowMeter && targetRefuelVolume_ > 0.0) {
-                LOG_CTRL_INFO("Starting automatic flow simulation for {} liters", targetRefuelVolume_);
-                consoleFlowMeter->simulateFlow(targetRefuelVolume_);
-            } else if (consoleFlowMeter) {
-                LOG_CTRL_WARN("Target volume is {}, cannot start flow simulation", targetRefuelVolume_);
-            } else {
-                LOG_CTRL_DEBUG("Using hardware flow meter (not console emulator)");
-            }
+            // HardwareFlowMeter with simulation mode enabled will automatically
+            // generate flow without needing explicit simulateFlow() call
+            LOG_CTRL_DEBUG("Flow meter measurement started");
         }
         refuelStartTime_ = std::chrono::steady_clock::now();
     } else if (!isRunning) {
@@ -370,14 +361,20 @@ void Controller::handleFlowUpdate(Volume currentVolume) {
         lastFlowUpdateTime_ = std::chrono::steady_clock::now();
     }
     
-    // Check if target volume reached
+    // Check if target volume reached — runs on every tick to minimize overfill.
     if (targetRefuelVolume_ > 0.0 && currentVolume >= targetRefuelVolume_) {
         if (pump_) {
             pump_->stop();
         }
     }
     
-    postEvent(Event::InputUpdated);
+    // Throttle display/UI updates: post InputUpdated at most once per callback
+    // interval to avoid saturating the event queue at high pulse rates.
+    auto now = std::chrono::steady_clock::now();
+    if ((now - lastFlowCallbackTime_) >= timing::kFlowDisplayRefreshInterval) {
+        lastFlowCallbackTime_ = now;
+        postEvent(Event::InputUpdated);
+    }
 }
 
 // Display management
@@ -613,6 +610,7 @@ void Controller::enterVolume(Volume volume) {
 
 // Refueling operations
 void Controller::startRefueling() {
+    currentRefuelVolume_ = 0.0;
     if (pump_) {
         pump_->start();
     }
@@ -972,7 +970,7 @@ void Controller::stopNoFlowMonitorThread() {
 void Controller::noFlowMonitorThreadFunction() {
     LOG_CTRL_DEBUG("No-flow monitor thread started");
     while (noFlowMonitorRunning_.load()) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(200));
+        std::this_thread::sleep_for(timing::kNoFlowMonitorInterval);
 
         bool shouldCancel = false;
         {

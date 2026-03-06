@@ -3,6 +3,7 @@
 // This file is a part of fuelflux application
 
 #include "display/st7565.h"
+#include "display/display_config.h"
 #include <thread>
 #include <chrono>
 #include <stdexcept>
@@ -15,9 +16,9 @@ void St7565::data(const uint8_t* p, size_t n) { dc_.set(true); spi_.write(p, n);
 
 void St7565::reset() {
     rst_.set(false);
-    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    std::this_thread::sleep_for(std::chrono::milliseconds(fuelflux::display::st7565::RESET_ASSERT_MS));
     rst_.set(true);
-    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    std::this_thread::sleep_for(std::chrono::milliseconds(fuelflux::display::st7565::RESET_RELEASE_MS));
 }
 
 void St7565::init() {

@@ -6,6 +6,7 @@
 #include "url_utils.h"
 #include "backend_utils.h"
 #include "logger.h"
+#include "timing_config.h"
 #include "version.h"
 #include <curl/curl.h>
 #include <mutex>
@@ -362,11 +363,11 @@ nlohmann::json Backend::HttpRequestWrapper(const std::string& endpoint,
 #ifdef TARGET_SIM800C
         // GPRS/2G connections via SIM800C have very high latency (1-3 seconds per round trip)
         // Increase timeouts significantly to accommodate slow mobile networks
-        curl_easy_setopt(curl.get(), CURLOPT_CONNECTTIMEOUT, 30L);  // 30 seconds for TCP handshake
-        curl_easy_setopt(curl.get(), CURLOPT_TIMEOUT, 90L);          // 90 seconds total timeout
+        curl_easy_setopt(curl.get(), CURLOPT_CONNECTTIMEOUT, timing::kHttpConnectTimeoutSim800cSec);
+        curl_easy_setopt(curl.get(), CURLOPT_TIMEOUT, timing::kHttpTotalTimeoutSim800cSec);
 #else
-        curl_easy_setopt(curl.get(), CURLOPT_CONNECTTIMEOUT, 5L);   // 5 seconds
-        curl_easy_setopt(curl.get(), CURLOPT_TIMEOUT, 15L);          // 15 seconds total timeout
+        curl_easy_setopt(curl.get(), CURLOPT_CONNECTTIMEOUT, timing::kHttpConnectTimeoutSec);
+        curl_easy_setopt(curl.get(), CURLOPT_TIMEOUT, timing::kHttpTotalTimeoutSec);
 #endif
 
         // Enable TCP keepalive
@@ -521,11 +522,11 @@ nlohmann::json Backend::HttpRequestWrapper(const std::string& endpoint,
 #ifdef TARGET_SIM800C
         // GPRS/2G connections via SIM800C have very high latency (1-3 seconds per round trip)
         // Increase timeouts significantly to accommodate slow mobile networks
-        curl_easy_setopt(curl.get(), CURLOPT_CONNECTTIMEOUT, 30L);  // 30 seconds for TCP handshake
-        curl_easy_setopt(curl.get(), CURLOPT_TIMEOUT, 90L);          // 90 seconds total timeout
+        curl_easy_setopt(curl.get(), CURLOPT_CONNECTTIMEOUT, timing::kHttpConnectTimeoutSim800cSec);
+        curl_easy_setopt(curl.get(), CURLOPT_TIMEOUT, timing::kHttpTotalTimeoutSim800cSec);
 #else
-        curl_easy_setopt(curl.get(), CURLOPT_CONNECTTIMEOUT, 5L);   // 5 seconds
-        curl_easy_setopt(curl.get(), CURLOPT_TIMEOUT, 15L);          // 15 seconds total timeout
+        curl_easy_setopt(curl.get(), CURLOPT_CONNECTTIMEOUT, timing::kHttpConnectTimeoutSec);
+        curl_easy_setopt(curl.get(), CURLOPT_TIMEOUT, timing::kHttpTotalTimeoutSec);
 #endif
 
         // Enable TCP keepalive
@@ -666,11 +667,11 @@ void Backend::SendAsyncDeauthorize(const std::string& baseAPI, const std::string
         
         // Set timeouts
 #ifdef TARGET_SIM800C
-        curl_easy_setopt(curl.get(), CURLOPT_CONNECTTIMEOUT, 30L);
-        curl_easy_setopt(curl.get(), CURLOPT_TIMEOUT, 90L);
+        curl_easy_setopt(curl.get(), CURLOPT_CONNECTTIMEOUT, timing::kHttpConnectTimeoutSim800cSec);
+        curl_easy_setopt(curl.get(), CURLOPT_TIMEOUT, timing::kHttpTotalTimeoutSim800cSec);
 #else
-        curl_easy_setopt(curl.get(), CURLOPT_CONNECTTIMEOUT, 5L);
-        curl_easy_setopt(curl.get(), CURLOPT_TIMEOUT, 15L);
+        curl_easy_setopt(curl.get(), CURLOPT_CONNECTTIMEOUT, timing::kHttpConnectTimeoutSec);
+        curl_easy_setopt(curl.get(), CURLOPT_TIMEOUT, timing::kHttpTotalTimeoutSec);
 #endif
 
         // Enable TCP keepalive

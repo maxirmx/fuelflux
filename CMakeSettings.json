@@ -63,6 +63,11 @@
           "name": "DISPLAY_TYPE",
           "value": "CONSOLE",
           "type": "STRING"
+        },
+        {
+          "name": "TARGET_REAL_FLOW_METER",
+          "value": "False",
+          "type": "BOOL"
         }
       ]
     },
@@ -83,8 +88,7 @@
       "remoteCopySources": true,
       "rsyncCommandArgs": "-t --delete",
       "remoteCopyBuildOutput": false,
-      "remoteCopySourcesMethod": "rsync",
-      "variables": []
+      "remoteCopySourcesMethod": "rsync"
     }
   ]
 }

@@ -17,6 +17,7 @@
 #include "backend.h"
 #include "message_storage.h"
 #include "state_machine.h"
+#include "timing_config.h"
 #include "types.h"
 #include "peripherals/peripheral_interface.h"
 
@@ -31,7 +32,7 @@ class Controller {
   public:
     Controller(ControllerId controllerId,
                std::shared_ptr<IBackend> backend = nullptr,
-               std::chrono::seconds noFlowCancelTimeout = std::chrono::seconds(30));
+               std::chrono::seconds noFlowCancelTimeout = timing::kNoFlowCancelTimeout);
     ~Controller();
 
     // System lifecycle
@@ -208,6 +209,10 @@ class Controller {
     bool pumpRunning_ = false;
     bool noFlowCancelPosted_ = false;
     std::chrono::steady_clock::time_point lastFlowUpdateTime_ = std::chrono::steady_clock::now();
+
+    // Display update throttle for flow callbacks: limits InputUpdated events to avoid
+    // swamping the event queue while still allowing accurate pump-stop checks per tick.
+    std::chrono::steady_clock::time_point lastFlowCallbackTime_ = std::chrono::steady_clock::time_point{};
 
     // Helper methods
     void setupPeripheralCallbacks();

@@ -3,6 +3,7 @@
 // This file is a part of fuelflux application
 
 #include "display/ili9488.h"
+#include "display/display_config.h"
 
 #include <chrono>
 #include <stdexcept>
@@ -36,18 +37,18 @@ void Ili9488::data(const uint8_t* p, size_t n) {
 
 void Ili9488::reset() {
     rst_.set(false);
-    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    std::this_thread::sleep_for(std::chrono::milliseconds(fuelflux::display::ili9488::RESET_ASSERT_MS));
     rst_.set(true);
-    std::this_thread::sleep_for(std::chrono::milliseconds(120));
+    std::this_thread::sleep_for(std::chrono::milliseconds(fuelflux::display::ili9488::RESET_RELEASE_MS));
 }
 
 void Ili9488::init() {
     // Basic ILI9488 initialization for 4-wire SPI, RGB666 pixel writes.
     cmd(0x01); // SWRESET
-    std::this_thread::sleep_for(std::chrono::milliseconds(150));
+    std::this_thread::sleep_for(std::chrono::milliseconds(fuelflux::display::ili9488::SWRESET_DELAY_MS));
 
     cmd(0x11); // Sleep out
-    std::this_thread::sleep_for(std::chrono::milliseconds(120));
+    std::this_thread::sleep_for(std::chrono::milliseconds(fuelflux::display::ili9488::SLEEP_OUT_DELAY_MS));
 
     set_rotation(3); // 270 degrees
 
@@ -58,7 +59,7 @@ void Ili9488::init() {
     cmd(0x21); // Display inversion on (common for ILI9488 panels)
 
     cmd(0x29); // Display on
-    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    std::this_thread::sleep_for(std::chrono::milliseconds(fuelflux::display::ili9488::DISPLAY_ON_DELAY_MS));
 }
 
 void Ili9488::set_rotation(uint8_t rotation) {

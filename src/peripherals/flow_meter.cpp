@@ -4,6 +4,7 @@
 
 #include "peripherals/flow_meter.h"
 #include "logger.h"
+#include "timing_config.h"
 
 #ifdef TARGET_REAL_FLOW_METER
 #include "hardware/hardware_config.h"
@@ -17,36 +18,28 @@
 namespace fuelflux::peripherals {
 
 HardwareFlowMeter::HardwareFlowMeter() 
-    : m_connected(false), m_measuring(false), m_currentVolume(0.0), m_totalVolume(0.0) {
+    : m_connected{false}
+    , m_measuring{false}
+    , m_currentVolume{0.0}
+    , m_totalVolume{0.0}
+    , stopMonitoring_{false}
+    , simulationFlowRateLitersPerSecond_{1.0}
+    , simulationEnabled_{
+#ifdef TARGET_REAL_FLOW_METER
+        false
+#else
+        true  // Always enabled in non-hardware builds
+#endif
+    }
+{
 #ifdef TARGET_REAL_FLOW_METER
     namespace cfg = hardware::config::flow_meter;
     gpioChip_ = cfg::GPIO_CHIP;
     gpioPin_ = cfg::GPIO_PIN;
     ticksPerLiter_ = cfg::TICKS_PER_LITER;
-    stopMonitoring_ = false;
     pulseCount_ = 0;
-    simulationEnabled_ = false;
-    simulationFlowRateLitersPerSecond_ = 1.0;
 #endif
 }
-
-#ifdef TARGET_REAL_FLOW_METER
-HardwareFlowMeter::HardwareFlowMeter(const std::string& gpioChip,
-                                     int gpioPin,
-                                     double ticksPerLiter)
-    : gpioChip_(gpioChip)
-    , gpioPin_(gpioPin)
-    , ticksPerLiter_(ticksPerLiter > 0.0 ? ticksPerLiter : hardware::config::flow_meter::TICKS_PER_LITER)
-    , m_connected(false)
-    , m_measuring(false)
-    , m_currentVolume(0.0)
-    , m_totalVolume(0.0)
-    , stopMonitoring_(false)
-    , pulseCount_(0)
-    , simulationEnabled_(false)
-    , simulationFlowRateLitersPerSecond_(1.0) {
-}
-#endif
 
 HardwareFlowMeter::~HardwareFlowMeter() {
     shutdown();
@@ -87,7 +80,7 @@ bool HardwareFlowMeter::initialize() {
         return false;
     }
 #else
-    LOG_PERIPH_INFO("Initializing flow meter hardware...");
+    LOG_PERIPH_INFO("Initializing flow meter in simulation mode...");
     m_connected = true;
     return true;
 #endif
@@ -117,7 +110,7 @@ void HardwareFlowMeter::monitorThread() {
                        gpioChip_, std::strerror(errno), errno);
         return;
     }
-    
+
     // Get GPIO line
     errno = 0;
     struct gpiod_line* line = gpiod_chip_get_line(chip, gpioPin_);
@@ -127,7 +120,7 @@ void HardwareFlowMeter::monitorThread() {
         gpiod_chip_close(chip);
         return;
     }
-    
+
     // Request falling edge events (assuming active-low pulses like in reference)
     errno = 0;
     if (gpiod_line_request_falling_edge_events(line, "fuelflux-flowmeter-monitor") != 0) {
@@ -138,34 +131,60 @@ void HardwareFlowMeter::monitorThread() {
     }
 
     LOG_PERIPH_INFO("Flow meter monitoring thread started");
-    
+
+    // GPIO event wait timeout expressed in nanoseconds for struct timespec.
+    // Reuses kFlowMeterSimTickInterval to keep the polling granularity consistent.
+    constexpr long kPollTimeoutNs = std::chrono::duration_cast<std::chrono::nanoseconds>(
+        timing::kFlowMeterSimTickInterval).count();
+    uint64_t lastReportedPulseCount = pulseCount_.load(std::memory_order_relaxed);
+
     while (!stopMonitoring_.load(std::memory_order_acquire)) {
         struct timespec timeout;
         timeout.tv_sec = 0;
-        timeout.tv_nsec = 100000000; // 100ms
+        timeout.tv_nsec = kPollTimeoutNs;
         errno = 0;
         int rc = gpiod_line_event_wait(line, &timeout);
-        
+
         if (rc < 0) {
             LOG_PERIPH_ERROR("Flow meter event wait failed: {} (errno={})", 
                            std::strerror(errno), errno);
             break;
         }
-        
+
+        // Drain all pending events to prevent buffer overflow at high pulse rates
         if (rc == 1) {
             struct gpiod_line_event ev;
-            errno = 0;
-            if (gpiod_line_event_read(line, &ev) == 0) {
-                pulseCount_.fetch_add(1, std::memory_order_relaxed);
-            } else {
-                LOG_PERIPH_ERROR("Failed to read flow meter event: {} (errno={})", 
-                               std::strerror(errno), errno);
+            uint64_t batchCount = 0;
+            struct timespec zeroTimeout = {0, 0};
+
+            do {
+                errno = 0;
+                if (gpiod_line_event_read(line, &ev) == 0) {
+                    ++batchCount;
+                } else {
+                    LOG_PERIPH_ERROR("Failed to read flow meter event: {} (errno={})", 
+                                   std::strerror(errno), errno);
+                    break;
+                }
+            } while (gpiod_line_event_wait(line, &zeroTimeout) == 1);
+
+            if (batchCount > 0) {
+                pulseCount_.fetch_add(batchCount, std::memory_order_relaxed);
             }
         }
+
+        // Invoke callback whenever new pulses have been observed since the last report.
+        // Throttling of display/UI updates is done at the Controller level to avoid
+        // delaying pump-stop decisions.
+        uint64_t currentPulseCount = pulseCount_.load(std::memory_order_relaxed);
+        if (m_callback && currentPulseCount != lastReportedPulseCount) {
+            lastReportedPulseCount = currentPulseCount;
+            m_callback(getCurrentVolume());
+        }
     }
-    
+
     LOG_PERIPH_INFO("Flow meter monitoring thread stopped");
-    
+
     // Clean up
     gpiod_line_release(line);
     gpiod_chip_close(chip);
@@ -180,22 +199,23 @@ void HardwareFlowMeter::startMeasurement() {
     
     if (!m_measuring.load(std::memory_order_acquire)) {
         LOG_PERIPH_INFO("Starting flow measurement...");
-        m_currentVolume = 0.0;
+        {
+            std::lock_guard<std::mutex> lock(m_volumeMutex);
+            m_currentVolume = 0.0;
+        }
         
-#ifdef TARGET_REAL_FLOW_METER
-        pulseCount_.store(0, std::memory_order_relaxed);
         stopMonitoring_.store(false, std::memory_order_release);
-#endif
-        
         m_measuring.store(true, std::memory_order_release);
         
-#ifdef TARGET_REAL_FLOW_METER
         if (simulationEnabled_.load(std::memory_order_acquire)) {
+#ifdef TARGET_REAL_FLOW_METER
             LOG_PERIPH_WARN("Flow meter simulation mode is ON");
+            pulseCount_.store(0, std::memory_order_relaxed);
             monitorThread_ = std::thread([this]() {
                 auto lastTick = std::chrono::steady_clock::now();
+
                 while (!stopMonitoring_.load(std::memory_order_acquire)) {
-                    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                    std::this_thread::sleep_for(timing::kFlowMeterSimTickInterval);
                     const auto now = std::chrono::steady_clock::now();
                     const auto elapsedSeconds =
                         std::chrono::duration<double>(now - lastTick).count();
@@ -207,13 +227,46 @@ void HardwareFlowMeter::startMeasurement() {
                         continue;
                     }
                     pulseCount_.fetch_add(pulsesToAdd, std::memory_order_relaxed);
-
+                    // Invoke callback on every tick that produced new pulses.
+                    // Display/UI throttling is handled in the Controller.
                     if (m_callback) {
                         m_callback(getCurrentVolume());
                     }
                 }
             });
-        } else {
+#else
+            // Non-hardware builds: simulate by directly updating volume
+            LOG_PERIPH_INFO("Flow meter simulation mode (non-hardware build)");
+            monitorThread_ = std::thread([this]() {
+                auto lastTick = std::chrono::steady_clock::now();
+
+                while (!stopMonitoring_.load(std::memory_order_acquire)) {
+                    std::this_thread::sleep_for(timing::kFlowMeterSimTickInterval);
+                    const auto now = std::chrono::steady_clock::now();
+                    const auto elapsedSeconds =
+                        std::chrono::duration<double>(now - lastTick).count();
+                    lastTick = now;
+
+                    // Update volume with mutex protection; invoke callback on every tick
+                    // that produced new volume. Display/UI throttling is handled in the Controller.
+                    const auto volumeToAdd = elapsedSeconds * simulationFlowRateLitersPerSecond_;
+                    if (volumeToAdd > 0.0) {
+                        {
+                            std::lock_guard<std::mutex> lock(m_volumeMutex);
+                            m_currentVolume += volumeToAdd;
+                        }
+
+                        if (m_callback) {
+                            m_callback(getCurrentVolume());
+                        }
+                    }
+                }
+            });
+#endif
+        }
+#ifdef TARGET_REAL_FLOW_METER
+        else {
+            pulseCount_.store(0, std::memory_order_relaxed);
             monitorThread_ = std::thread(&HardwareFlowMeter::monitorThread, this);
         }
 #endif
@@ -224,7 +277,6 @@ void HardwareFlowMeter::stopMeasurement() {
     if (m_measuring.load(std::memory_order_acquire)) {
         LOG_PERIPH_INFO("Stopping flow measurement...");
         
-#ifdef TARGET_REAL_FLOW_METER
         stopMonitoring_.store(true, std::memory_order_release);
         if (monitorThread_.joinable() &&
             monitorThread_.get_id() != std::this_thread::get_id()) {
@@ -236,28 +288,44 @@ void HardwareFlowMeter::stopMeasurement() {
             monitorThread_.detach();
         }
 
-        // Calculate final volume from pulse count
+#ifdef TARGET_REAL_FLOW_METER
         uint64_t pulses = pulseCount_.load(std::memory_order_acquire);
-        m_currentVolume = static_cast<Volume>(pulses) / ticksPerLiter_;
-        LOG_PERIPH_INFO("Flow measurement complete: {} pulses = {:.3f} liters", 
-                       pulses, m_currentVolume);
 #endif
-        
-        // Add current volume to total before releasing m_measuring
-        m_totalVolume += m_currentVolume;
-        
+        // Update m_currentVolume and m_totalVolume under the same mutex to avoid data races
+        // with concurrent calls to getCurrentVolume().  Capture the final value for logging
+        // and the callback so we never touch the shared variable outside the lock.
+        Volume finalVolume;
+        {
+            std::lock_guard<std::mutex> lock(m_volumeMutex);
+#ifdef TARGET_REAL_FLOW_METER
+            m_currentVolume = static_cast<Volume>(pulses) / ticksPerLiter_;
+#endif
+            finalVolume = m_currentVolume;
+            m_totalVolume += m_currentVolume;
+        }
+
+#ifdef TARGET_REAL_FLOW_METER
+        LOG_PERIPH_INFO("Flow measurement complete: {} pulses = {:.3f} liters",
+                       pulses, finalVolume);
+#else
+        LOG_PERIPH_INFO("Flow measurement complete: {:.3f} liters", finalVolume);
+#endif
+
         m_measuring.store(false, std::memory_order_release);
-        
+
         if (m_callback) {
-            m_callback(m_currentVolume);
+            m_callback(finalVolume);
         }
     }
 }
 
 void HardwareFlowMeter::resetCounter() {
     LOG_PERIPH_INFO("Resetting volume counter...");
-    m_currentVolume = 0.0;
-    m_totalVolume = 0.0;
+    {
+        std::lock_guard<std::mutex> lock(m_volumeMutex);
+        m_currentVolume = 0.0;
+        m_totalVolume = 0.0;
+    }
 #ifdef TARGET_REAL_FLOW_METER
     pulseCount_ = 0;
 #endif
@@ -269,11 +337,14 @@ Volume HardwareFlowMeter::getCurrentVolume() const {
         uint64_t pulses = pulseCount_.load(std::memory_order_acquire);
         return static_cast<Volume>(pulses) / ticksPerLiter_;
     }
+#else
+    std::lock_guard<std::mutex> lock(m_volumeMutex);
 #endif
     return m_currentVolume;
 }
 
 Volume HardwareFlowMeter::getTotalVolume() const {
+    std::lock_guard<std::mutex> lock(m_volumeMutex);
     return m_totalVolume;
 }
 
@@ -291,17 +362,15 @@ bool HardwareFlowMeter::setSimulationEnabled(bool enabled) {
     LOG_PERIPH_INFO("Flow meter simulation mode {}", enabled ? "enabled" : "disabled");
     return true;
 #else
+    // In non-hardware builds, simulation is always enabled and cannot be disabled
     (void)enabled;
+    LOG_PERIPH_WARN("Flow meter simulation mode cannot be toggled in non-hardware builds");
     return false;
 #endif
 }
 
 bool HardwareFlowMeter::isSimulationEnabled() const {
-#ifdef TARGET_REAL_FLOW_METER
     return simulationEnabled_.load(std::memory_order_acquire);
-#else
-    return false;
-#endif
 }
 
 } // namespace fuelflux::peripherals
