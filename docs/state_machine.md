@@ -100,9 +100,9 @@ The FuelFlux controller uses a Mealy state machine to manage the fuel dispensing
    - Flow meter measures dispensed volume
    - Display shows: current volume / target volume
    - **Completion Options:**
-     - Target volume reached: Pump stops automatically
-     - User presses 'B' (Stop/Cancel): Pump stops
-     - Both trigger: Event: `RefuelingStopped` → State: `RefuelDataTransmission`
+     - Target volume reached: Pump stops automatically → Event: `RefuelingStopped` → State: `RefuelDataTransmission`
+     - User presses 'B' (Stop/Cancel): Pump stops → Event: `CancelPressed` → State: `RefuelDataTransmission`
+     - No flow detected for 30 seconds while pump is running (flow meter reports no pulses — e.g., nozzle not inserted, blocked line, or empty tank): Pump stops automatically → Event: `CancelNoFuel` (treated as `CancelPressed`) → State: `RefuelDataTransmission`
 
 6. **Refuel Data Transmission**
    - Transaction is logged to backend asynchronously
