@@ -175,7 +175,7 @@ void HardwareFlowMeter::monitorThread() {
             }
         }
 
-        // Invoke callback approximately once per second, but only when flow is occurring
+        // Invoke callback with given frequency, but only when flow is occurring
         uint64_t currentPulseCount = pulseCount_.load(std::memory_order_relaxed);
         auto now = std::chrono::steady_clock::now();
         if (m_callback && (now - lastCallbackTime) >= callbackInterval &&
@@ -232,8 +232,6 @@ void HardwareFlowMeter::startMeasurement() {
                         continue;
                     }
                     pulseCount_.fetch_add(pulsesToAdd, std::memory_order_relaxed);
-
-                    // Invoke callback approximately once per second
                     if (m_callback && (now - lastCallbackTime) >= callbackInterval) {
                         lastCallbackTime = now;
                         m_callback(getCurrentVolume());
@@ -263,7 +261,6 @@ void HardwareFlowMeter::startMeasurement() {
                             m_currentVolume += volumeToAdd;
                         }
 
-                        // Invoke callback approximately once per second
                         if (m_callback && (now - lastCallbackTime) >= callbackInterval) {
                             lastCallbackTime = now;
                             m_callback(getCurrentVolume());
