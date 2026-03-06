@@ -144,7 +144,7 @@ TEST_F(FlowMeterSimulationTest, SimulationInvokesCallback) {
     EXPECT_TRUE(flowMeter->setSimulationEnabled(true));
     flowMeter->startMeasurement();
     
-    // Wait for callbacks (simulation thread calls callback every 100ms when pulses are added)
+    // Wait for callbacks (simulation thread fires callback every tick (100ms) when pulses are added)
     std::this_thread::sleep_for(std::chrono::milliseconds(350));
     
     flowMeter->stopMeasurement();

@@ -132,8 +132,6 @@ void HardwareFlowMeter::monitorThread() {
 
     LOG_PERIPH_INFO("Flow meter monitoring thread started");
 
-    auto lastCallbackTime = std::chrono::steady_clock::now();
-    constexpr auto callbackInterval = timing::kFlowMeterCallbackInterval;
     // GPIO event wait timeout expressed in nanoseconds for struct timespec.
     // Reuses kFlowMeterSimTickInterval to keep the polling granularity consistent.
     constexpr long kPollTimeoutNs = std::chrono::duration_cast<std::chrono::nanoseconds>(
@@ -175,12 +173,11 @@ void HardwareFlowMeter::monitorThread() {
             }
         }
 
-        // Invoke callback with given frequency, but only when flow is occurring
+        // Invoke callback whenever new pulses have been observed since the last report.
+        // Throttling of display/UI updates is done at the Controller level to avoid
+        // delaying pump-stop decisions.
         uint64_t currentPulseCount = pulseCount_.load(std::memory_order_relaxed);
-        auto now = std::chrono::steady_clock::now();
-        if (m_callback && (now - lastCallbackTime) >= callbackInterval &&
-            currentPulseCount != lastReportedPulseCount) {
-            lastCallbackTime = now;
+        if (m_callback && currentPulseCount != lastReportedPulseCount) {
             lastReportedPulseCount = currentPulseCount;
             m_callback(getCurrentVolume());
         }
@@ -216,8 +213,6 @@ void HardwareFlowMeter::startMeasurement() {
             pulseCount_.store(0, std::memory_order_relaxed);
             monitorThread_ = std::thread([this]() {
                 auto lastTick = std::chrono::steady_clock::now();
-                auto lastCallbackTime = std::chrono::steady_clock::now();
-                constexpr auto callbackInterval = timing::kFlowMeterCallbackInterval;
 
                 while (!stopMonitoring_.load(std::memory_order_acquire)) {
                     std::this_thread::sleep_for(timing::kFlowMeterSimTickInterval);
@@ -232,8 +227,9 @@ void HardwareFlowMeter::startMeasurement() {
                         continue;
                     }
                     pulseCount_.fetch_add(pulsesToAdd, std::memory_order_relaxed);
-                    if (m_callback && (now - lastCallbackTime) >= callbackInterval) {
-                        lastCallbackTime = now;
+                    // Invoke callback on every tick that produced new pulses.
+                    // Display/UI throttling is handled in the Controller.
+                    if (m_callback) {
                         m_callback(getCurrentVolume());
                     }
                 }
@@ -243,8 +239,6 @@ void HardwareFlowMeter::startMeasurement() {
             LOG_PERIPH_INFO("Flow meter simulation mode (non-hardware build)");
             monitorThread_ = std::thread([this]() {
                 auto lastTick = std::chrono::steady_clock::now();
-                auto lastCallbackTime = std::chrono::steady_clock::now();
-                constexpr auto callbackInterval = timing::kFlowMeterCallbackInterval;
 
                 while (!stopMonitoring_.load(std::memory_order_acquire)) {
                     std::this_thread::sleep_for(timing::kFlowMeterSimTickInterval);
@@ -253,7 +247,8 @@ void HardwareFlowMeter::startMeasurement() {
                         std::chrono::duration<double>(now - lastTick).count();
                     lastTick = now;
 
-                    // Update volume with mutex protection, only invoke callback when flow is occurring
+                    // Update volume with mutex protection; invoke callback on every tick
+                    // that produced new volume. Display/UI throttling is handled in the Controller.
                     const auto volumeToAdd = elapsedSeconds * simulationFlowRateLitersPerSecond_;
                     if (volumeToAdd > 0.0) {
                         {
@@ -261,8 +256,7 @@ void HardwareFlowMeter::startMeasurement() {
                             m_currentVolume += volumeToAdd;
                         }
 
-                        if (m_callback && (now - lastCallbackTime) >= callbackInterval) {
-                            lastCallbackTime = now;
+                        if (m_callback) {
                             m_callback(getCurrentVolume());
                         }
                     }
