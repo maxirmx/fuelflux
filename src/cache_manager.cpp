@@ -158,14 +158,14 @@ void CacheManager::WorkerThread() {
             if (success) {
                 LOG_INFO("Cache population completed successfully");
                 // Schedule next daily update
-                nextScheduledUpdate_ = CalculateNextDailyUpdate(kDailyUpdateHour);
+                nextScheduledUpdate_ = CalculateNextDailyUpdate(config::cache_manager::DAILY_UPDATE_HOUR);
                 LOG_INFO("Next scheduled update: {}", 
                     std::chrono::system_clock::to_time_t(nextScheduledUpdate_));
             } else {
-                LOG_ERROR("Cache population failed, will retry in {} minutes", kRetryIntervalMinutes);
+                LOG_ERROR("Cache population failed, will retry in {} minutes", config::cache_manager::RETRY_INTERVAL_MINUTES);
                 // Schedule retry
                 nextScheduledUpdate_ = std::chrono::system_clock::now() + 
-                    std::chrono::minutes(kRetryIntervalMinutes);
+                    std::chrono::minutes(config::cache_manager::RETRY_INTERVAL_MINUTES);
             }
         }
     }
@@ -218,8 +218,8 @@ bool CacheManager::PopulateCache() {
         
         while (moreData && running_) {
             // Fetch batch of user cards
-            LOG_DEBUG("Fetching user cards: first={}, number={}", first, kFetchBatchSize);
-            std::vector<UserCard> cards = backend_->FetchUserCards(first, kFetchBatchSize);
+            LOG_DEBUG("Fetching user cards: first={}, number={}", first, config::cache_manager::FETCH_BATCH_SIZE);
+            std::vector<UserCard> cards = backend_->FetchUserCards(first, config::cache_manager::FETCH_BATCH_SIZE);
             
             if (cards.empty()) {
                 // No more data
@@ -240,11 +240,11 @@ bool CacheManager::PopulateCache() {
             totalFetched += static_cast<int>(cards.size());
             
             // Check if we got fewer entries than requested (indicates end of data)
-            if (static_cast<int>(cards.size()) < kFetchBatchSize) {
+            if (static_cast<int>(cards.size()) < config::cache_manager::FETCH_BATCH_SIZE) {
                 moreData = false;
             }
             
-            first += kFetchBatchSize;
+            first += config::cache_manager::FETCH_BATCH_SIZE;
         }
         
         if (!running_) {

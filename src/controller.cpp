@@ -5,6 +5,7 @@
 #include "controller.h"
 #include "backend.h"
 #include "config.h"
+#include "system_config.h"
 #include "console_emulator.h"
 #include "user_cache.h"
 #include "cache_manager.h"
@@ -123,14 +124,15 @@ void Controller::shutdown() {
         
         // Wait for the event loop thread to actually exit
         // The thread checks isRunning_ at the top of the loop and the 
-        // condition variable wait has a 100ms timeout, so this waits up to 2 seconds
-        const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(2000);
+        // condition variable wait has a short timeout, so this waits up to THREAD_SHUTDOWN_TIMEOUT
+        const auto deadline = std::chrono::steady_clock::now() + config::controller::THREAD_SHUTDOWN_TIMEOUT;
         while (!threadExited_ && std::chrono::steady_clock::now() < deadline) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            std::this_thread::sleep_for(config::controller::THREAD_SHUTDOWN_POLL_INTERVAL);
         }
         
         if (!threadExited_) {
-            LOG_CTRL_ERROR("Thread shutdown timeout - thread did not exit within 2 seconds");
+            LOG_CTRL_ERROR("Thread shutdown timeout - thread did not exit within {} ms",
+                           config::controller::THREAD_SHUTDOWN_TIMEOUT.count());
         }
     
         // Shutdown peripherals
@@ -185,7 +187,7 @@ void Controller::run() {
             std::unique_lock<std::mutex> lock(eventQueueMutex_);
             if (eventQueue_.empty()) {
                 // wait for an event or timeout periodically to allow shutdown
-                eventCv_.wait_for(lock, std::chrono::milliseconds(100), [this] { return !eventQueue_.empty() || !isRunning_; });
+                eventCv_.wait_for(lock, config::controller::EVENT_LOOP_CV_TIMEOUT, [this] { return !eventQueue_.empty() || !isRunning_; });
             }
             if (!eventQueue_.empty()) {
                 event = eventQueue_.front();
@@ -208,7 +210,7 @@ void Controller::run() {
             }
         } else {
             // Small sleep to avoid busy loop when no events are present
-            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            std::this_thread::sleep_for(config::controller::EVENT_LOOP_IDLE_SLEEP);
         }
     }
     
@@ -376,7 +378,7 @@ void Controller::handleFlowUpdate(Volume currentVolume) {
     // Throttle display refreshes to at most once per second to avoid flooding the
     // event queue, but always update immediately when the target volume is reached.
     const auto now = std::chrono::steady_clock::now();
-    if (targetReachedTransition || (now - lastDisplayUpdateTime_) >= std::chrono::seconds(1)) {
+    if (targetReachedTransition || (now - lastDisplayUpdateTime_) >= config::controller::DISPLAY_UPDATE_MIN_INTERVAL) {
         lastDisplayUpdateTime_ = now;
         postEvent(Event::InputUpdated);
     }
@@ -978,7 +980,7 @@ void Controller::stopNoFlowMonitorThread() {
 void Controller::noFlowMonitorThreadFunction() {
     LOG_CTRL_DEBUG("No-flow monitor thread started");
     while (noFlowMonitorRunning_.load()) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(200));
+        std::this_thread::sleep_for(config::controller::NO_FLOW_MONITOR_SLEEP);
 
         bool shouldCancel = false;
         {

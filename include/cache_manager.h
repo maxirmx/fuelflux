@@ -6,6 +6,7 @@
 
 #include "user_cache.h"
 #include "backend.h"
+#include "system_config.h"
 #include <memory>
 #include <thread>
 #include <atomic>
@@ -71,10 +72,6 @@ private:
     
     std::mutex cvMutex_;
     std::condition_variable cv_;
-    
-    static constexpr int kDailyUpdateHour = 2; // 2 AM
-    static constexpr int kRetryIntervalMinutes = 60; // 1 hour
-    static constexpr int kFetchBatchSize = 100; // Fetch 100 users at a time
 };
 
 } // namespace fuelflux
