@@ -365,17 +365,18 @@ void HardwareFlowMeter::resetCounter() {
 }
 
 Volume HardwareFlowMeter::getCurrentVolume() const {
-    std::lock_guard<std::mutex> lock(m_volumeMutex);
-
 #ifdef TARGET_REAL_FLOW_METER
-    // When measuring with hardware, calculate from pulses in real-time
+    // When actively measuring, compute directly from the atomic pulse counter.
+    // This avoids contending with stopMeasurement()/resetCounter() on every
+    // tick callback, since pulseCount_ is std::atomic and needs no mutex.
     if (m_measuring.load(std::memory_order_acquire)) {
         uint64_t pulses = pulseCount_.load(std::memory_order_acquire);
         return static_cast<Volume>(pulses) / ticksPerLiter_;
     }
 #endif
 
-    // Otherwise return stored value
+    // Otherwise return stored value under mutex protection.
+    std::lock_guard<std::mutex> lock(m_volumeMutex);
     return m_currentVolume;
 }
 
