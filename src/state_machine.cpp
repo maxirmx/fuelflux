@@ -764,7 +764,7 @@ void StateMachine::timeoutThreadFunction() {
     LOG_SM_DEBUG("Timeout thread started");
     
     while (timeoutThreadRunning_.load()) {
-        std::this_thread::sleep_for(std::chrono::seconds(1));
+        std::this_thread::sleep_for(timing::kTimeoutThreadPollInterval);
 
         bool shouldTrigger = false;
         SystemState stateCopy;

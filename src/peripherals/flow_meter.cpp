@@ -4,6 +4,7 @@
 
 #include "peripherals/flow_meter.h"
 #include "logger.h"
+#include "timing_config.h"
 
 #ifdef TARGET_REAL_FLOW_METER
 #include "hardware/hardware_config.h"
@@ -132,13 +133,17 @@ void HardwareFlowMeter::monitorThread() {
     LOG_PERIPH_INFO("Flow meter monitoring thread started");
 
     auto lastCallbackTime = std::chrono::steady_clock::now();
-    constexpr auto callbackInterval = std::chrono::seconds(1);
+    constexpr auto callbackInterval = timing::kFlowMeterCallbackInterval;
+    // GPIO event wait timeout expressed in nanoseconds for struct timespec.
+    // Reuses kFlowMeterSimTickInterval to keep the polling granularity consistent.
+    constexpr long kPollTimeoutNs = std::chrono::duration_cast<std::chrono::nanoseconds>(
+        timing::kFlowMeterSimTickInterval).count();
     uint64_t lastReportedPulseCount = pulseCount_.load(std::memory_order_relaxed);
 
     while (!stopMonitoring_.load(std::memory_order_acquire)) {
         struct timespec timeout;
         timeout.tv_sec = 0;
-        timeout.tv_nsec = 100000000; // 100ms
+        timeout.tv_nsec = kPollTimeoutNs;
         errno = 0;
         int rc = gpiod_line_event_wait(line, &timeout);
 
@@ -212,10 +217,10 @@ void HardwareFlowMeter::startMeasurement() {
             monitorThread_ = std::thread([this]() {
                 auto lastTick = std::chrono::steady_clock::now();
                 auto lastCallbackTime = std::chrono::steady_clock::now();
-                constexpr auto callbackInterval = std::chrono::seconds(1);
+                constexpr auto callbackInterval = timing::kFlowMeterCallbackInterval;
 
                 while (!stopMonitoring_.load(std::memory_order_acquire)) {
-                    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                    std::this_thread::sleep_for(timing::kFlowMeterSimTickInterval);
                     const auto now = std::chrono::steady_clock::now();
                     const auto elapsedSeconds =
                         std::chrono::duration<double>(now - lastTick).count();
@@ -241,10 +246,10 @@ void HardwareFlowMeter::startMeasurement() {
             monitorThread_ = std::thread([this]() {
                 auto lastTick = std::chrono::steady_clock::now();
                 auto lastCallbackTime = std::chrono::steady_clock::now();
-                constexpr auto callbackInterval = std::chrono::seconds(1);
+                constexpr auto callbackInterval = timing::kFlowMeterCallbackInterval;
 
                 while (!stopMonitoring_.load(std::memory_order_acquire)) {
-                    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                    std::this_thread::sleep_for(timing::kFlowMeterSimTickInterval);
                     const auto now = std::chrono::steady_clock::now();
                     const auto elapsedSeconds =
                         std::chrono::duration<double>(now - lastTick).count();
