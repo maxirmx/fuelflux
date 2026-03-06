@@ -44,14 +44,18 @@ public:
 
 private:
     void monitorThread();
-    
-    bool m_connected;
+    void invokeCallback(Volume volume);
+    void ensureThreadStopped();
+
+    std::atomic<bool> m_connected;
     std::atomic<bool> m_measuring;
     Volume m_currentVolume;
     Volume m_totalVolume;
     mutable std::mutex m_volumeMutex;  // Protects m_currentVolume and m_totalVolume
+
     FlowCallback m_callback;
-    
+    mutable std::mutex m_callbackMutex;  // Protects m_callback
+
     std::thread monitorThread_;
     std::atomic<bool> stopMonitoring_;
     double simulationFlowRateLitersPerSecond_;
