@@ -46,7 +46,7 @@ jobs:
         run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
                                           -DENABLE_TESTING=ON \
                                           -DCODE_COVERAGE=ON \
-                                          -DTARGET_REAL_FLOWMETER=OFF \
+                                          -DTARGET_REAL_FLOW_METER=OFF \
                                           -DDISPLAY_TYPE=CONSOLE \
                                           -DUNIX_FOLDER_CONVENTION=OFF
 
