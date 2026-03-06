@@ -13,7 +13,9 @@
 
 namespace fuelflux::peripherals {
 
-// Hardware flow meter implementation: uses GPIO pulse counting when TARGET_REAL_FLOW_METER is defined, otherwise behaves as a stub.
+// Flow meter implementation: 
+// uses GPIO pulse counting or simulates flow with an API to switch mode on the fly.
+// TARGET_REAL_FLOW_METER is not defined, only simulation is available.
 class HardwareFlowMeter : public IFlowMeter {
 public:
     HardwareFlowMeter();
