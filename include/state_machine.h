@@ -5,6 +5,7 @@
 #pragma once
 
 #include "types.h"
+#include "timing_config.h"
 #include <functional>
 #include <unordered_map>
 #include <memory>
@@ -74,7 +75,7 @@ private:
     
     // Timeout handling
     std::chrono::steady_clock::time_point lastActivityTime_;
-    static constexpr std::chrono::seconds TIMEOUT_DURATION{30};
+    static constexpr std::chrono::seconds TIMEOUT_DURATION = timing::kInactivityTimeout;
     
     bool isTimeoutEnabled() const;
 

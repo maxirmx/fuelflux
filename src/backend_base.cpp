@@ -12,6 +12,7 @@
 #include "backend_utils.h"
 #include "logger.h"
 #include "message_storage.h"
+#include "timing_config.h"
 
 namespace fuelflux {
 
@@ -46,9 +47,9 @@ bool BackendBase::Authorize(const std::string& uid) {
         nlohmann::json response = HttpRequestWrapper("/api/pump/authorize", "POST", requestBody, false);
 
 #ifdef ENABLE_AUTH_DELAY
-        // Add 3-second delay for testing/simulation purposes
-        LOG_BCK_INFO("ENABLE_AUTH_DELAY is set, adding 3-second authorization delay");
-        std::this_thread::sleep_for(std::chrono::seconds(3));
+        // Add delay for testing/simulation purposes
+        LOG_BCK_INFO("ENABLE_AUTH_DELAY is set, adding {}-second authorization delay", timing::kAuthDelay.count());
+        std::this_thread::sleep_for(timing::kAuthDelay);
 #endif
 
         std::string responseError;

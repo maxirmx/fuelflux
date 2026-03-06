@@ -9,6 +9,7 @@
 #include "console_emulator.h"
 #include "logger.h"
 #include "message_storage.h"
+#include "timing_config.h"
 #ifdef USE_CARES
 #include "cares_resolver.h"
 #endif
@@ -115,7 +116,7 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
     }
     
     // Retry limit to prevent infinite restart on persistent errors
-    const int MAX_RETRIES = 3;
+    const int MAX_RETRIES = timing::kMaxRetries;
     int retryCount = 0;
     auto lastRetryTime = std::chrono::steady_clock::now();
 #ifdef USE_CARES
@@ -177,7 +178,7 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
             auto storage = std::make_shared<MessageStorage>(STORAGE_DB_PATH);
             auto backend = Controller::CreateDefaultBackend(storage);
             auto backlogBackend = Controller::CreateDefaultBackendShared(controllerId, nullptr);
-            BacklogWorker backlogWorker(storage, backlogBackend, std::chrono::seconds(30));
+            BacklogWorker backlogWorker(storage, backlogBackend, timing::kBacklogWorkerInterval);
             backlogWorker.Start();
 
 
@@ -272,7 +273,7 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
             try {
                 // Main thread waits for shutdown signal
                 while (g_running) {
-                    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                    std::this_thread::sleep_for(timing::kMainLoopWaitInterval);
                 }
                 
                 LOG_INFO("Shutting down...");
@@ -349,11 +350,11 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
                 }
 #endif
                 while (true) {
-                    std::this_thread::sleep_for(std::chrono::hours(24));
+                    std::this_thread::sleep_for(timing::kPermanentFailureSleepInterval);
                 }
             }
             LOG_WARN("Recovering after error (attempt {}/{}); restarting controller loop", retryCount, MAX_RETRIES);
-            std::this_thread::sleep_for(std::chrono::seconds(1));
+            std::this_thread::sleep_for(timing::kRecoveryRestartDelay);
         }
     }
     

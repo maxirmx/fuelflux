@@ -17,6 +17,7 @@
 #include "backend.h"
 #include "message_storage.h"
 #include "state_machine.h"
+#include "timing_config.h"
 #include "types.h"
 #include "peripherals/peripheral_interface.h"
 
@@ -31,7 +32,7 @@ class Controller {
   public:
     Controller(ControllerId controllerId,
                std::shared_ptr<IBackend> backend = nullptr,
-               std::chrono::seconds noFlowCancelTimeout = std::chrono::seconds(30));
+               std::chrono::seconds noFlowCancelTimeout = timing::kNoFlowCancelTimeout);
     ~Controller();
 
     // System lifecycle
