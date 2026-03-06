@@ -289,26 +289,32 @@ void HardwareFlowMeter::stopMeasurement() {
         }
 
 #ifdef TARGET_REAL_FLOW_METER
-        // Calculate final volume from pulse count
         uint64_t pulses = pulseCount_.load(std::memory_order_acquire);
-        m_currentVolume = static_cast<Volume>(pulses) / ticksPerLiter_;
-        LOG_PERIPH_INFO("Flow measurement complete: {} pulses = {:.3f} liters", 
-                       pulses, m_currentVolume);
-#else
-        // Non-hardware builds: volume is already calculated in simulation thread
-        LOG_PERIPH_INFO("Flow measurement complete: {:.3f} liters", m_currentVolume);
 #endif
-        
-        // Add current volume to total before releasing m_measuring
+        // Update m_currentVolume and m_totalVolume under the same mutex to avoid data races
+        // with concurrent calls to getCurrentVolume().  Capture the final value for logging
+        // and the callback so we never touch the shared variable outside the lock.
+        Volume finalVolume;
         {
             std::lock_guard<std::mutex> lock(m_volumeMutex);
+#ifdef TARGET_REAL_FLOW_METER
+            m_currentVolume = static_cast<Volume>(pulses) / ticksPerLiter_;
+#endif
+            finalVolume = m_currentVolume;
             m_totalVolume += m_currentVolume;
         }
-        
+
+#ifdef TARGET_REAL_FLOW_METER
+        LOG_PERIPH_INFO("Flow measurement complete: {} pulses = {:.3f} liters",
+                       pulses, finalVolume);
+#else
+        LOG_PERIPH_INFO("Flow measurement complete: {:.3f} liters", finalVolume);
+#endif
+
         m_measuring.store(false, std::memory_order_release);
-        
+
         if (m_callback) {
-            m_callback(m_currentVolume);
+            m_callback(finalVolume);
         }
     }
 }
