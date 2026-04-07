@@ -460,9 +460,9 @@ void Controller::clearInputSilent() {
 }
 
 void Controller::addDigitToInput(char digit) {
-    // In reality we do not limit input length
-    // This is unreasomably large number t protect against abnormal conditions
-    if (currentInput_.length() < 1024) { 
+    // Normal inputs are far shorter than INPUT_MAX_LENGTH; this cap protects
+    // against abnormal or chained conditions that could grow the buffer indefinitely.
+    if (currentInput_.length() < INPUT_MAX_LENGTH) { 
         currentInput_ += digit;
         postEvent(Event::InputUpdated);
     }

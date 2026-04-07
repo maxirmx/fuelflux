@@ -938,14 +938,16 @@ TEST_F(ControllerTest, MultipleShutdown) {
 TEST_F(ControllerTest, InputLengthLimit) {
     controller->initialize();
     
-    // Add more than 10 digits
-    for (int i = 0; i < 15; i++) {
+    // Fill input exactly to the safety cap
+    for (std::size_t i = 0; i < INPUT_MAX_LENGTH; i++) {
         controller->addDigitToInput('9');
     }
-    
-    // Controller allows long input up to a high safety threshold
-    EXPECT_EQ(controller->getCurrentInput().length(), 15);
-    EXPECT_LE(controller->getCurrentInput().length(), 1024);
+    EXPECT_EQ(controller->getCurrentInput().length(), INPUT_MAX_LENGTH);
+
+    // Digits beyond the cap must be silently discarded
+    controller->addDigitToInput('1');
+    controller->addDigitToInput('2');
+    EXPECT_EQ(controller->getCurrentInput().length(), INPUT_MAX_LENGTH);
 }
 
 // Test PIN entry started event
