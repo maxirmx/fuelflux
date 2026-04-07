@@ -117,6 +117,10 @@ protected:
     // Uses Meyer's singleton pattern for thread-safe lazy initialization
     static BoundedExecutor& GetDeauthorizeExecutor();
 
+    // Map TankNumber in a payload from visualNumberTank to idTank.
+    // Returns true if a match was found and the mapping was applied.
+    bool ApplyVisualTankMapping(nlohmann::json& requestBody) const;
+
     std::string controllerUid_;
     std::string authorizedUid_;
     Session session_;

@@ -376,6 +376,24 @@ bool BackendBase::Intake(TankNumber tankNumber, Volume volume, IntakeDirection d
     }
 }
 
+bool BackendBase::ApplyVisualTankMapping(nlohmann::json& requestBody) const {
+    if (!requestBody.contains("TankNumber") || !requestBody["TankNumber"].is_number_integer()) {
+        return false;
+    }
+    const int visualNumber = requestBody["TankNumber"].get<int>();
+    const auto tankIt = std::find_if(
+        fuelTanks_.begin(),
+        fuelTanks_.end(),
+        [visualNumber](const BackendTankInfo& tank) { return tank.visualNumberTank == visualNumber; });
+    if (tankIt == fuelTanks_.end()) {
+        LOG_BCK_WARN("Tank with visualNumber {} not found in authorized tanks; sending payload without id mapping",
+                     visualNumber);
+        return false;
+    }
+    requestBody["TankNumber"] = tankIt->idTank;
+    return true;
+}
+
 bool BackendBase::RefuelPayload(const std::string& payload) {
     try {
         if (!session_.IsAuthorized()) {
@@ -391,16 +409,7 @@ bool BackendBase::RefuelPayload(const std::string& payload) {
             return false;
         }
 
-        if (requestBody.contains("TankNumber") && requestBody["TankNumber"].is_number_integer()) {
-            const int visualNumber = requestBody["TankNumber"].get<int>();
-            const auto tankIt = std::find_if(
-                fuelTanks_.begin(),
-                fuelTanks_.end(),
-                [visualNumber](const BackendTankInfo& tank) { return tank.visualNumberTank == visualNumber; });
-            if (tankIt != fuelTanks_.end()) {
-                requestBody["TankNumber"] = tankIt->idTank;
-            }
-        }
+        ApplyVisualTankMapping(requestBody);
 
         nlohmann::json response = HttpRequestWrapper("/api/pump/refuel", "POST", requestBody, true);
         std::string responseError;
@@ -436,16 +445,7 @@ bool BackendBase::IntakePayload(const std::string& payload) {
             return false;
         }
 
-        if (requestBody.contains("TankNumber") && requestBody["TankNumber"].is_number_integer()) {
-            const int visualNumber = requestBody["TankNumber"].get<int>();
-            const auto tankIt = std::find_if(
-                fuelTanks_.begin(),
-                fuelTanks_.end(),
-                [visualNumber](const BackendTankInfo& tank) { return tank.visualNumberTank == visualNumber; });
-            if (tankIt != fuelTanks_.end()) {
-                requestBody["TankNumber"] = tankIt->idTank;
-            }
-        }
+        ApplyVisualTankMapping(requestBody);
 
         nlohmann::json response = HttpRequestWrapper("/api/pump/fuel-intake", "POST", requestBody, true);
         std::string responseError;
