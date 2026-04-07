@@ -460,7 +460,9 @@ void Controller::clearInputSilent() {
 }
 
 void Controller::addDigitToInput(char digit) {
-    if (currentInput_.length() < 10) { // Limit input length
+    // In reality we do not limit input length
+    // This is unreasomably large number t protect against abnormal conditions
+    if (currentInput_.length() < 1024) { 
         currentInput_ += digit;
         postEvent(Event::InputUpdated);
     }
