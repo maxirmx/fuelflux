@@ -112,6 +112,7 @@ bool BackendBase::Authorize(const std::string& uid) {
                         try {
                             tankInfo.volume = std::stod(allowanceTank.get<std::string>());
                         } catch (const std::exception& e) {
+                            tankInfo.volume = 0.0;
                             LOG_BCK_WARN("Failed to parse allowanceTank '{}' as number (defaulting to 0): {}",
                                          allowanceTank.get<std::string>(), e.what());
                         }
