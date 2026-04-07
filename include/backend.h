@@ -24,7 +24,10 @@ struct BackendTankInfo {
     int idTank = 0;                 // Backend tank identifier used in API reports
     int visualNumberTank = 0;       // Tank number shown to users in UI
     std::string nameTank = "";
-    Volume volume = 0.0;            // Allowance volume from tank (liters) when check is enabled
+    Volume volume = 0.0;            // Effective maximum permitted volume for this tank (liters);
+                                     // controller-side validation treats this as the upper bound for
+                                     // entered volume. This may represent the physical tank capacity
+                                     // or a backend-configured per-tank limit, depending on backend semantics.
 };
 
 // User card structure for cache population
