@@ -97,9 +97,15 @@ bool BackendBase::Authorize(const std::string& uid) {
                 tankInfo.visualNumberTank = tank.value("visualNumberTank", 0);
                 tankInfo.nameTank = tank.value("nameTank", "");
 
-                const bool checkEnoughFuel = tank.contains("isCheckEnoughFuel") &&
-                                             !tank["isCheckEnoughFuel"].is_null() &&
-                                             tank["isCheckEnoughFuel"].get<int>() != 0;
+                bool checkEnoughFuel = false;
+                if (tank.contains("isCheckEnoughFuel") && !tank["isCheckEnoughFuel"].is_null()) {
+                    const auto& isCheckEnoughFuel = tank["isCheckEnoughFuel"];
+                    if (isCheckEnoughFuel.is_boolean()) {
+                        checkEnoughFuel = isCheckEnoughFuel.get<bool>();
+                    } else if (isCheckEnoughFuel.is_number_integer()) {
+                        checkEnoughFuel = isCheckEnoughFuel.get<int>() != 0;
+                    }
+                }
                 if (checkEnoughFuel && tank.contains("allowanceTank") && !tank["allowanceTank"].is_null()) {
                     const auto& allowanceTank = tank["allowanceTank"];
                     if (allowanceTank.is_string()) {
