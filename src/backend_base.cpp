@@ -94,8 +94,21 @@ bool BackendBase::Authorize(const std::string& uid) {
             for (const auto& tank : response["fuelTanks"]) {
                 BackendTankInfo tankInfo;
                 tankInfo.idTank = tank.value("idTank", 0);
+                tankInfo.visualNumberTank = tank.value("visualNumberTank", 0);
                 tankInfo.nameTank = tank.value("nameTank", "");
-                tankInfo.volume = tank.value("volume", 0.0);
+
+                const bool checkEnoughFuel = tank.contains("isCheckEnoughFuel") &&
+                                             !tank["isCheckEnoughFuel"].is_null() &&
+                                             tank["isCheckEnoughFuel"].get<int>() != 0;
+                if (checkEnoughFuel && tank.contains("allowanceTank") && !tank["allowanceTank"].is_null()) {
+                    const auto& allowanceTank = tank["allowanceTank"];
+                    if (allowanceTank.is_string()) {
+                        tankInfo.volume = std::stod(allowanceTank.get<std::string>());
+                    } else if (allowanceTank.is_number()) {
+                        tankInfo.volume = allowanceTank.get<double>();
+                    }
+                }
+
                 fuelTanks.push_back(tankInfo);
             }
         }
@@ -207,7 +220,7 @@ bool BackendBase::Refuel(TankNumber tankNumber, Volume volume) {
         const auto tankIt = std::find_if(
             fuelTanks_.begin(),
             fuelTanks_.end(),
-            [tankNumber](const BackendTankInfo& tank) { return tank.idTank == tankNumber; });
+            [tankNumber](const BackendTankInfo& tank) { return tank.visualNumberTank == tankNumber; });
         if (tankIt == fuelTanks_.end()) {
             LOG_BCK_ERROR("Invalid refueling report: tank {} not found in authorized tanks", tankNumber);
             lastError_ = StdControllerError;
@@ -232,7 +245,7 @@ bool BackendBase::Refuel(TankNumber tankNumber, Volume volume) {
                                      .count();
 
         nlohmann::json requestBody;
-        requestBody["TankNumber"] = tankNumber;
+        requestBody["TankNumber"] = tankIt->idTank;
         requestBody["FuelVolume"] = volume;
         requestBody["TimeAt"] = timestampMs;
 
@@ -287,7 +300,7 @@ bool BackendBase::Intake(TankNumber tankNumber, Volume volume, IntakeDirection d
         const auto tankIt = std::find_if(
             fuelTanks_.begin(),
             fuelTanks_.end(),
-            [tankNumber](const BackendTankInfo& tank) { return tank.idTank == tankNumber; });
+            [tankNumber](const BackendTankInfo& tank) { return tank.visualNumberTank == tankNumber; });
         if (tankIt == fuelTanks_.end()) {
             LOG_BCK_ERROR("Invalid intake report: tank {} not found in authorized tanks", tankNumber);
             lastError_ = StdControllerError;
@@ -312,7 +325,7 @@ bool BackendBase::Intake(TankNumber tankNumber, Volume volume, IntakeDirection d
                                      .count();
 
         nlohmann::json requestBody;
-        requestBody["TankNumber"] = tankNumber;
+        requestBody["TankNumber"] = tankIt->idTank;
         requestBody["IntakeVolume"] = volume;
         requestBody["Direction"] = static_cast<int>(direction);
         requestBody["TimeAt"] = timestampMs;

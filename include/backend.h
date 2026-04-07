@@ -21,9 +21,10 @@ class MessageStorage;
 
 // Tank information structure for backend
 struct BackendTankInfo {
-    int idTank;
+    int idTank = 0;                 // Backend tank identifier used in API reports
+    int visualNumberTank = 0;       // Tank number shown to users in UI
     std::string nameTank = "";
-    Volume volume = 0.0;  // Tank capacity in liters
+    Volume volume = 0.0;            // Allowance volume from tank (liters) when check is enabled
 };
 
 // User card structure for cache population

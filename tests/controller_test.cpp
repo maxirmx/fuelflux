@@ -654,7 +654,7 @@ TEST_F(ControllerTest, CancelNoFuelInRefuelingBehavesLikeCancelPressed) {
     mockBackend->roleId_ = static_cast<int>(UserRole::Customer);
     mockBackend->allowance_ = 100.0;
     mockBackend->price_ = 1.0;
-    mockBackend->tanksStorage_ = { BackendTankInfo{1, "Tank A"} };
+    mockBackend->tanksStorage_ = { BackendTankInfo{1, 1, "Tank A"} };
 
     EXPECT_CALL(*mockBackend, Authorize("customer-card")).WillOnce([this]() {
         mockBackend->authorized_ = true;
@@ -688,7 +688,7 @@ TEST_F(ControllerTest, NoFlowWatchdogCancelsRefueling) {
     mockBackend->roleId_ = static_cast<int>(UserRole::Customer);
     mockBackend->allowance_ = 100.0;
     mockBackend->price_ = 1.0;
-    mockBackend->tanksStorage_ = { BackendTankInfo{1, "Tank A"} };
+    mockBackend->tanksStorage_ = { BackendTankInfo{1, 1, "Tank A"} };
 
     EXPECT_CALL(*mockBackend, Authorize("customer-card")).WillOnce([this]() {
         mockBackend->authorized_ = true;
@@ -719,7 +719,7 @@ TEST_F(ControllerTest, RefuelingCompletionDisplaysFinalVolume) {
     mockBackend->roleId_ = static_cast<int>(UserRole::Customer);
     mockBackend->allowance_ = 100.0;
     mockBackend->price_ = 1.0;
-    mockBackend->tanksStorage_ = { BackendTankInfo{1, "Tank A"} };
+    mockBackend->tanksStorage_ = { BackendTankInfo{1, 1, "Tank A"} };
 
     EXPECT_CALL(*mockBackend, Authorize("customer-card")).WillOnce([this]() {
         mockBackend->authorized_ = true;
@@ -943,8 +943,9 @@ TEST_F(ControllerTest, InputLengthLimit) {
         controller->addDigitToInput('9');
     }
     
-    // Should be limited to 10
-    EXPECT_LE(controller->getCurrentInput().length(), 10);
+    // Controller allows long input up to a high safety threshold
+    EXPECT_EQ(controller->getCurrentInput().length(), 15);
+    EXPECT_LE(controller->getCurrentInput().length(), 1024);
 }
 
 // Test PIN entry started event
@@ -1043,6 +1044,36 @@ TEST_F(ControllerTest, TankValidationWithAvailableTanks) {
     EXPECT_FALSE(controller->isTankValid(3));
 }
 
+TEST_F(ControllerTest, TankValidationUsesVisualTankNumberFromBackend) {
+    mockBackend->roleId_ = static_cast<int>(UserRole::Customer);
+    mockBackend->allowance_ = 100.0;
+    mockBackend->price_ = 45.5;
+    mockBackend->tanksStorage_ = {BackendTankInfo{44, 7, "Tank A", 50.0}};
+
+    EXPECT_CALL(*mockBackend, Authorize("test-card"))
+        .WillOnce(Return(true));
+    controller->initialize();
+
+    std::thread controllerThread([this]() {
+        controller->run();
+    });
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+
+    controller->handleCardPresented("test-card");
+    ASSERT_TRUE(waitForState(SystemState::TankSelection));
+
+    EXPECT_TRUE(controller->isTankValid(7));
+    EXPECT_FALSE(controller->isTankValid(44));
+
+    controller->selectTank(7);
+    ASSERT_TRUE(waitForState(SystemState::VolumeEntry));
+
+    controller->enterVolume(40.0);
+    ASSERT_TRUE(waitForState(SystemState::Refueling));
+
+    shutdownControllerAndJoinThread(controllerThread);
+}
+
 // Test invalid volume entry
 TEST_F(ControllerTest, InvalidVolumeEntry) {
     controller->initialize();
@@ -1132,7 +1163,7 @@ TEST_F(ControllerTest, InputClearedAfterValidationError) {
 
 TEST_F(ControllerTest, OperatorIntakeWorkflow) {
     mockBackend->roleId_ = static_cast<int>(UserRole::Operator);
-    mockBackend->tanksStorage_ = {BackendTankInfo{1, "Tank A"}};
+    mockBackend->tanksStorage_ = {BackendTankInfo{1, 1, "Tank A"}};
 
     EXPECT_CALL(*mockBackend, Authorize("operator-card"))
         .WillOnce(Return(true));
@@ -1172,7 +1203,7 @@ TEST_F(ControllerTest, CustomerRefuelWorkflow) {
     mockBackend->roleId_ = static_cast<int>(UserRole::Customer);
     mockBackend->allowance_ = 200.0;
     mockBackend->price_ = 45.5;
-    mockBackend->tanksStorage_ = {BackendTankInfo{1, "Tank A"}};
+    mockBackend->tanksStorage_ = {BackendTankInfo{1, 1, "Tank A"}};
 
     EXPECT_CALL(*mockBackend, Authorize("customer-card"))
         .WillOnce(Return(true));
@@ -1254,7 +1285,7 @@ TEST_F(ControllerTest, DisplayMessagePinEntryState) {
 TEST_F(ControllerTest, DisplayMessageTankSelectionState) {
     mockBackend->roleId_ = static_cast<int>(UserRole::Customer);
     mockBackend->allowance_ = 100.0;
-    mockBackend->tanksStorage_ = {BackendTankInfo{1, "Tank A"}, BackendTankInfo{2, "Tank B"}};
+    mockBackend->tanksStorage_ = {BackendTankInfo{1, 1, "Tank A"}, BackendTankInfo{2, 2, "Tank B"}};
     
     EXPECT_CALL(*mockBackend, Authorize("test-card"))
         .WillOnce(Return(true));
@@ -1286,7 +1317,7 @@ TEST_F(ControllerTest, DisplayMessageTankSelectionState) {
 TEST_F(ControllerTest, DisplayMessageVolumeEntryState) {
     mockBackend->roleId_ = static_cast<int>(UserRole::Customer);
     mockBackend->allowance_ = 100.0;
-    mockBackend->tanksStorage_ = {BackendTankInfo{1, "Tank A"}};
+    mockBackend->tanksStorage_ = {BackendTankInfo{1, 1, "Tank A"}};
     
     EXPECT_CALL(*mockBackend, Authorize("test-card"))
         .WillOnce(Return(true));
@@ -1387,7 +1418,7 @@ TEST_F(ControllerTest, CardReadingReenabledWhenReturningToWaiting) {
 TEST_F(ControllerTest, CardReadingDisabledDuringAuthorization) {
     mockBackend->roleId_ = static_cast<int>(UserRole::Customer);
     mockBackend->allowance_ = 100.0;
-    mockBackend->tanksStorage_ = {BackendTankInfo{1, "Tank A"}};
+    mockBackend->tanksStorage_ = {BackendTankInfo{1, 1, "Tank A"}};
     
     EXPECT_CALL(*mockBackend, Authorize("test-card")).WillOnce(Return(true));
     
@@ -1417,7 +1448,7 @@ TEST_F(ControllerTest, CardReadingDisabledDuringAuthorization) {
 TEST_F(ControllerTest, CardReadingDisabledDuringRefueling) {
     mockBackend->roleId_ = static_cast<int>(UserRole::Customer);
     mockBackend->allowance_ = 100.0;
-    mockBackend->tanksStorage_ = {BackendTankInfo{1, "Tank A"}};
+    mockBackend->tanksStorage_ = {BackendTankInfo{1, 1, "Tank A"}};
     
     EXPECT_CALL(*mockBackend, Authorize("test-card")).WillOnce(Return(true));
     EXPECT_CALL(*mockBackend, Refuel(1, 10.0)).WillOnce(Return(true));
@@ -1474,7 +1505,7 @@ TEST_F(ControllerTest, DataTransmissionStateShownDuringRefuel) {
     mockBackend->roleId_ = static_cast<int>(UserRole::Customer);
     mockBackend->allowance_ = 100.0;
     mockBackend->price_ = 1.0;
-    mockBackend->tanksStorage_ = { BackendTankInfo{1, "Tank A"} };
+    mockBackend->tanksStorage_ = { BackendTankInfo{1, 1, "Tank A"} };
 
     EXPECT_CALL(*mockBackend, Authorize("customer-card")).WillOnce([this]() {
         mockBackend->authorized_ = true;
@@ -1539,7 +1570,7 @@ TEST_F(ControllerTest, DataTransmissionStateShownDuringIntake) {
     mockBackend->roleId_ = static_cast<int>(UserRole::Operator);
     mockBackend->allowance_ = 0.0;
     mockBackend->price_ = 0.0;
-    mockBackend->tanksStorage_ = { BackendTankInfo{1, "Tank A"} };
+    mockBackend->tanksStorage_ = { BackendTankInfo{1, 1, "Tank A"} };
 
     EXPECT_CALL(*mockBackend, Authorize("operator-card")).WillOnce([this]() {
         mockBackend->authorized_ = true;
@@ -1611,6 +1642,8 @@ TEST_F(ControllerTest, VolumeValidationAgainstTankCapacity) {
     
     BackendTankInfo tank1;
     tank1.idTank = 1;
+    tank1.visualNumberTank = 1;
+    
     tank1.nameTank = "Tank A";
     tank1.volume = 50.0;
     mockBackend->tanksStorage_ = { tank1 };
@@ -1653,6 +1686,8 @@ TEST_F(ControllerTest, VolumeValidationWithinTankCapacity) {
     
     BackendTankInfo tank1;
     tank1.idTank = 1;
+    tank1.visualNumberTank = 1;
+    
     tank1.nameTank = "Tank A";
     tank1.volume = 50.0;
     mockBackend->tanksStorage_ = { tank1 };
@@ -1694,6 +1729,8 @@ TEST_F(ControllerTest, VolumeValidationEqualToTankCapacity) {
     
     BackendTankInfo tank1;
     tank1.idTank = 1;
+    tank1.visualNumberTank = 1;
+    
     tank1.nameTank = "Tank A";
     tank1.volume = 50.0;
     mockBackend->tanksStorage_ = { tank1 };
@@ -1735,6 +1772,8 @@ TEST_F(ControllerTest, VolumeValidationAgainstAllowanceWhenLowerThanTankCapacity
     
     BackendTankInfo tank1;
     tank1.idTank = 1;
+    tank1.visualNumberTank = 1;
+    
     tank1.nameTank = "Tank A";
     tank1.volume = 100.0;
     mockBackend->tanksStorage_ = { tank1 };
@@ -1777,6 +1816,8 @@ TEST_F(ControllerTest, VolumeValidationBothConstraintsSatisfied) {
     
     BackendTankInfo tank1;
     tank1.idTank = 1;
+    tank1.visualNumberTank = 1;
+    
     tank1.nameTank = "Tank A";
     tank1.volume = 50.0;
     mockBackend->tanksStorage_ = { tank1 };
@@ -1820,6 +1861,8 @@ TEST_F(ControllerTest, OperatorNotRestrictedByTankCapacity) {
     
     BackendTankInfo tank1;
     tank1.idTank = 1;
+    tank1.visualNumberTank = 1;
+    
     tank1.nameTank = "Tank A";
     tank1.volume = 50.0;
     mockBackend->tanksStorage_ = { tank1 };
@@ -1861,6 +1904,8 @@ TEST_F(ControllerTest, VolumeValidationWithZeroTankCapacity) {
     
     BackendTankInfo tank1;
     tank1.idTank = 1;
+    tank1.visualNumberTank = 1;
+    
     tank1.nameTank = "Tank A";
     tank1.volume = 0.0;  // Zero capacity
     mockBackend->tanksStorage_ = { tank1 };
@@ -1902,9 +1947,13 @@ TEST_F(ControllerTest, VolumeValidationMultipleTanks) {
     
     BackendTankInfo tank1, tank2;
     tank1.idTank = 1;
+    tank1.visualNumberTank = 1;
+    
     tank1.nameTank = "Tank A";
     tank1.volume = 30.0;
     tank2.idTank = 2;
+    tank2.visualNumberTank = 2;
+    
     tank2.nameTank = "Tank B";
     tank2.volume = 50.0;
     mockBackend->tanksStorage_ = { tank1, tank2 };
@@ -1944,7 +1993,7 @@ TEST_F(ControllerTest, TankVolumeFromBackendAuthorization) {
     mockBackend->roleId_ = static_cast<int>(UserRole::Customer);
     mockBackend->allowance_ = 100.0;
     mockBackend->price_ = 1.0;
-    mockBackend->tanksStorage_ = { BackendTankInfo{1, "Tank A", 75.5} };  // Fractional volume
+    mockBackend->tanksStorage_ = { BackendTankInfo{1, 1, "Tank A", 75.5} };  // Fractional volume
 
     EXPECT_CALL(*mockBackend, Authorize("customer-card")).WillOnce([this]() {
         mockBackend->authorized_ = true;
@@ -1975,6 +2024,8 @@ TEST_F(ControllerTest, GetTankVolumeDirectTest) {
     // Set up tank with volume
     BackendTankInfo tank1;
     tank1.idTank = 1;
+    tank1.visualNumberTank = 1;
+    
     tank1.nameTank = "Tank A";
     tank1.volume = 50.0;
     mockBackend->tanksStorage_ = { tank1 };
@@ -1998,6 +2049,8 @@ TEST_F(ControllerTest, VolumeEntryDisplayShowsAllowanceWhenLower) {
     
     BackendTankInfo tank1;
     tank1.idTank = 1;
+    tank1.visualNumberTank = 1;
+    
     tank1.nameTank = "Tank A";
     tank1.volume = 100.0;
     mockBackend->tanksStorage_ = { tank1 };
@@ -2049,6 +2102,8 @@ TEST_F(ControllerTest, VolumeEntryDisplayShowsTankVolumeWhenLower) {
     
     BackendTankInfo tank1;
     tank1.idTank = 1;
+    tank1.visualNumberTank = 1;
+    
     tank1.nameTank = "Tank A";
     tank1.volume = 40.0;
     mockBackend->tanksStorage_ = { tank1 };
@@ -2100,6 +2155,8 @@ TEST_F(ControllerTest, VolumeEntryDisplayShowsAllowanceWhenNoTankVolume) {
     
     BackendTankInfo tank1;
     tank1.idTank = 1;
+    tank1.visualNumberTank = 1;
+    
     tank1.nameTank = "Tank A";
     tank1.volume = 0.0;  // No volume specified
     mockBackend->tanksStorage_ = { tank1 };
@@ -2151,9 +2208,13 @@ TEST_F(ControllerTest, VolumeEntryDisplayWithMultipleTanksDifferentVolumes) {
     
     BackendTankInfo tank1, tank2;
     tank1.idTank = 1;
+    tank1.visualNumberTank = 1;
+    
     tank1.nameTank = "Tank A";
     tank1.volume = 30.0;
     tank2.idTank = 2;
+    tank2.visualNumberTank = 2;
+    
     tank2.nameTank = "Tank B";
     tank2.volume = 70.0;
     mockBackend->tanksStorage_ = { tank1, tank2 };
@@ -2470,7 +2531,7 @@ TEST_F(ControllerTest, NotAuthorizedStateRetriesAuthorization) {
 
     mockBackend->roleId_ = static_cast<int>(UserRole::Customer);
     mockBackend->allowance_ = 100.0;
-    mockBackend->tanksStorage_ = { BackendTankInfo{1, "Tank A"} };
+    mockBackend->tanksStorage_ = { BackendTankInfo{1, 1, "Tank A"} };
 
     EXPECT_CALL(*mockBackend, Authorize("valid-card"))
         .WillOnce([this]() {
@@ -2510,7 +2571,7 @@ TEST_F(ControllerTest, CannotAuthorizeStateRetriesAuthorization) {
 
     mockBackend->roleId_ = static_cast<int>(UserRole::Customer);
     mockBackend->allowance_ = 100.0;
-    mockBackend->tanksStorage_ = { BackendTankInfo{1, "Tank A"} };
+    mockBackend->tanksStorage_ = { BackendTankInfo{1, 1, "Tank A"} };
 
     controller->initialize();
 

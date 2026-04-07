@@ -499,7 +499,7 @@ void Controller::requestAuthorization(const UserId& userId) {
         availableTanks_.clear();
         for (const auto& tank : backend_->GetFuelTanks()) {
             TankInfo info;
-            info.number = tank.idTank;
+            info.number = tank.visualNumberTank;
             availableTanks_.push_back(info);
         }
         
@@ -572,7 +572,7 @@ Volume Controller::getTankVolume(TankNumber tankNumber) const {
     if (backend_) {
         const auto& tanks = backend_->GetFuelTanks();
         for (const auto& tank : tanks) {
-            if (tank.idTank == tankNumber) {
+            if (tank.visualNumberTank == tankNumber) {
                 return tank.volume;
             }
         }

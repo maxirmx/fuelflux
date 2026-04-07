@@ -109,8 +109,8 @@ protected:
             response["Allowance"] = 50.0;
             response["Price"] = 45.5;
             response["fuelTanks"] = nlohmann::json::array();
-            response["fuelTanks"].push_back({{"idTank", 1}, {"nameTank", "АИ-95"}});
-            response["fuelTanks"].push_back({{"idTank", 2}, {"nameTank", "ДТ"}});
+            response["fuelTanks"].push_back({{"idTank", 1}, {"visualNumberTank", 1}, {"nameTank", "АИ-95"}, {"isCheckEnoughFuel", 1}, {"allowanceTank", "100.0"}});
+            response["fuelTanks"].push_back({{"idTank", 2}, {"visualNumberTank", 2}, {"nameTank", "ДТ"}, {"isCheckEnoughFuel", 0}, {"allowanceTank", "999.0"}});
             
             res.status = 200;
             res.set_content(response.dump(), "application/json");
@@ -179,9 +179,13 @@ TEST_F(BackendTest, AuthorizeSuccess) {
     EXPECT_EQ(backend.GetPrice(), 45.5);
     EXPECT_EQ(backend.GetFuelTanks().size(), 2);
     EXPECT_EQ(backend.GetFuelTanks()[0].idTank, 1);
+    EXPECT_EQ(backend.GetFuelTanks()[0].visualNumberTank, 1);
     EXPECT_EQ(backend.GetFuelTanks()[0].nameTank, "АИ-95");
+    EXPECT_DOUBLE_EQ(backend.GetFuelTanks()[0].volume, 100.0);
     EXPECT_EQ(backend.GetFuelTanks()[1].idTank, 2);
+    EXPECT_EQ(backend.GetFuelTanks()[1].visualNumberTank, 2);
     EXPECT_EQ(backend.GetFuelTanks()[1].nameTank, "ДТ");
+    EXPECT_DOUBLE_EQ(backend.GetFuelTanks()[1].volume, 0.0);
 }
 
 // Test failed authorization
@@ -251,6 +255,40 @@ TEST_F(BackendTest, RefuelSuccess) {
     EXPECT_EQ(backend.GetAllowance(), 25.0);  // 50.0 - 25.0
 }
 
+// Test that UI-selected visual number is mapped to backend id in refuel report
+TEST_F(BackendTest, RefuelUsesTankIdMappedFromVisualNumber) {
+    mockServer->handleAuthorize = [](const httplib::Request& req [[maybe_unused]], httplib::Response& res) {
+        nlohmann::json response;
+        response["Token"] = "test-token-12345";
+        response["RoleId"] = 1;
+        response["Allowance"] = 200.0;
+        response["Price"] = 45.5;
+        response["fuelTanks"] = nlohmann::json::array();
+        response["fuelTanks"].push_back(
+            {{"idTank", 44},
+             {"visualNumberTank", 7},
+             {"nameTank", "АИ-95"},
+             {"isCheckEnoughFuel", 1},
+             {"allowanceTank", "150.0"}});
+
+        res.status = 200;
+        res.set_content(response.dump(), "application/json");
+    };
+
+    mockServer->handleRefuel = [](const httplib::Request& req, httplib::Response& res) {
+        const auto body = nlohmann::json::parse(req.body);
+        EXPECT_EQ(body.value("TankNumber", -1), 44);
+        EXPECT_DOUBLE_EQ(body.value("FuelVolume", -1.0), 25.0);
+
+        res.status = 200;
+        res.set_content("null", "application/json");
+    };
+
+    Backend backend(baseAPI, controllerUid);
+    EXPECT_TRUE(backend.Authorize("card-uid-12345"));
+    EXPECT_TRUE(backend.Refuel(7, 25.0));
+}
+
 // Test refuel without authorization
 TEST_F(BackendTest, RefuelWithoutAuthorization) {
     Backend backend(baseAPI, controllerUid);
@@ -304,7 +342,7 @@ TEST_F(BackendTest, IntakeSuccess) {
         response["Allowance"] = nlohmann::json();  // null
         response["Price"] = nlohmann::json();  // null
         response["fuelTanks"] = nlohmann::json::array();
-        response["fuelTanks"].push_back({{"idTank", 1}, {"nameTank", "АИ-95"}});
+        response["fuelTanks"].push_back({{"idTank", 1}, {"visualNumberTank", 1}, {"nameTank", "АИ-95"}, {"isCheckEnoughFuel", 1}, {"allowanceTank", "100.0"}});
         
         res.status = 200;
         res.set_content(response.dump(), "application/json");
@@ -318,6 +356,32 @@ TEST_F(BackendTest, IntakeSuccess) {
     bool result = backend.Intake(1, 100.0, IntakeDirection::In);
     
     EXPECT_TRUE(result);
+}
+
+// Test allowanceTank handling when enough-fuel check is disabled
+TEST_F(BackendTest, AuthorizeSkipsAllowanceTankWhenCheckDisabled) {
+    mockServer->handleAuthorize = [](const httplib::Request& req [[maybe_unused]], httplib::Response& res) {
+        nlohmann::json response;
+        response["Token"] = "test-token-12345";
+        response["RoleId"] = 1;
+        response["Allowance"] = 50.0;
+        response["Price"] = 45.5;
+        response["fuelTanks"] = nlohmann::json::array();
+        response["fuelTanks"].push_back(
+            {{"idTank", 1},
+             {"visualNumberTank", 1},
+             {"nameTank", "АИ-95"},
+             {"isCheckEnoughFuel", 0},
+             {"allowanceTank", "3907.73"}});
+
+        res.status = 200;
+        res.set_content(response.dump(), "application/json");
+    };
+
+    Backend backend(baseAPI, controllerUid);
+    EXPECT_TRUE(backend.Authorize("card-uid-12345"));
+    ASSERT_EQ(backend.GetFuelTanks().size(), 1);
+    EXPECT_DOUBLE_EQ(backend.GetFuelTanks()[0].volume, 0.0);
 }
 
 // Test intake with customer role (should fail)
@@ -350,7 +414,7 @@ TEST_F(BackendTest, IntakeInvalidTank) {
         response["Allowance"] = nlohmann::json();
         response["Price"] = nlohmann::json();
         response["fuelTanks"] = nlohmann::json::array();
-        response["fuelTanks"].push_back({{"idTank", 1}, {"nameTank", "АИ-95"}});
+        response["fuelTanks"].push_back({{"idTank", 1}, {"visualNumberTank", 1}, {"nameTank", "АИ-95"}, {"isCheckEnoughFuel", 1}, {"allowanceTank", "100.0"}});
         
         res.status = 200;
         res.set_content(response.dump(), "application/json");
@@ -374,7 +438,7 @@ TEST_F(BackendTest, IntakeNegativeVolume) {
         response["Allowance"] = nlohmann::json();
         response["Price"] = nlohmann::json();
         response["fuelTanks"] = nlohmann::json::array();
-        response["fuelTanks"].push_back({{"idTank", 1}, {"nameTank", "АИ-95"}});
+        response["fuelTanks"].push_back({{"idTank", 1}, {"visualNumberTank", 1}, {"nameTank", "АИ-95"}, {"isCheckEnoughFuel", 1}, {"allowanceTank", "100.0"}});
         
         res.status = 200;
         res.set_content(response.dump(), "application/json");
@@ -546,7 +610,7 @@ TEST_F(BackendTest, IntakeJsonParseError) {
         response["Allowance"] = nlohmann::json();
         response["Price"] = nlohmann::json();
         response["fuelTanks"] = nlohmann::json::array();
-        response["fuelTanks"].push_back({{"idTank", 1}, {"nameTank", "АИ-95"}});
+        response["fuelTanks"].push_back({{"idTank", 1}, {"visualNumberTank", 1}, {"nameTank", "АИ-95"}, {"isCheckEnoughFuel", 1}, {"allowanceTank", "100.0"}});
         
         res.status = 200;
         res.set_content(response.dump(), "application/json");
