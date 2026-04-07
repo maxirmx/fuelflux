@@ -30,7 +30,7 @@ TEST(BackendIntegrationTest, RapidDeauthorizationBounded) {
             {"Allowance", 100.0},
             {"Price", 50.0},
             {"fuelTanks", nlohmann::json::array({
-                {{"idTank", 1}, {"nameTank", "Tank 1"}}
+                {{"idTank", 1}, {"visualNumberTank", 1}, {"nameTank", "Tank 1"}, {"isCheckEnoughFuel", 1}, {"allowanceTank", "120.0"}}
             })}
         };
         res.set_content(response.dump(), "application/json");

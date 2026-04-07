@@ -94,8 +94,33 @@ bool BackendBase::Authorize(const std::string& uid) {
             for (const auto& tank : response["fuelTanks"]) {
                 BackendTankInfo tankInfo;
                 tankInfo.idTank = tank.value("idTank", 0);
+                tankInfo.visualNumberTank = tank.value("visualNumberTank", 0);
                 tankInfo.nameTank = tank.value("nameTank", "");
-                tankInfo.volume = tank.value("volume", 0.0);
+
+                bool checkEnoughFuel = false;
+                if (tank.contains("isCheckEnoughFuel") && !tank["isCheckEnoughFuel"].is_null()) {
+                    const auto& isCheckEnoughFuel = tank["isCheckEnoughFuel"];
+                    if (isCheckEnoughFuel.is_boolean()) {
+                        checkEnoughFuel = isCheckEnoughFuel.get<bool>();
+                    } else if (isCheckEnoughFuel.is_number_integer()) {
+                        checkEnoughFuel = isCheckEnoughFuel.get<int>() != 0;
+                    }
+                }
+                if (checkEnoughFuel && tank.contains("allowanceTank") && !tank["allowanceTank"].is_null()) {
+                    const auto& allowanceTank = tank["allowanceTank"];
+                    if (allowanceTank.is_string()) {
+                        try {
+                            tankInfo.volume = std::stod(allowanceTank.get<std::string>());
+                        } catch (const std::exception& e) {
+                            tankInfo.volume = 0.0;
+                            LOG_BCK_WARN("Failed to parse allowanceTank '{}' as number (defaulting to 0): {}",
+                                         allowanceTank.get<std::string>(), e.what());
+                        }
+                    } else if (allowanceTank.is_number()) {
+                        tankInfo.volume = allowanceTank.get<double>();
+                    }
+                }
+
                 fuelTanks.push_back(tankInfo);
             }
         }
@@ -207,7 +232,7 @@ bool BackendBase::Refuel(TankNumber tankNumber, Volume volume) {
         const auto tankIt = std::find_if(
             fuelTanks_.begin(),
             fuelTanks_.end(),
-            [tankNumber](const BackendTankInfo& tank) { return tank.idTank == tankNumber; });
+            [tankNumber](const BackendTankInfo& tank) { return tank.visualNumberTank == tankNumber; });
         if (tankIt == fuelTanks_.end()) {
             LOG_BCK_ERROR("Invalid refueling report: tank {} not found in authorized tanks", tankNumber);
             lastError_ = StdControllerError;
@@ -232,7 +257,7 @@ bool BackendBase::Refuel(TankNumber tankNumber, Volume volume) {
                                      .count();
 
         nlohmann::json requestBody;
-        requestBody["TankNumber"] = tankNumber;
+        requestBody["TankNumber"] = tankIt->idTank;
         requestBody["FuelVolume"] = volume;
         requestBody["TimeAt"] = timestampMs;
 
@@ -287,7 +312,7 @@ bool BackendBase::Intake(TankNumber tankNumber, Volume volume, IntakeDirection d
         const auto tankIt = std::find_if(
             fuelTanks_.begin(),
             fuelTanks_.end(),
-            [tankNumber](const BackendTankInfo& tank) { return tank.idTank == tankNumber; });
+            [tankNumber](const BackendTankInfo& tank) { return tank.visualNumberTank == tankNumber; });
         if (tankIt == fuelTanks_.end()) {
             LOG_BCK_ERROR("Invalid intake report: tank {} not found in authorized tanks", tankNumber);
             lastError_ = StdControllerError;
@@ -312,7 +337,7 @@ bool BackendBase::Intake(TankNumber tankNumber, Volume volume, IntakeDirection d
                                      .count();
 
         nlohmann::json requestBody;
-        requestBody["TankNumber"] = tankNumber;
+        requestBody["TankNumber"] = tankIt->idTank;
         requestBody["IntakeVolume"] = volume;
         requestBody["Direction"] = static_cast<int>(direction);
         requestBody["TimeAt"] = timestampMs;
@@ -351,6 +376,24 @@ bool BackendBase::Intake(TankNumber tankNumber, Volume volume, IntakeDirection d
     }
 }
 
+bool BackendBase::ApplyVisualTankMapping(nlohmann::json& requestBody) const {
+    if (!requestBody.contains("TankNumber") || !requestBody["TankNumber"].is_number_integer()) {
+        return false;
+    }
+    const int visualNumber = requestBody["TankNumber"].get<int>();
+    const auto tankIt = std::find_if(
+        fuelTanks_.begin(),
+        fuelTanks_.end(),
+        [visualNumber](const BackendTankInfo& tank) { return tank.visualNumberTank == visualNumber; });
+    if (tankIt == fuelTanks_.end()) {
+        LOG_BCK_WARN("Tank with visualNumber {} not found in authorized tanks; sending payload without id mapping",
+                     visualNumber);
+        return false;
+    }
+    requestBody["TankNumber"] = tankIt->idTank;
+    return true;
+}
+
 bool BackendBase::RefuelPayload(const std::string& payload) {
     try {
         if (!session_.IsAuthorized()) {
@@ -359,12 +402,14 @@ bool BackendBase::RefuelPayload(const std::string& payload) {
             return false;
         }
 
-        const auto requestBody = nlohmann::json::parse(payload, nullptr, false);
+        auto requestBody = nlohmann::json::parse(payload, nullptr, false);
         if (requestBody.is_discarded()) {
             LOG_BCK_ERROR("Invalid refueling payload");
             lastError_ = StdControllerError;
             return false;
         }
+
+        ApplyVisualTankMapping(requestBody);
 
         nlohmann::json response = HttpRequestWrapper("/api/pump/refuel", "POST", requestBody, true);
         std::string responseError;
@@ -393,12 +438,14 @@ bool BackendBase::IntakePayload(const std::string& payload) {
             return false;
         }
 
-        const auto requestBody = nlohmann::json::parse(payload, nullptr, false);
+        auto requestBody = nlohmann::json::parse(payload, nullptr, false);
         if (requestBody.is_discarded()) {
             LOG_BCK_ERROR("Invalid intake payload");
             lastError_ = StdControllerError;
             return false;
         }
+
+        ApplyVisualTankMapping(requestBody);
 
         nlohmann::json response = HttpRequestWrapper("/api/pump/fuel-intake", "POST", requestBody, true);
         std::string responseError;
