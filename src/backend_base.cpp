@@ -384,11 +384,22 @@ bool BackendBase::RefuelPayload(const std::string& payload) {
             return false;
         }
 
-        const auto requestBody = nlohmann::json::parse(payload, nullptr, false);
+        auto requestBody = nlohmann::json::parse(payload, nullptr, false);
         if (requestBody.is_discarded()) {
             LOG_BCK_ERROR("Invalid refueling payload");
             lastError_ = StdControllerError;
             return false;
+        }
+
+        if (requestBody.contains("TankNumber") && requestBody["TankNumber"].is_number_integer()) {
+            const int visualNumber = requestBody["TankNumber"].get<int>();
+            const auto tankIt = std::find_if(
+                fuelTanks_.begin(),
+                fuelTanks_.end(),
+                [visualNumber](const BackendTankInfo& tank) { return tank.visualNumberTank == visualNumber; });
+            if (tankIt != fuelTanks_.end()) {
+                requestBody["TankNumber"] = tankIt->idTank;
+            }
         }
 
         nlohmann::json response = HttpRequestWrapper("/api/pump/refuel", "POST", requestBody, true);
@@ -418,11 +429,22 @@ bool BackendBase::IntakePayload(const std::string& payload) {
             return false;
         }
 
-        const auto requestBody = nlohmann::json::parse(payload, nullptr, false);
+        auto requestBody = nlohmann::json::parse(payload, nullptr, false);
         if (requestBody.is_discarded()) {
             LOG_BCK_ERROR("Invalid intake payload");
             lastError_ = StdControllerError;
             return false;
+        }
+
+        if (requestBody.contains("TankNumber") && requestBody["TankNumber"].is_number_integer()) {
+            const int visualNumber = requestBody["TankNumber"].get<int>();
+            const auto tankIt = std::find_if(
+                fuelTanks_.begin(),
+                fuelTanks_.end(),
+                [visualNumber](const BackendTankInfo& tank) { return tank.visualNumberTank == visualNumber; });
+            if (tankIt != fuelTanks_.end()) {
+                requestBody["TankNumber"] = tankIt->idTank;
+            }
         }
 
         nlohmann::json response = HttpRequestWrapper("/api/pump/fuel-intake", "POST", requestBody, true);

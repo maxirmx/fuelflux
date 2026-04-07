@@ -630,3 +630,82 @@ TEST_F(BackendTest, IntakeJsonParseError) {
     EXPECT_FALSE(result);
     EXPECT_FALSE(backend.GetLastError().empty());
 }
+
+// Test that RefuelPayload maps visualNumberTank -> idTank in stored payload
+TEST_F(BackendTest, RefuelPayloadMapsVisualNumberToId) {
+    mockServer->handleAuthorize = [](const httplib::Request& req [[maybe_unused]], httplib::Response& res) {
+        nlohmann::json response;
+        response["Token"] = "test-token-12345";
+        response["RoleId"] = 1;
+        response["Allowance"] = 200.0;
+        response["Price"] = 45.5;
+        response["fuelTanks"] = nlohmann::json::array();
+        response["fuelTanks"].push_back(
+            {{"idTank", 44},
+             {"visualNumberTank", 7},
+             {"nameTank", "АИ-95"},
+             {"isCheckEnoughFuel", 1},
+             {"allowanceTank", "150.0"}});
+
+        res.status = 200;
+        res.set_content(response.dump(), "application/json");
+    };
+
+    mockServer->handleRefuel = [](const httplib::Request& req, httplib::Response& res) {
+        const auto body = nlohmann::json::parse(req.body);
+        EXPECT_EQ(body.value("TankNumber", -1), 44);
+
+        res.status = 200;
+        res.set_content("null", "application/json");
+    };
+
+    Backend backend(baseAPI, controllerUid);
+    EXPECT_TRUE(backend.Authorize("card-uid-12345"));
+
+    // Simulate a payload stored with the visual number (7, not idTank 44)
+    nlohmann::json storedPayload;
+    storedPayload["TankNumber"] = 7;
+    storedPayload["FuelVolume"] = 25.0;
+    storedPayload["TimeAt"] = 1234567890000LL;
+    EXPECT_TRUE(backend.RefuelPayload(storedPayload.dump()));
+}
+
+// Test that IntakePayload maps visualNumberTank -> idTank in stored payload
+TEST_F(BackendTest, IntakePayloadMapsVisualNumberToId) {
+    mockServer->handleAuthorize = [](const httplib::Request& req [[maybe_unused]], httplib::Response& res) {
+        nlohmann::json response;
+        response["Token"] = "operator-token";
+        response["RoleId"] = 2;  // Operator
+        response["Allowance"] = nlohmann::json();
+        response["Price"] = nlohmann::json();
+        response["fuelTanks"] = nlohmann::json::array();
+        response["fuelTanks"].push_back(
+            {{"idTank", 55},
+             {"visualNumberTank", 3},
+             {"nameTank", "ДТ"},
+             {"isCheckEnoughFuel", 0},
+             {"allowanceTank", "0"}});
+
+        res.status = 200;
+        res.set_content(response.dump(), "application/json");
+    };
+
+    mockServer->handleFuelIntake = [](const httplib::Request& req, httplib::Response& res) {
+        const auto body = nlohmann::json::parse(req.body);
+        EXPECT_EQ(body.value("TankNumber", -1), 55);
+
+        res.status = 200;
+        res.set_content("null", "application/json");
+    };
+
+    Backend backend(baseAPI, controllerUid);
+    EXPECT_TRUE(backend.Authorize("operator-card-uid"));
+
+    // Simulate a payload stored with the visual number (3, not idTank 55)
+    nlohmann::json storedPayload;
+    storedPayload["TankNumber"] = 3;
+    storedPayload["IntakeVolume"] = 100.0;
+    storedPayload["Direction"] = 1;
+    storedPayload["TimeAt"] = 1234567890000LL;
+    EXPECT_TRUE(backend.IntakePayload(storedPayload.dump()));
+}
