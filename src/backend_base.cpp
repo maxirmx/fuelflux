@@ -109,7 +109,12 @@ bool BackendBase::Authorize(const std::string& uid) {
                 if (checkEnoughFuel && tank.contains("allowanceTank") && !tank["allowanceTank"].is_null()) {
                     const auto& allowanceTank = tank["allowanceTank"];
                     if (allowanceTank.is_string()) {
-                        tankInfo.volume = std::stod(allowanceTank.get<std::string>());
+                        try {
+                            tankInfo.volume = std::stod(allowanceTank.get<std::string>());
+                        } catch (const std::exception& e) {
+                            LOG_BCK_WARN("Failed to parse allowanceTank '{}' as number (defaulting to 0): {}",
+                                         allowanceTank.get<std::string>(), e.what());
+                        }
                     } else if (allowanceTank.is_number()) {
                         tankInfo.volume = allowanceTank.get<double>();
                     }
