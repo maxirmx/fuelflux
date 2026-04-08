@@ -57,6 +57,7 @@ private:
     
     // Transition actions
     void doAuthorization();
+    void onAuthorizationSuccess();
     void doRefuelingDataTransmission();
     void onTankSelected();
     void onVolumeEntered();
