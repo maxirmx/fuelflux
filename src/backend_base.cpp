@@ -588,7 +588,7 @@ std::vector<FuelTank> BackendBase::FetchFuelTanks(int first, int number) {
                 if (item["Volume"].is_number()) {
                     tank.volume = item["Volume"].get<double>();
                 } else {
-                    LOG_BCK_ERROR("Invalid response format: expected array");
+                    LOG_BCK_ERROR("Invalid response format: field 'Volume' must be a number");
                     lastError_ = StdBackendError;
                     return std::vector<FuelTank>{};
                 }
