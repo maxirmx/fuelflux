@@ -497,10 +497,12 @@ void Controller::requestAuthorization(const UserId& userId) {
         currentUser_.price = backend_->GetPrice();
 
         availableTanks_.clear();
+        cachedFuelTanks_.clear();
         for (const auto& tank : backend_->GetFuelTanks()) {
             TankInfo info;
             info.number = tank.visualNumberTank;
             availableTanks_.push_back(info);
+            cachedFuelTanks_.push_back(tank);
         }
         
         // Update cache with authorization data
@@ -525,6 +527,20 @@ void Controller::requestAuthorization(const UserId& userId) {
                 currentUser_.allowance = cached->allowance;
                 currentUser_.price = 0.0;
                 availableTanks_.clear();
+                cachedFuelTanks_.clear();
+                const auto cachedTanks = userCache_->GetTanks();
+                for (const auto& tank : cachedTanks) {
+                    TankInfo info;
+                    info.number = tank.visualNumberTank;
+                    availableTanks_.push_back(info);
+
+                    BackendTankInfo cachedInfo;
+                    cachedInfo.idTank = tank.idTank;
+                    cachedInfo.visualNumberTank = tank.visualNumberTank;
+                    cachedInfo.nameTank = tank.nameTank;
+                    cachedInfo.volume = tank.volume;
+                    cachedFuelTanks_.push_back(cachedInfo);
+                }
                 LOG_CTRL_WARN("Authorized user {} from cache due to backend network error", userId);
                 postEvent(Event::AuthorizationSuccess);
                 return;
@@ -556,10 +572,6 @@ void Controller::selectTank(TankNumber tankNumber) {
 }
 
 bool Controller::isTankValid(TankNumber tankNumber) const {
-    if (sessionAuthorizedFromCache_) {
-        return tankNumber > 0;
-    }
-
     for (const auto& tank : availableTanks_) {
         if (tank.number == tankNumber) {
             return true;
@@ -569,6 +581,15 @@ bool Controller::isTankValid(TankNumber tankNumber) const {
 }
 
 Volume Controller::getTankVolume(TankNumber tankNumber) const {
+    if (sessionAuthorizedFromCache_) {
+        for (const auto& tank : cachedFuelTanks_) {
+            if (tank.visualNumberTank == tankNumber) {
+                return tank.volume;
+            }
+        }
+        return 0.0;
+    }
+
     if (backend_) {
         const auto& tanks = backend_->GetFuelTanks();
         for (const auto& tank : tanks) {
@@ -887,6 +908,7 @@ TankNumber Controller::parseTankFromInput() const {
 void Controller::resetSessionData() {
     currentUser_ = UserInfo{};
     availableTanks_.clear();
+    cachedFuelTanks_.clear();
     selectedTank_ = 0;
     enteredVolume_ = 0.0;
     selectedIntakeDirection_ = IntakeDirection::In;

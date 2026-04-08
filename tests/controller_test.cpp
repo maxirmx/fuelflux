@@ -43,6 +43,7 @@ public:
     MOCK_METHOD(const std::string&, GetLastError, (), (const, override));
     MOCK_METHOD(bool, IsNetworkError, (), (const, override));
     MOCK_METHOD(std::vector<UserCard>, FetchUserCards, (int first, int number), (override));
+    MOCK_METHOD(std::vector<FuelTank>, FetchFuelTanks, (int first, int number), (override));
     MOCK_METHOD(const std::string&, GetControllerUid, (), (const, override));
 
     std::string tokenStorage_;
@@ -197,6 +198,7 @@ protected:
     void createController(std::chrono::seconds noFlowCancelTimeout = std::chrono::seconds(30)) {
         auto backend = std::make_shared<NiceMock<MockBackend>>();
         mockBackend = backend.get();
+        ON_CALL(*mockBackend, GetControllerUid()).WillByDefault(ReturnRef(CONTROLLER_UID));
         controller = std::make_unique<Controller>(CONTROLLER_UID, backend, noFlowCancelTimeout);
 
         // Create mocks (use raw pointers as Controller takes ownership)
@@ -297,11 +299,15 @@ TEST_F(ControllerTest, Construction) {
 
 TEST_F(ControllerTest, AuthorizationFallsBackToCacheOnNetworkError) {
     ASSERT_NE(controller->getUserCache(), nullptr);
-    ASSERT_TRUE(controller->getUserCache()->UpdateEntry("offline-user", 123.0, static_cast<int>(UserRole::Customer)));
+    ASSERT_TRUE(controller->getUserCache()->BeginPopulation());
+    ASSERT_TRUE(controller->getUserCache()->AddPopulationEntry("offline-user", 123.0, static_cast<int>(UserRole::Customer)));
+    ASSERT_TRUE(controller->getUserCache()->AddPopulationTank(10, 7, "Tank-7", 700.0));
+    ASSERT_TRUE(controller->getUserCache()->CommitPopulation());
 
     EXPECT_CALL(*mockBackend, Authorize("offline-user")).WillOnce(Return(false));
     ON_CALL(*mockBackend, IsNetworkError()).WillByDefault(Return(true));
     ON_CALL(*mockBackend, FetchUserCards(_, _)).WillByDefault(Return(std::vector<UserCard>{{"offline-user", static_cast<int>(UserRole::Customer), 123.0}}));
+    ON_CALL(*mockBackend, FetchFuelTanks(_, _)).WillByDefault(Return(std::vector<FuelTank>{{10, 7, "Tank-7", 700.0}}));
 
     controller->initialize();
     controller->requestAuthorization("offline-user");
@@ -310,16 +316,21 @@ TEST_F(ControllerTest, AuthorizationFallsBackToCacheOnNetworkError) {
     EXPECT_EQ(controller->getCurrentUser().uid, "offline-user");
     EXPECT_EQ(controller->getCurrentUser().role, UserRole::Customer);
     EXPECT_DOUBLE_EQ(controller->getCurrentUser().allowance, 123.0);
-    EXPECT_TRUE(controller->getAvailableTanks().empty());
+    ASSERT_EQ(controller->getAvailableTanks().size(), 1);
+    EXPECT_EQ(controller->getAvailableTanks()[0].number, 7);
 }
 
-TEST_F(ControllerTest, CachedAuthorizationAllowsAnyPositiveTankSelection) {
+TEST_F(ControllerTest, CachedAuthorizationAllowsOnlyCachedTankSelection) {
     ASSERT_NE(controller->getUserCache(), nullptr);
-    ASSERT_TRUE(controller->getUserCache()->UpdateEntry("offline-user", 200.0, static_cast<int>(UserRole::Customer)));
+    ASSERT_TRUE(controller->getUserCache()->BeginPopulation());
+    ASSERT_TRUE(controller->getUserCache()->AddPopulationEntry("offline-user", 200.0, static_cast<int>(UserRole::Customer)));
+    ASSERT_TRUE(controller->getUserCache()->AddPopulationTank(10, 7, "Tank-7", 700.0));
+    ASSERT_TRUE(controller->getUserCache()->CommitPopulation());
 
     EXPECT_CALL(*mockBackend, Authorize("offline-user")).WillOnce(Return(false));
     ON_CALL(*mockBackend, IsNetworkError()).WillByDefault(Return(true));
     ON_CALL(*mockBackend, FetchUserCards(_, _)).WillByDefault(Return(std::vector<UserCard>{{"offline-user", static_cast<int>(UserRole::Customer), 123.0}}));
+    ON_CALL(*mockBackend, FetchFuelTanks(_, _)).WillByDefault(Return(std::vector<FuelTank>{{10, 7, "Tank-7", 700.0}}));
 
     controller->initialize();
     std::thread controllerThread([this]() { controller->run(); });
@@ -328,25 +339,31 @@ TEST_F(ControllerTest, CachedAuthorizationAllowsAnyPositiveTankSelection) {
     controller->handleCardPresented("offline-user");
     ASSERT_TRUE(waitForState(SystemState::TankSelection));
 
-    DisplayMessage msg = controller->getStateMachine().getDisplayMessage();
-    EXPECT_TRUE(msg.line3.empty());
-
     controller->handleKeyPress(KeyCode::Key9);
     controller->handleKeyPress(KeyCode::Key9);
     controller->handleKeyPress(KeyCode::KeyStart);
+    EXPECT_EQ(controller->getStateMachine().getCurrentState(), SystemState::TankSelection);
+
+    controller->clearInput();
+    controller->handleKeyPress(KeyCode::Key7);
+    controller->handleKeyPress(KeyCode::KeyStart);
     ASSERT_TRUE(waitForState(SystemState::VolumeEntry));
-    EXPECT_EQ(controller->getSelectedTank(), 99);
+    EXPECT_EQ(controller->getSelectedTank(), 7);
 
     shutdownControllerAndJoinThread(controllerThread);
 }
 
 TEST_F(ControllerTest, CachedAuthorizationRefuelGoesToBacklogAndSkipsDeauthorize) {
     ASSERT_NE(controller->getUserCache(), nullptr);
-    ASSERT_TRUE(controller->getUserCache()->UpdateEntry("offline-user", 50.0, static_cast<int>(UserRole::Customer)));
+    ASSERT_TRUE(controller->getUserCache()->BeginPopulation());
+    ASSERT_TRUE(controller->getUserCache()->AddPopulationEntry("offline-user", 50.0, static_cast<int>(UserRole::Customer)));
+    ASSERT_TRUE(controller->getUserCache()->AddPopulationTank(10, 7, "Tank-7", 700.0));
+    ASSERT_TRUE(controller->getUserCache()->CommitPopulation());
 
     EXPECT_CALL(*mockBackend, Authorize("offline-user")).WillOnce(Return(false));
     ON_CALL(*mockBackend, IsNetworkError()).WillByDefault(Return(true));
     ON_CALL(*mockBackend, FetchUserCards(_, _)).WillByDefault(Return(std::vector<UserCard>{{"offline-user", static_cast<int>(UserRole::Customer), 123.0}}));
+    ON_CALL(*mockBackend, FetchFuelTanks(_, _)).WillByDefault(Return(std::vector<FuelTank>{{10, 7, "Tank-7", 700.0}}));
     EXPECT_CALL(*mockBackend, Refuel(_, _)).Times(0);
     EXPECT_CALL(*mockBackend, Deauthorize()).Times(0);
 
@@ -370,11 +387,15 @@ TEST_F(ControllerTest, CachedAuthorizationRefuelGoesToBacklogAndSkipsDeauthorize
 
 TEST_F(ControllerTest, CachedAuthorizationIntakeGoesToBacklog) {
     ASSERT_NE(controller->getUserCache(), nullptr);
-    ASSERT_TRUE(controller->getUserCache()->UpdateEntry("offline-operator", 0.0, static_cast<int>(UserRole::Operator)));
+    ASSERT_TRUE(controller->getUserCache()->BeginPopulation());
+    ASSERT_TRUE(controller->getUserCache()->AddPopulationEntry("offline-operator", 0.0, static_cast<int>(UserRole::Operator)));
+    ASSERT_TRUE(controller->getUserCache()->AddPopulationTank(20, 11, "Tank-11", 1100.0));
+    ASSERT_TRUE(controller->getUserCache()->CommitPopulation());
 
     EXPECT_CALL(*mockBackend, Authorize("offline-operator")).WillOnce(Return(false));
     ON_CALL(*mockBackend, IsNetworkError()).WillByDefault(Return(true));
     ON_CALL(*mockBackend, FetchUserCards(_, _)).WillByDefault(Return(std::vector<UserCard>{{"offline-operator", static_cast<int>(UserRole::Operator), 0.0}}));
+    ON_CALL(*mockBackend, FetchFuelTanks(_, _)).WillByDefault(Return(std::vector<FuelTank>{{20, 11, "Tank-11", 1100.0}}));
     EXPECT_CALL(*mockBackend, Intake(_, _, _)).Times(0);
 
     controller->initialize();

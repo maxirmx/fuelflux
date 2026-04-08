@@ -37,6 +37,14 @@ struct UserCard {
     double allowance = 0.0;
 };
 
+// Fuel tank structure for cache population
+struct FuelTank {
+    int idTank = 0;
+    int visualNumberTank = 0;
+    std::string nameTank;
+    Volume volume = 0.0;
+};
+
 // Interface for backend communication to enable mocking in tests
 class IBackend {
 public:
@@ -56,6 +64,7 @@ public:
     virtual const std::string& GetLastError() const = 0;
     virtual bool IsNetworkError() const = 0;
     virtual std::vector<UserCard> FetchUserCards(int first, int number) = 0;
+    virtual std::vector<FuelTank> FetchFuelTanks(int first, int number) = 0;
     virtual const std::string& GetControllerUid() const = 0;
 };
 
@@ -94,6 +103,7 @@ public:
     const std::string& GetLastError() const override { return lastError_; }
     bool IsNetworkError() const override { return networkError_; }
     std::vector<UserCard> FetchUserCards(int first, int number) override;
+    std::vector<FuelTank> FetchFuelTanks(int first, int number) override;
     const std::string& GetControllerUid() const override { return controllerUid_; }
 
 protected:

@@ -35,6 +35,8 @@ UserCache::UserCache(const std::string& dbPath)
     // Create both tables for flip/flop mechanism
     Execute("CREATE TABLE IF NOT EXISTS user_cache_a (uid TEXT PRIMARY KEY, allowance REAL NOT NULL, role_id INTEGER NOT NULL);");
     Execute("CREATE TABLE IF NOT EXISTS user_cache_b (uid TEXT PRIMARY KEY, allowance REAL NOT NULL, role_id INTEGER NOT NULL);");
+    Execute("CREATE TABLE IF NOT EXISTS tank_cache_a (id_tank INTEGER NOT NULL, visual_number_tank INTEGER PRIMARY KEY, name_tank TEXT NOT NULL, volume REAL NOT NULL);");
+    Execute("CREATE TABLE IF NOT EXISTS tank_cache_b (id_tank INTEGER NOT NULL, visual_number_tank INTEGER PRIMARY KEY, name_tank TEXT NOT NULL, volume REAL NOT NULL);");
     
     // Create metadata table to track which table is active
     Execute("CREATE TABLE IF NOT EXISTS user_cache_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);");
@@ -262,6 +264,55 @@ int UserCache::GetCount() const {
     return count;
 }
 
+std::vector<TankCacheEntry> UserCache::GetTanks() const {
+    std::lock_guard<std::mutex> lock(dbMutex_);
+    std::vector<TankCacheEntry> result;
+    if (!db_) {
+        return result;
+    }
+
+    std::string activeSuffix = activeTableIsA_ ? "a" : "b";
+    const std::string sql = "SELECT id_tank, visual_number_tank, name_tank, volume FROM tank_cache_" +
+                            activeSuffix + " ORDER BY visual_number_tank ASC;";
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(db_, sql.c_str(), -1, &stmt, nullptr) != SQLITE_OK) {
+        return result;
+    }
+
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        TankCacheEntry entry;
+        entry.idTank = sqlite3_column_int(stmt, 0);
+        entry.visualNumberTank = sqlite3_column_int(stmt, 1);
+        const auto* name = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2));
+        entry.nameTank = name ? name : "";
+        entry.volume = sqlite3_column_double(stmt, 3);
+        result.push_back(entry);
+    }
+    sqlite3_finalize(stmt);
+    return result;
+}
+
+int UserCache::GetTankCount() const {
+    std::lock_guard<std::mutex> lock(dbMutex_);
+    if (!db_) {
+        return 0;
+    }
+
+    std::string activeSuffix = activeTableIsA_ ? "a" : "b";
+    const std::string sql = "SELECT COUNT(*) FROM tank_cache_" + activeSuffix + ";";
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(db_, sql.c_str(), -1, &stmt, nullptr) != SQLITE_OK) {
+        return 0;
+    }
+
+    int count = 0;
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
+        count = sqlite3_column_int(stmt, 0);
+    }
+    sqlite3_finalize(stmt);
+    return count;
+}
+
 bool UserCache::BeginPopulation() {
     std::lock_guard<std::mutex> lock(dbMutex_);
     if (!db_ || populationInProgress_) {
@@ -273,6 +324,14 @@ bool UserCache::BeginPopulation() {
     char* errorMessage = nullptr;
     const int result = sqlite3_exec(db_, sql.c_str(), nullptr, nullptr, &errorMessage);
     if (result != SQLITE_OK) {
+        sqlite3_free(errorMessage);
+        return false;
+    }
+
+    std::string standbySuffix = activeTableIsA_ ? "b" : "a";
+    std::string tankSql = "DELETE FROM tank_cache_" + standbySuffix + ";";
+    const int tankResult = sqlite3_exec(db_, tankSql.c_str(), nullptr, nullptr, &errorMessage);
+    if (tankResult != SQLITE_OK) {
         sqlite3_free(errorMessage);
         return false;
     }
@@ -296,6 +355,30 @@ bool UserCache::AddPopulationEntry(const std::string& uid, double allowance, int
     sqlite3_bind_text(stmt, 1, uid.c_str(), -1, SQLITE_TRANSIENT);
     sqlite3_bind_double(stmt, 2, allowance);
     sqlite3_bind_int(stmt, 3, roleId);
+
+    const bool ok = (sqlite3_step(stmt) == SQLITE_DONE);
+    sqlite3_finalize(stmt);
+    return ok;
+}
+
+bool UserCache::AddPopulationTank(int idTank, int visualNumberTank, const std::string& nameTank, double volume) {
+    std::lock_guard<std::mutex> lock(dbMutex_);
+    if (!db_ || !populationInProgress_) {
+        return false;
+    }
+
+    std::string standbySuffix = activeTableIsA_ ? "b" : "a";
+    std::string sql = "INSERT OR REPLACE INTO tank_cache_" + standbySuffix +
+                      " (id_tank, visual_number_tank, name_tank, volume) VALUES (?, ?, ?, ?);";
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(db_, sql.c_str(), -1, &stmt, nullptr) != SQLITE_OK) {
+        return false;
+    }
+
+    sqlite3_bind_int(stmt, 1, idTank);
+    sqlite3_bind_int(stmt, 2, visualNumberTank);
+    sqlite3_bind_text(stmt, 3, nameTank.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_double(stmt, 4, volume);
 
     const bool ok = (sqlite3_step(stmt) == SQLITE_DONE);
     sqlite3_finalize(stmt);
