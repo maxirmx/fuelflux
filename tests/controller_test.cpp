@@ -647,6 +647,79 @@ TEST_F(ControllerTest, AuthorizationFailureTransitionsToNotAuthorized) {
     shutdownControllerAndJoinThread(controllerThread);
 }
 
+TEST_F(ControllerTest, AuthorizationWithSingleTankAutoSelectsForCustomerRefuel) {
+    mockBackend->roleId_ = static_cast<int>(UserRole::Customer);
+    mockBackend->allowance_ = 100.0;
+    mockBackend->price_ = 1.0;
+    mockBackend->tanksStorage_ = { BackendTankInfo{1, 42, "Tank 42"} };
+
+    EXPECT_CALL(*mockBackend, Authorize("customer-card")).WillOnce([this]() {
+        mockBackend->authorized_ = true;
+        return true;
+    });
+
+    controller->initialize();
+
+    std::thread controllerThread([this]() { controller->run(); });
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+
+    controller->handleCardPresented("customer-card");
+    ASSERT_TRUE(waitForState(SystemState::VolumeEntry));
+    EXPECT_EQ(controller->getSelectedTank(), 42);
+
+    shutdownControllerAndJoinThread(controllerThread);
+}
+
+TEST_F(ControllerTest, AuthorizationWithSingleTankAutoSelectsForOperatorIntake) {
+    mockBackend->roleId_ = static_cast<int>(UserRole::Operator);
+    mockBackend->allowance_ = 0.0;
+    mockBackend->price_ = 0.0;
+    mockBackend->tanksStorage_ = { BackendTankInfo{1, 7, "Tank 7"} };
+
+    EXPECT_CALL(*mockBackend, Authorize("operator-card")).WillOnce([this]() {
+        mockBackend->authorized_ = true;
+        return true;
+    });
+
+    controller->initialize();
+
+    std::thread controllerThread([this]() { controller->run(); });
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+
+    controller->handleCardPresented("operator-card");
+    ASSERT_TRUE(waitForState(SystemState::IntakeDirectionSelection));
+    EXPECT_EQ(controller->getSelectedTank(), 7);
+
+    shutdownControllerAndJoinThread(controllerThread);
+}
+
+TEST_F(ControllerTest, AuthorizationWithNoTanksIsRejected) {
+    mockBackend->roleId_ = static_cast<int>(UserRole::Customer);
+    mockBackend->allowance_ = 100.0;
+    mockBackend->price_ = 1.0;
+    mockBackend->tanksStorage_.clear();
+
+    EXPECT_CALL(*mockBackend, Authorize("customer-card")).WillOnce([this]() {
+        mockBackend->authorized_ = true;
+        return true;
+    });
+    EXPECT_CALL(*mockBackend, Deauthorize()).WillOnce([this]() {
+        mockBackend->authorized_ = false;
+        return true;
+    });
+
+    controller->initialize();
+
+    std::thread controllerThread([this]() { controller->run(); });
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+
+    controller->handleCardPresented("customer-card");
+    ASSERT_TRUE(waitForState(SystemState::NotAuthorized));
+    EXPECT_EQ(controller->getSelectedTank(), 0);
+
+    shutdownControllerAndJoinThread(controllerThread);
+}
+
 TEST_F(ControllerTest, NotAuthorizedCancelAndTimeoutReturnToWaiting) {
     EXPECT_CALL(*mockBackend, Authorize("denied-card")).Times(2).WillRepeatedly(Return(false));
     EXPECT_CALL(*mockBackend, IsNetworkError()).WillRepeatedly(Return(false));
