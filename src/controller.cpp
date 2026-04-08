@@ -460,7 +460,9 @@ void Controller::clearInputSilent() {
 }
 
 void Controller::addDigitToInput(char digit) {
-    if (currentInput_.length() < 10) { // Limit input length
+    // Normal inputs are far shorter than INPUT_MAX_LENGTH; this cap protects
+    // against abnormal or chained conditions that could grow the buffer indefinitely.
+    if (currentInput_.length() < INPUT_MAX_LENGTH) { 
         currentInput_ += digit;
         postEvent(Event::InputUpdated);
     }
@@ -497,7 +499,7 @@ void Controller::requestAuthorization(const UserId& userId) {
         availableTanks_.clear();
         for (const auto& tank : backend_->GetFuelTanks()) {
             TankInfo info;
-            info.number = tank.idTank;
+            info.number = tank.visualNumberTank;
             availableTanks_.push_back(info);
         }
         
@@ -570,7 +572,7 @@ Volume Controller::getTankVolume(TankNumber tankNumber) const {
     if (backend_) {
         const auto& tanks = backend_->GetFuelTanks();
         for (const auto& tank : tanks) {
-            if (tank.idTank == tankNumber) {
+            if (tank.visualNumberTank == tankNumber) {
                 return tank.volume;
             }
         }

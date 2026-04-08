@@ -21,9 +21,13 @@ class MessageStorage;
 
 // Tank information structure for backend
 struct BackendTankInfo {
-    int idTank;
+    int idTank = 0;                 // Backend tank identifier used in API reports
+    int visualNumberTank = 0;       // Tank number shown to users in UI
     std::string nameTank = "";
-    Volume volume = 0.0;  // Tank capacity in liters
+    Volume volume = 0.0;            // Effective maximum permitted volume for this tank (liters);
+                                     // controller-side validation treats this as the upper bound for
+                                     // entered volume. This may represent the physical tank capacity
+                                     // or a backend-configured per-tank limit, depending on backend semantics.
 };
 
 // User card structure for cache population
@@ -112,6 +116,10 @@ protected:
     // Get the bounded executor for async deauthorization requests
     // Uses Meyer's singleton pattern for thread-safe lazy initialization
     static BoundedExecutor& GetDeauthorizeExecutor();
+
+    // Map TankNumber in a payload from visualNumberTank to idTank.
+    // Returns true if a match was found and the mapping was applied.
+    bool ApplyVisualTankMapping(nlohmann::json& requestBody) const;
 
     std::string controllerUid_;
     std::string authorizedUid_;
