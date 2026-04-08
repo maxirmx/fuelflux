@@ -255,6 +255,13 @@ bool CacheManager::PopulateCache() {
             std::vector<FuelTank> tanks = backend_->FetchFuelTanks(first, kFetchBatchSize);
 
             if (tanks.empty()) {
+                const std::string lastError = backend_->GetLastError();
+                if (!lastError.empty()) {
+                    LOG_ERROR("Failed to fetch fuel tanks: {}", lastError);
+                    cache_->AbortPopulation();
+                    backend_->Deauthorize();
+                    return false;
+                }
                 moreData = false;
                 break;
             }

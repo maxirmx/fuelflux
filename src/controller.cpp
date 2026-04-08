@@ -572,10 +572,6 @@ void Controller::selectTank(TankNumber tankNumber) {
 }
 
 bool Controller::isTankValid(TankNumber tankNumber) const {
-    if (sessionAuthorizedFromCache_) {
-        return tankNumber > 0;
-    }
-
     for (const auto& tank : availableTanks_) {
         if (tank.number == tankNumber) {
             return true;
