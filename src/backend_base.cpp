@@ -539,4 +539,74 @@ std::vector<UserCard> BackendBase::FetchUserCards(int first, int number) {
     return result;
 }
 
+std::vector<FuelTank> BackendBase::FetchFuelTanks(int first, int number) {
+    std::vector<FuelTank> result;
+
+    try {
+        std::string endpoint = "/api/pump/tanks?first=" + std::to_string(first) +
+                               "&number=" + std::to_string(number);
+
+        LOG_BCK_INFO("Fetching fuel tanks: first={}, number={}", first, number);
+
+        nlohmann::json requestBody;
+        requestBody["PumpControllerUid"] = controllerUid_;
+
+        nlohmann::json response = HttpRequestWrapper(endpoint, "POST", requestBody, true);
+
+        std::string responseError;
+        if (IsErrorResponse(response, &responseError)) {
+            LOG_BCK_ERROR("Failed to fetch fuel tanks: {}", responseError);
+            lastError_ = responseError;
+            return result;
+        }
+
+        if (!response.is_array()) {
+            LOG_BCK_ERROR("Invalid response format: expected array");
+            lastError_ = StdBackendError;
+            return result;
+        }
+
+        for (const auto& item : response) {
+            if (!item.is_object()) {
+                continue;
+            }
+
+            if (!item.contains("VisualNumberTank") || !item["VisualNumberTank"].is_number_integer()) {
+                continue;
+            }
+
+            FuelTank tank;
+            tank.visualNumberTank = item["VisualNumberTank"].get<int>();
+
+            if (item.contains("IdTank") && item["IdTank"].is_number_integer()) {
+                tank.idTank = item["IdTank"].get<int>();
+            }
+            if (item.contains("NameTank") && item["NameTank"].is_string()) {
+                tank.nameTank = item["NameTank"].get<std::string>();
+            }
+            if (item.contains("Volume") && !item["Volume"].is_null()) {
+                if (item["Volume"].is_number()) {
+                    tank.volume = item["Volume"].get<double>();
+                } else {
+                    LOG_BCK_ERROR("Invalid response format: expected array");
+                    lastError_ = StdBackendError;
+                    return std::vector<FuelTank>{};
+                }
+            }
+
+            result.push_back(tank);
+        }
+
+        LOG_BCK_INFO("Fetched {} fuel tanks", result.size());
+        lastError_.clear();
+    } catch (const std::exception& e) {
+        LOG_BCK_ERROR("Failed to fetch fuel tanks: {}", e.what());
+        if (lastError_.empty()) {
+            lastError_ = StdBackendError;
+        }
+    }
+
+    return result;
+}
+
 } // namespace fuelflux

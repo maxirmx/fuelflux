@@ -454,3 +454,40 @@ TEST_F(UserCacheTest, AtomicDeductDuringPopulation) {
     EXPECT_DOUBLE_EQ(entry1->allowance, 75.0);  // Should have deducted value
     EXPECT_EQ(entry1->roleId, 1);
 }
+
+
+TEST_F(UserCacheTest, TankPopulationStoresAndReturnsEntries) {
+    UserCache cache(dbPath_);
+
+    ASSERT_TRUE(cache.BeginPopulation());
+    EXPECT_TRUE(cache.AddPopulationTank(101, 1, "Tank-1", 1200.0));
+    EXPECT_TRUE(cache.AddPopulationTank(102, 2, "Tank-2", 1300.5));
+    ASSERT_TRUE(cache.CommitPopulation());
+
+    EXPECT_EQ(cache.GetTankCount(), 2);
+    const auto tanks = cache.GetTanks();
+    ASSERT_EQ(tanks.size(), 2);
+    EXPECT_EQ(tanks[0].idTank, 101);
+    EXPECT_EQ(tanks[0].visualNumberTank, 1);
+    EXPECT_EQ(tanks[0].nameTank, "Tank-1");
+    EXPECT_DOUBLE_EQ(tanks[0].volume, 1200.0);
+    EXPECT_EQ(tanks[1].idTank, 102);
+}
+
+TEST_F(UserCacheTest, TankPopulationReplacesPreviousSnapshot) {
+    UserCache cache(dbPath_);
+
+    ASSERT_TRUE(cache.BeginPopulation());
+    ASSERT_TRUE(cache.AddPopulationTank(101, 1, "Old", 100.0));
+    ASSERT_TRUE(cache.CommitPopulation());
+
+    ASSERT_TRUE(cache.BeginPopulation());
+    ASSERT_TRUE(cache.AddPopulationTank(202, 2, "New", 200.0));
+    ASSERT_TRUE(cache.CommitPopulation());
+
+    EXPECT_EQ(cache.GetTankCount(), 1);
+    const auto tanks = cache.GetTanks();
+    ASSERT_EQ(tanks.size(), 1);
+    EXPECT_EQ(tanks[0].visualNumberTank, 2);
+    EXPECT_EQ(tanks[0].nameTank, "New");
+}

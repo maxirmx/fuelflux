@@ -213,6 +213,7 @@ bool CacheManager::PopulateCache() {
         }
         
         int totalFetched = 0;
+        int totalTanksFetched = 0;
         int first = 0;
         bool moreData = true;
         
@@ -246,6 +247,34 @@ bool CacheManager::PopulateCache() {
             
             first += kFetchBatchSize;
         }
+
+        first = 0;
+        moreData = true;
+        while (moreData && running_) {
+            LOG_DEBUG("Fetching fuel tanks: first={}, number={}", first, kFetchBatchSize);
+            std::vector<FuelTank> tanks = backend_->FetchFuelTanks(first, kFetchBatchSize);
+
+            if (tanks.empty()) {
+                moreData = false;
+                break;
+            }
+
+            for (const auto& tank : tanks) {
+                if (!cache_->AddPopulationTank(tank.idTank, tank.visualNumberTank, tank.nameTank, tank.volume)) {
+                    LOG_ERROR("Failed to add tank cache entry for visual tank: {}", tank.visualNumberTank);
+                    cache_->AbortPopulation();
+                    backend_->Deauthorize();
+                    return false;
+                }
+            }
+
+            totalTanksFetched += static_cast<int>(tanks.size());
+            if (static_cast<int>(tanks.size()) < kFetchBatchSize) {
+                moreData = false;
+            }
+
+            first += kFetchBatchSize;
+        }
         
         if (!running_) {
             LOG_WARN("Cache population interrupted by shutdown");
@@ -261,7 +290,8 @@ bool CacheManager::PopulateCache() {
             return false;
         }
         
-        LOG_INFO("Cache population completed: {} entries loaded", totalFetched);
+        LOG_INFO("Cache population completed: {} card entries loaded, {} tank entries loaded",
+                 totalFetched, totalTanksFetched);
         
         // Close synchronization session - this is critical for cleanup
         // If deauthorization fails, we still return true because the data was successfully loaded
