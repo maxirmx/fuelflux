@@ -144,3 +144,65 @@ TEST(BackendBaseFetchUserCardsTest, BadAllowanceTypeIsHandledAsFailure) {
     EXPECT_TRUE(cards.empty());
     EXPECT_EQ(backend.GetLastError(), StdBackendError);
 }
+
+
+TEST(BackendBaseFetchFuelTanksTest, SendsExpectedRequestAndParsesValidTanks) {
+    TestBackendBase backend("controller-uid-42");
+
+    backend.boolTokenHandler = [](const std::string& endpoint,
+                                  const std::string& method,
+                                  const nlohmann::json& body,
+                                  bool useBearerToken) -> nlohmann::json {
+        EXPECT_EQ(endpoint, "/api/pump/tanks?first=2&number=2");
+        EXPECT_EQ(method, "POST");
+        EXPECT_TRUE(useBearerToken);
+        EXPECT_EQ(body.value("PumpControllerUid", ""), "controller-uid-42");
+
+        return nlohmann::json::array({
+            {{"VisualNumberTank", 1}, {"IdTank", 11}, {"NameTank", "Diesel"}, {"Volume", 1000.5}},
+            {{"VisualNumberTank", 2}},
+            7,
+            {{"IdTank", 99}},
+        });
+    };
+
+    const auto tanks = backend.FetchFuelTanks(2, 2);
+
+    ASSERT_EQ(tanks.size(), 2);
+    EXPECT_EQ(tanks[0].visualNumberTank, 1);
+    EXPECT_EQ(tanks[0].idTank, 11);
+    EXPECT_EQ(tanks[0].nameTank, "Diesel");
+    EXPECT_DOUBLE_EQ(tanks[0].volume, 1000.5);
+
+    EXPECT_EQ(tanks[1].visualNumberTank, 2);
+    EXPECT_EQ(tanks[1].idTank, 0);
+    EXPECT_TRUE(tanks[1].nameTank.empty());
+    EXPECT_DOUBLE_EQ(tanks[1].volume, 0.0);
+    EXPECT_TRUE(backend.GetLastError().empty());
+}
+
+TEST(BackendBaseFetchFuelTanksTest, ErrorResponseReturnsEmptyAndStoresMessage) {
+    TestBackendBase backend("controller-uid-42");
+
+    backend.boolTokenHandler = [](const std::string&, const std::string&, const nlohmann::json&, bool) {
+        return nlohmann::json{{"CodeError", 9}, {"TextError", "tanks api unavailable"}};
+    };
+
+    const auto tanks = backend.FetchFuelTanks(0, 100);
+
+    EXPECT_TRUE(tanks.empty());
+    EXPECT_EQ(backend.GetLastError(), "tanks api unavailable");
+}
+
+TEST(BackendBaseFetchFuelTanksTest, BadVolumeTypeIsHandledAsFailure) {
+    TestBackendBase backend("controller-uid-42");
+
+    backend.boolTokenHandler = [](const std::string&, const std::string&, const nlohmann::json&, bool) {
+        return nlohmann::json::array({{{"VisualNumberTank", 1}, {"Volume", "bad"}}});
+    };
+
+    const auto tanks = backend.FetchFuelTanks(0, 1);
+
+    EXPECT_TRUE(tanks.empty());
+    EXPECT_EQ(backend.GetLastError(), StdBackendError);
+}

@@ -180,6 +180,7 @@ class Controller {
     // Current session state
     UserInfo currentUser_;
     std::vector<TankInfo> availableTanks_;
+    std::vector<BackendTankInfo> cachedFuelTanks_;
     TankNumber selectedTank_;
     Volume enteredVolume_;
     std::string currentInput_;
