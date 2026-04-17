@@ -83,35 +83,37 @@ jobs:
                   " FuelFlux controller software and deployment assets for ARM64 devices."
               } > /work/pkgroot/DEBIAN/control
 
-              cat > /work/pkgroot/DEBIAN/postinst <<'EOF'
-              #!/bin/bash
-              set -euo pipefail
+              {
+                printf '%s\n' \
+                  "#!/bin/bash" \
+                  "set -euo pipefail" \
+                  "" \
+                  "if [[ \"\${1:-}\" == \"configure\" ]]; then" \
+                  "  if [[ ! -x /opt/fuelflux/deploy/install.sh ]]; then" \
+                  "    echo \"Error: /opt/fuelflux/deploy/install.sh is missing or not executable\" >&2" \
+                  "    exit 1" \
+                  "  fi" \
+                  "  if ! /opt/fuelflux/deploy/install.sh install /opt/fuelflux/bin/fuelflux; then" \
+                  "    echo \"Error: failed to run deploy install script during package configure\" >&2" \
+                  "    exit 1" \
+                  "  fi" \
+                  "fi"
+              } > /work/pkgroot/DEBIAN/postinst
 
-              if [[ "${1:-}" == "configure" ]]; then
-                if [[ ! -x /opt/fuelflux/deploy/install.sh ]]; then
-                  echo "Error: /opt/fuelflux/deploy/install.sh is missing or not executable" >&2
-                  exit 1
-                fi
-                if ! /opt/fuelflux/deploy/install.sh install /opt/fuelflux/bin/fuelflux; then
-                  echo "Error: failed to run deploy install script during package configure" >&2
-                  exit 1
-                fi
-              fi
-              EOF
-
-              cat > /work/pkgroot/DEBIAN/prerm <<'EOF'
-              #!/bin/bash
-              set -euo pipefail
-
-              if [[ -x /opt/fuelflux/deploy/install.sh ]]; then
-                if ! /opt/fuelflux/deploy/install.sh stop; then
-                  echo "Warning: failed to stop fuelflux service during package removal/upgrade" >&2
-                fi
-                if ! /opt/fuelflux/deploy/install.sh disable; then
-                  echo "Warning: failed to disable fuelflux service during package removal/upgrade" >&2
-                fi
-              fi
-              EOF
+              {
+                printf '%s\n' \
+                  "#!/bin/bash" \
+                  "set -euo pipefail" \
+                  "" \
+                  "if [[ -x /opt/fuelflux/deploy/install.sh ]]; then" \
+                  "  if ! /opt/fuelflux/deploy/install.sh stop; then" \
+                  "    echo \"Warning: failed to stop fuelflux service during package removal/upgrade\" >&2" \
+                  "  fi" \
+                  "  if ! /opt/fuelflux/deploy/install.sh disable; then" \
+                  "    echo \"Warning: failed to disable fuelflux service during package removal/upgrade\" >&2" \
+                  "  fi" \
+                  "fi"
+              } > /work/pkgroot/DEBIAN/prerm
 
               chmod 755 /work/pkgroot/DEBIAN/postinst /work/pkgroot/DEBIAN/prerm
 
