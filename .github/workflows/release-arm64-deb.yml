@@ -68,6 +68,7 @@ jobs:
 
               mkdir -p /work/pkgroot/opt/fuelflux/deploy
               cp -a deploy/. /work/pkgroot/opt/fuelflux/deploy/
+              chmod 755 /work/pkgroot/opt/fuelflux/deploy/install.sh
 
               {
                 printf '%s\n' \
@@ -87,7 +88,6 @@ jobs:
               set -euo pipefail
 
               if [[ "${1:-}" == "configure" ]]; then
-                chmod +x /opt/fuelflux/deploy/install.sh
                 /opt/fuelflux/deploy/install.sh install /opt/fuelflux/bin/fuelflux
               fi
               EOF
@@ -97,8 +97,12 @@ jobs:
               set -euo pipefail
 
               if [[ -x /opt/fuelflux/deploy/install.sh ]]; then
-                /opt/fuelflux/deploy/install.sh stop || true
-                /opt/fuelflux/deploy/install.sh disable || true
+                if ! /opt/fuelflux/deploy/install.sh stop; then
+                  echo "Warning: failed to stop fuelflux service during package removal/upgrade" >&2
+                fi
+                if ! /opt/fuelflux/deploy/install.sh disable; then
+                  echo "Warning: failed to disable fuelflux service during package removal/upgrade" >&2
+                fi
               fi
               EOF
 
