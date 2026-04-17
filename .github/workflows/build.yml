@@ -24,10 +24,10 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Restore CMake deps cache
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: build/_deps
           key: ${{ runner.os }}-fuelflux-cmake-deps-${{ hashFiles('CMakeLists.txt') }}
@@ -71,7 +71,7 @@ jobs:
      
 
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@v5
         with:
           files: ./coverage.info
           fail_ci_if_error: true
@@ -84,10 +84,10 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Restore CMake deps cache (arm64)
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: build-arm64/_deps
           key: ${{ runner.os }}-fuelflux-cmake-deps-arm64-${{ hashFiles('CMakeLists.txt') }}
@@ -122,4 +122,3 @@ jobs:
               cmake --build . --config Release -j\$(nproc)
               ctest --output-on-failure -C Release
             "
-
