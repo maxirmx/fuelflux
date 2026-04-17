@@ -88,16 +88,21 @@ jobs:
                   "#!/bin/bash" \
                   "set -euo pipefail" \
                   "" \
-                  "if [[ \"\${1:-}\" == \"configure\" ]]; then" \
-                  "  if [[ ! -x /opt/fuelflux/deploy/install.sh ]]; then" \
-                  "    echo \"Error: /opt/fuelflux/deploy/install.sh is missing or not executable\" >&2" \
-                  "    exit 1" \
-                  "  fi" \
-                  "  if ! /opt/fuelflux/deploy/install.sh install /opt/fuelflux/bin/fuelflux; then" \
-                  "    echo \"Error: failed to run deploy install script during package configure\" >&2" \
-                  "    exit 1" \
-                  "  fi" \
-                  "fi"
+                  "case \"\${1:-}\" in" \
+                  "  configure)" \
+                  "    if [[ ! -x /opt/fuelflux/deploy/install.sh ]]; then" \
+                  "      echo \"Error: /opt/fuelflux/deploy/install.sh is missing or not executable\" >&2" \
+                  "      exit 1" \
+                  "    fi" \
+                  "    if ! /opt/fuelflux/deploy/install.sh install /opt/fuelflux/bin/fuelflux; then" \
+                  "      echo \"Error: failed to run deploy install script during package configure\" >&2" \
+                  "      exit 1" \
+                  "    fi" \
+                  "    ;;" \
+                  "  abort-upgrade|abort-remove|abort-deconfigure)" \
+                  "    # No action needed for abort states." \
+                  "    ;;" \
+                  "esac"
               } > /work/pkgroot/DEBIAN/postinst
 
               {
