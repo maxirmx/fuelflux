@@ -82,6 +82,28 @@ jobs:
                   " FuelFlux controller software and deployment assets for ARM64 devices."
               } > /work/pkgroot/DEBIAN/control
 
+              cat > /work/pkgroot/DEBIAN/postinst <<'EOF'
+              #!/bin/bash
+              set -euo pipefail
+
+              if [[ "${1:-}" == "configure" ]]; then
+                chmod +x /opt/fuelflux/deploy/install.sh
+                /opt/fuelflux/deploy/install.sh install /opt/fuelflux/bin/fuelflux
+              fi
+              EOF
+
+              cat > /work/pkgroot/DEBIAN/prerm <<'EOF'
+              #!/bin/bash
+              set -euo pipefail
+
+              if [[ -x /opt/fuelflux/deploy/install.sh ]]; then
+                /opt/fuelflux/deploy/install.sh stop || true
+                /opt/fuelflux/deploy/install.sh disable || true
+              fi
+              EOF
+
+              chmod 755 /work/pkgroot/DEBIAN/postinst /work/pkgroot/DEBIAN/prerm
+
               dpkg-deb --build --root-owner-group /work/pkgroot "/work/dist/fuelflux_${DEB_VERSION}_arm64.deb"
             '
 
