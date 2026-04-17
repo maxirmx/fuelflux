@@ -98,6 +98,10 @@ jobs:
                   "      echo \"Error: failed to run deploy install script during package configure\" >&2" \
                   "      exit 1" \
                   "    fi" \
+                  "    if ! /opt/fuelflux/deploy/install.sh start; then" \
+                  "      echo \"Error: failed to start fuelflux service during package configure\" >&2" \
+                  "      exit 1" \
+                  "    fi" \
                   "    ;;" \
                   "  abort-upgrade|abort-remove|abort-deconfigure)" \
                   "    # No action needed for abort states." \
@@ -110,14 +114,27 @@ jobs:
                   "#!/bin/bash" \
                   "set -euo pipefail" \
                   "" \
-                  "if [[ -x /opt/fuelflux/deploy/install.sh ]]; then" \
-                  "  if ! /opt/fuelflux/deploy/install.sh stop; then" \
-                  "    echo \"Warning: failed to stop fuelflux service during package removal/upgrade\" >&2" \
-                  "  fi" \
-                  "  if ! /opt/fuelflux/deploy/install.sh disable; then" \
-                  "    echo \"Warning: failed to disable fuelflux service during package removal/upgrade\" >&2" \
-                  "  fi" \
-                  "fi"
+                  "case \"\${1:-}\" in" \
+                  "  upgrade|failed-upgrade)" \
+                  "    if [[ -x /opt/fuelflux/deploy/install.sh ]]; then" \
+                  "      if ! /opt/fuelflux/deploy/install.sh stop; then" \
+                  "        echo \"Warning: failed to stop fuelflux service during package upgrade\" >&2" \
+                  "      fi" \
+                  "    fi" \
+                  "    ;;" \
+                  "  remove|purge|deconfigure)" \
+                  "    if [[ -x /opt/fuelflux/deploy/install.sh ]]; then" \
+                  "      if ! /opt/fuelflux/deploy/install.sh stop; then" \
+                  "        echo \"Warning: failed to stop fuelflux service during package removal\" >&2" \
+                  "      fi" \
+                  "      if ! /opt/fuelflux/deploy/install.sh disable; then" \
+                  "        echo \"Warning: failed to disable fuelflux service during package removal\" >&2" \
+                  "      fi" \
+                  "    fi" \
+                  "    ;;" \
+                  "  *)" \
+                  "    ;;" \
+                  "esac"
               } > /work/pkgroot/DEBIAN/prerm
 
               chmod 755 /work/pkgroot/DEBIAN/postinst /work/pkgroot/DEBIAN/prerm
