@@ -82,6 +82,7 @@ jobs:
                   "Description: FuelFlux controller software package" \
                   " FuelFlux controller software and deployment assets for ARM64 devices."
               } > /work/pkgroot/DEBIAN/control
+              printf '\n' >> /work/pkgroot/DEBIAN/control
 
               {
                 printf '%s\n' \
