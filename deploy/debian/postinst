@@ -7,7 +7,7 @@ case "${1:-}" in
       echo "Error: /opt/fuelflux/deploy/install.sh is missing or not executable" >&2
       exit 1
     fi
-    if ! /opt/fuelflux/deploy/install.sh install /opt/fuelflux/bin/fuelflux; then
+    if ! /opt/fuelflux/deploy/install.sh install; then
       echo "Error: failed to run deploy install script during package configure" >&2
       exit 1
     fi
