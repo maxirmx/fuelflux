@@ -98,9 +98,13 @@ jobs:
               EOF
               chmod 755 /usr/local/bin/systemctl
 
-              deb_pkg=$(ls -1 /work/dist/fuelflux_*_arm64.deb | head -n1)
-              test -n "$deb_pkg"
-              dpkg -i "$deb_pkg"
+              shopt -s nullglob
+              deb_packages=(/work/dist/fuelflux_*_arm64.deb)
+              if [[ "${#deb_packages[@]}" -ne 1 ]]; then
+                echo "Expected exactly one ARM64 package, found ${#deb_packages[@]}" >&2
+                exit 1
+              fi
+              dpkg -i "${deb_packages[0]}"
 
               test -x /opt/fuelflux/bin/fuelflux
               test -x /opt/fuelflux/deploy/install.sh
