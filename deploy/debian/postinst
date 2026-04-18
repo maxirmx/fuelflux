@@ -20,5 +20,6 @@ case "${1:-}" in
     # No action needed for abort states.
     ;;
   *)
+    echo "Warning: unhandled postinst argument '${1:-}'" >&2
     ;;
 esac

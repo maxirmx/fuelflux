@@ -20,5 +20,6 @@ case "${1:-}" in
     fi
     ;;
   *)
+    echo "Warning: unhandled prerm argument '${1:-}'" >&2
     ;;
 esac
