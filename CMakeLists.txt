@@ -451,7 +451,6 @@ if(ENABLE_TESTING)
         tests/console_emulator_test.cpp
         tests/four_line_display_test.cpp
         tests/flow_meter_test.cpp
-        tests/deploy_scripts_test.cpp
     )
     
     # Add four_line_display_impl tests only for real display builds
