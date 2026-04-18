@@ -19,4 +19,6 @@ case "${1:-}" in
   abort-upgrade|abort-remove|abort-deconfigure)
     # No action needed for abort states.
     ;;
+  *)
+    ;;
 esac
