@@ -81,9 +81,12 @@ jobs:
 
       - name: Test Debian install/uninstall in Ubuntu arm64 container
         shell: bash
+        env:
+          DEB_VERSION: ${{ steps.version.outputs.version }}
         run: |
           set -euo pipefail
           docker run --rm --platform linux/arm64 \
+            -e DEB_VERSION="${DEB_VERSION}" \
             -v "${{ github.workspace }}:/work" -w /work \
             ubuntu:22.04 bash -lc '
               set -euo pipefail
@@ -98,13 +101,12 @@ jobs:
               EOF
               chmod 755 /usr/local/bin/systemctl
 
-              shopt -s nullglob
-              deb_packages=(/work/dist/fuelflux_*_arm64.deb)
-              if [[ "${#deb_packages[@]}" -ne 1 ]]; then
-                echo "Expected exactly one ARM64 package, found ${#deb_packages[@]}" >&2
+              deb_pkg="/work/dist/fuelflux_${DEB_VERSION}_arm64.deb"
+              if [[ ! -f "${deb_pkg}" ]]; then
+                echo "Expected package not found: ${deb_pkg}" >&2
                 exit 1
               fi
-              dpkg -i "${deb_packages[0]}"
+              dpkg -i "${deb_pkg}"
 
               test -x /opt/fuelflux/bin/fuelflux
               test -x /opt/fuelflux/deploy/install.sh
