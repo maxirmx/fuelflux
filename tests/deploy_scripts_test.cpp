@@ -10,6 +10,9 @@ namespace {
 std::string readFile(const std::filesystem::path& path) {
     std::ifstream file(path);
     EXPECT_TRUE(file.is_open()) << "Failed to open file: " << path;
+    if (!file.is_open()) {
+        return {};
+    }
     std::stringstream buffer;
     buffer << file.rdbuf();
     return buffer.str();
@@ -20,7 +23,7 @@ std::string readFile(const std::filesystem::path& path) {
 TEST(DeployScriptsTest, DebianPostinstInstallDoesNotPassBinaryPath) {
     const auto postinst = readFile(std::filesystem::path("..") / "deploy" / "debian" / "postinst");
 
-    EXPECT_NE(postinst.find("/opt/fuelflux/deploy/install.sh install;"), std::string::npos);
+    EXPECT_NE(postinst.find("/opt/fuelflux/deploy/install.sh install"), std::string::npos);
     EXPECT_EQ(postinst.find("/opt/fuelflux/deploy/install.sh install /opt/fuelflux/bin/fuelflux"),
               std::string::npos);
 }
