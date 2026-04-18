@@ -95,7 +95,7 @@ jobs:
             ${{ runner.os }}-fuelflux-cmake-deps-arm64-
 
       - name: Set up QEMU emulation
-        uses: docker/setup-qemu-action@v2
+        uses: docker/setup-qemu-action@v3
         with:
           platforms: linux/arm64
 
