@@ -1,0 +1,10 @@
+Package: fuelflux
+Version: @DEB_VERSION@
+Section: utils
+Priority: optional
+Architecture: @DEB_ARCH@
+Maintainer: sw.consulting <support@sw.consulting>
+Depends: libc6 (>= 2.35), libstdc++6, libsqlite3-0, libgpiod2, libssl3 | libssl1.1, libnfc6, libcurl4, libfmt9 | libfmt8 | libfmt7
+Description: FuelFlux controller software package
+ FuelFlux controller software and deployment assets for ARM64 devices.
+

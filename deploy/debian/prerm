@@ -1,0 +1,24 @@
+#!/bin/bash
+set -euo pipefail
+
+case "${1:-}" in
+  upgrade|failed-upgrade)
+    if [[ -x /opt/fuelflux/deploy/install.sh ]]; then
+      if ! /opt/fuelflux/deploy/install.sh stop; then
+        echo "Warning: failed to stop fuelflux service during package upgrade" >&2
+      fi
+    fi
+    ;;
+  remove|purge|deconfigure)
+    if [[ -x /opt/fuelflux/deploy/install.sh ]]; then
+      if ! /opt/fuelflux/deploy/install.sh stop; then
+        echo "Warning: failed to stop fuelflux service during package removal" >&2
+      fi
+      if ! /opt/fuelflux/deploy/install.sh disable; then
+        echo "Warning: failed to disable fuelflux service during package removal" >&2
+      fi
+    fi
+    ;;
+  *)
+    ;;
+esac
