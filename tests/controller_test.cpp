@@ -325,12 +325,13 @@ TEST_F(ControllerTest, CachedAuthorizationAllowsOnlyCachedTankSelection) {
     ASSERT_TRUE(controller->getUserCache()->BeginPopulation());
     ASSERT_TRUE(controller->getUserCache()->AddPopulationEntry("offline-user", 200.0, static_cast<int>(UserRole::Customer)));
     ASSERT_TRUE(controller->getUserCache()->AddPopulationTank(10, 7, "Tank-7", 700.0));
+    ASSERT_TRUE(controller->getUserCache()->AddPopulationTank(11, 8, "Tank-8", 800.0));
     ASSERT_TRUE(controller->getUserCache()->CommitPopulation());
 
     EXPECT_CALL(*mockBackend, Authorize("offline-user")).WillOnce(Return(false));
     ON_CALL(*mockBackend, IsNetworkError()).WillByDefault(Return(true));
     ON_CALL(*mockBackend, FetchUserCards(_, _)).WillByDefault(Return(std::vector<UserCard>{{"offline-user", static_cast<int>(UserRole::Customer), 123.0}}));
-    ON_CALL(*mockBackend, FetchFuelTanks(_, _)).WillByDefault(Return(std::vector<FuelTank>{{10, 7, "Tank-7", 700.0}}));
+    ON_CALL(*mockBackend, FetchFuelTanks(_, _)).WillByDefault(Return(std::vector<FuelTank>{{10, 7, "Tank-7", 700.0}, {11, 8, "Tank-8", 800.0}}));
 
     controller->initialize();
     std::thread controllerThread([this]() { controller->run(); });
@@ -338,6 +339,9 @@ TEST_F(ControllerTest, CachedAuthorizationAllowsOnlyCachedTankSelection) {
 
     controller->handleCardPresented("offline-user");
     ASSERT_TRUE(waitForState(SystemState::TankSelection));
+    ASSERT_EQ(controller->getAvailableTanks().size(), 2);
+    EXPECT_EQ(controller->getAvailableTanks()[0].number, 7);
+    EXPECT_EQ(controller->getAvailableTanks()[1].number, 8);
 
     controller->handleKeyPress(KeyCode::Key9);
     controller->handleKeyPress(KeyCode::Key9);
@@ -761,9 +765,6 @@ TEST_F(ControllerTest, CancelNoFuelInRefuelingBehavesLikeCancelPressed) {
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
 
     controller->handleCardPresented("customer-card");
-    ASSERT_TRUE(waitForState(SystemState::TankSelection));
-
-    controller->selectTank(1);
     ASSERT_TRUE(waitForState(SystemState::VolumeEntry));
 
     controller->enterVolume(10.0);
@@ -795,9 +796,6 @@ TEST_F(ControllerTest, NoFlowWatchdogCancelsRefueling) {
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
 
     controller->handleCardPresented("customer-card");
-    ASSERT_TRUE(waitForState(SystemState::TankSelection));
-
-    controller->selectTank(1);
     ASSERT_TRUE(waitForState(SystemState::VolumeEntry));
 
     controller->enterVolume(10.0);
@@ -841,10 +839,6 @@ TEST_F(ControllerTest, RefuelingCompletionDisplaysFinalVolume) {
 
     // Present card -> Authorization -> TankSelection
     controller->handleCardPresented("customer-card");
-    ASSERT_TRUE(waitForState(SystemState::TankSelection));
-
-    // Select tank -> VolumeEntry
-    controller->selectTank(1);
     ASSERT_TRUE(waitForState(SystemState::VolumeEntry));
 
     // Enter volume "10" and press Start -> Refueling
@@ -1144,7 +1138,7 @@ TEST_F(ControllerTest, TankValidationUsesVisualTankNumberFromBackend) {
     mockBackend->roleId_ = static_cast<int>(UserRole::Customer);
     mockBackend->allowance_ = 100.0;
     mockBackend->price_ = 45.5;
-    mockBackend->tanksStorage_ = {BackendTankInfo{44, 7, "Tank A", 50.0}};
+    mockBackend->tanksStorage_ = {BackendTankInfo{44, 7, "Tank A", 50.0}, BackendTankInfo{45, 9, "Tank B", 60.0}};
 
     EXPECT_CALL(*mockBackend, Authorize("test-card"))
         .WillOnce(Return(true));
@@ -1259,7 +1253,7 @@ TEST_F(ControllerTest, InputClearedAfterValidationError) {
 
 TEST_F(ControllerTest, OperatorIntakeWorkflow) {
     mockBackend->roleId_ = static_cast<int>(UserRole::Operator);
-    mockBackend->tanksStorage_ = {BackendTankInfo{1, 1, "Tank A"}};
+    mockBackend->tanksStorage_ = {BackendTankInfo{1, 1, "Tank A"}, BackendTankInfo{2, 2, "Tank B"}};
 
     EXPECT_CALL(*mockBackend, Authorize("operator-card"))
         .WillOnce(Return(true));
@@ -1295,11 +1289,44 @@ TEST_F(ControllerTest, OperatorIntakeWorkflow) {
     }
 }
 
+TEST_F(ControllerTest, OperatorIntakeWorkflowSingleTankSkipsSelection) {
+    mockBackend->roleId_ = static_cast<int>(UserRole::Operator);
+    mockBackend->tanksStorage_ = {BackendTankInfo{1, 1, "Tank A"}};
+
+    EXPECT_CALL(*mockBackend, Authorize("operator-card"))
+        .WillOnce(Return(true));
+    EXPECT_CALL(*mockBackend, Intake(1, 100.0, IntakeDirection::In))
+        .WillOnce(Return(true));
+
+    controller->initialize();
+
+    std::thread controllerThread([this]() {
+        controller->run();
+    });
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+
+    controller->handleCardPresented("operator-card");
+    ASSERT_TRUE(waitForState(SystemState::IntakeDirectionSelection));
+    EXPECT_EQ(controller->getSelectedTank(), 1);
+
+    controller->addDigitToInput('1');
+    controller->handleKeyPress(KeyCode::KeyStart);
+    ASSERT_TRUE(waitForState(SystemState::IntakeVolumeEntry));
+
+    controller->addDigitToInput('1');
+    controller->addDigitToInput('0');
+    controller->addDigitToInput('0');
+    controller->handleKeyPress(KeyCode::KeyStart);
+    ASSERT_TRUE(waitForState(SystemState::IntakeComplete));
+
+    shutdownControllerAndJoinThread(controllerThread);
+}
+
 TEST_F(ControllerTest, CustomerRefuelWorkflow) {
     mockBackend->roleId_ = static_cast<int>(UserRole::Customer);
     mockBackend->allowance_ = 200.0;
     mockBackend->price_ = 45.5;
-    mockBackend->tanksStorage_ = {BackendTankInfo{1, 1, "Tank A"}};
+    mockBackend->tanksStorage_ = {BackendTankInfo{1, 1, "Tank A"}, BackendTankInfo{2, 2, "Tank B"}};
 
     EXPECT_CALL(*mockBackend, Authorize("customer-card"))
         .WillOnce(Return(true));
@@ -1322,6 +1349,43 @@ TEST_F(ControllerTest, CustomerRefuelWorkflow) {
 
     controller->selectTank(1);
     ASSERT_TRUE(waitForState(SystemState::VolumeEntry));
+
+    controller->addDigitToInput('5');
+    controller->addDigitToInput('0');
+    controller->handleKeyPress(KeyCode::KeyStart);
+    ASSERT_TRUE(waitForState(SystemState::Refueling));
+
+    mockFlowMeter->simulateFlow(50.0);
+    ASSERT_TRUE(waitForState(SystemState::RefuelingComplete));
+
+    shutdownControllerAndJoinThread(controllerThread);
+}
+
+TEST_F(ControllerTest, CustomerRefuelWorkflowSingleTankSkipsSelection) {
+    mockBackend->roleId_ = static_cast<int>(UserRole::Customer);
+    mockBackend->allowance_ = 200.0;
+    mockBackend->price_ = 45.5;
+    mockBackend->tanksStorage_ = {BackendTankInfo{1, 1, "Tank A"}};
+
+    EXPECT_CALL(*mockBackend, Authorize("customer-card"))
+        .WillOnce(Return(true));
+    EXPECT_CALL(*mockBackend, Refuel(1, 50.0))
+        .WillOnce(Return(true));
+    EXPECT_CALL(*mockBackend, IsAuthorized())
+        .WillRepeatedly(Return(true));
+    EXPECT_CALL(*mockBackend, Deauthorize())
+        .WillOnce(Return(true));
+
+    controller->initialize();
+
+    std::thread controllerThread([this]() {
+        controller->run();
+    });
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+
+    controller->handleCardPresented("customer-card");
+    ASSERT_TRUE(waitForState(SystemState::VolumeEntry));
+    EXPECT_EQ(controller->getSelectedTank(), 1);
 
     controller->addDigitToInput('5');
     controller->addDigitToInput('0');
@@ -1426,9 +1490,6 @@ TEST_F(ControllerTest, DisplayMessageVolumeEntryState) {
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
     
     controller->handleCardPresented("test-card");
-    ASSERT_TRUE(waitForState(SystemState::TankSelection));
-    
-    controller->selectTank(1);
     ASSERT_TRUE(waitForState(SystemState::VolumeEntry));
     
     // Get display message
@@ -1514,7 +1575,7 @@ TEST_F(ControllerTest, CardReadingReenabledWhenReturningToWaiting) {
 TEST_F(ControllerTest, CardReadingDisabledDuringAuthorization) {
     mockBackend->roleId_ = static_cast<int>(UserRole::Customer);
     mockBackend->allowance_ = 100.0;
-    mockBackend->tanksStorage_ = {BackendTankInfo{1, 1, "Tank A"}};
+    mockBackend->tanksStorage_ = {BackendTankInfo{1, 1, "Tank A"}, BackendTankInfo{2, 2, "Tank B"}};
     
     EXPECT_CALL(*mockBackend, Authorize("test-card")).WillOnce(Return(true));
     
@@ -1544,7 +1605,7 @@ TEST_F(ControllerTest, CardReadingDisabledDuringAuthorization) {
 TEST_F(ControllerTest, CardReadingDisabledDuringRefueling) {
     mockBackend->roleId_ = static_cast<int>(UserRole::Customer);
     mockBackend->allowance_ = 100.0;
-    mockBackend->tanksStorage_ = {BackendTankInfo{1, 1, "Tank A"}};
+    mockBackend->tanksStorage_ = {BackendTankInfo{1, 1, "Tank A"}, BackendTankInfo{2, 2, "Tank B"}};
     
     EXPECT_CALL(*mockBackend, Authorize("test-card")).WillOnce(Return(true));
     EXPECT_CALL(*mockBackend, Refuel(1, 10.0)).WillOnce(Return(true));
@@ -1601,7 +1662,7 @@ TEST_F(ControllerTest, DataTransmissionStateShownDuringRefuel) {
     mockBackend->roleId_ = static_cast<int>(UserRole::Customer);
     mockBackend->allowance_ = 100.0;
     mockBackend->price_ = 1.0;
-    mockBackend->tanksStorage_ = { BackendTankInfo{1, 1, "Tank A"} };
+    mockBackend->tanksStorage_ = { BackendTankInfo{1, 1, "Tank A"}, BackendTankInfo{2, 2, "Tank B"} };
 
     EXPECT_CALL(*mockBackend, Authorize("customer-card")).WillOnce([this]() {
         mockBackend->authorized_ = true;
@@ -1666,7 +1727,7 @@ TEST_F(ControllerTest, DataTransmissionStateShownDuringIntake) {
     mockBackend->roleId_ = static_cast<int>(UserRole::Operator);
     mockBackend->allowance_ = 0.0;
     mockBackend->price_ = 0.0;
-    mockBackend->tanksStorage_ = { BackendTankInfo{1, 1, "Tank A"} };
+    mockBackend->tanksStorage_ = { BackendTankInfo{1, 1, "Tank A"}, BackendTankInfo{2, 2, "Tank B"} };
 
     EXPECT_CALL(*mockBackend, Authorize("operator-card")).WillOnce([this]() {
         mockBackend->authorized_ = true;
@@ -1756,10 +1817,6 @@ TEST_F(ControllerTest, VolumeValidationAgainstTankCapacity) {
 
     // Present card -> Authorization -> TankSelection
     controller->handleCardPresented("customer-card");
-    ASSERT_TRUE(waitForState(SystemState::TankSelection));
-
-    // Select tank -> VolumeEntry
-    controller->selectTank(1);
     ASSERT_TRUE(waitForState(SystemState::VolumeEntry));
 
     // Try to enter volume exceeding tank capacity (60L > 50L)
@@ -1800,10 +1857,6 @@ TEST_F(ControllerTest, VolumeValidationWithinTankCapacity) {
 
     // Present card -> Authorization -> TankSelection
     controller->handleCardPresented("customer-card");
-    ASSERT_TRUE(waitForState(SystemState::TankSelection));
-
-    // Select tank -> VolumeEntry
-    controller->selectTank(1);
     ASSERT_TRUE(waitForState(SystemState::VolumeEntry));
 
     // Enter volume within tank capacity (40L < 50L)
@@ -1843,10 +1896,6 @@ TEST_F(ControllerTest, VolumeValidationEqualToTankCapacity) {
 
     // Present card -> Authorization -> TankSelection
     controller->handleCardPresented("customer-card");
-    ASSERT_TRUE(waitForState(SystemState::TankSelection));
-
-    // Select tank -> VolumeEntry
-    controller->selectTank(1);
     ASSERT_TRUE(waitForState(SystemState::VolumeEntry));
 
     // Enter volume equal to tank capacity (50L == 50L)
@@ -1886,10 +1935,6 @@ TEST_F(ControllerTest, VolumeValidationAgainstAllowanceWhenLowerThanTankCapacity
 
     // Present card -> Authorization -> TankSelection
     controller->handleCardPresented("customer-card");
-    ASSERT_TRUE(waitForState(SystemState::TankSelection));
-
-    // Select tank -> VolumeEntry
-    controller->selectTank(1);
     ASSERT_TRUE(waitForState(SystemState::VolumeEntry));
 
     // Try to enter volume exceeding allowance (40L > 30L allowance)
@@ -1930,10 +1975,6 @@ TEST_F(ControllerTest, VolumeValidationBothConstraintsSatisfied) {
 
     // Present card -> Authorization -> TankSelection
     controller->handleCardPresented("customer-card");
-    ASSERT_TRUE(waitForState(SystemState::TankSelection));
-
-    // Select tank -> VolumeEntry
-    controller->selectTank(1);
     ASSERT_TRUE(waitForState(SystemState::VolumeEntry));
 
     // Enter volume within both limits (45L < 50L tank and < 60L allowance)
@@ -1982,11 +2023,6 @@ TEST_F(ControllerTest, OperatorNotRestrictedByTankCapacity) {
 
     // Present card -> Authorization -> TankSelection
     controller->handleCardPresented("operator-card");
-    ASSERT_TRUE(waitForState(SystemState::TankSelection));
-
-    // Operators go to IntakeDirectionSelection, not VolumeEntry
-    // Tank capacity validation doesn't apply to operators since they use intake flow
-    controller->selectTank(1);
     ASSERT_TRUE(waitForState(SystemState::IntakeDirectionSelection));
 
     shutdownControllerAndJoinThread(controllerThread);
@@ -2018,10 +2054,6 @@ TEST_F(ControllerTest, VolumeValidationWithZeroTankCapacity) {
 
     // Present card -> Authorization -> TankSelection
     controller->handleCardPresented("customer-card");
-    ASSERT_TRUE(waitForState(SystemState::TankSelection));
-
-    // Select tank -> VolumeEntry
-    controller->selectTank(1);
     ASSERT_TRUE(waitForState(SystemState::VolumeEntry));
 
     // Enter volume (should not be restricted by zero tank capacity)
@@ -2103,7 +2135,7 @@ TEST_F(ControllerTest, TankVolumeFromBackendAuthorization) {
 
     // Present card -> Authorization -> TankSelection
     controller->handleCardPresented("customer-card");
-    ASSERT_TRUE(waitForState(SystemState::TankSelection));
+    ASSERT_TRUE(waitForState(SystemState::VolumeEntry));
 
     // Verify getTankVolume returns correct volume
     EXPECT_DOUBLE_EQ(controller->getTankVolume(1), 75.5);
@@ -2170,10 +2202,6 @@ TEST_F(ControllerTest, VolumeEntryDisplayShowsAllowanceWhenLower) {
 
     // Present card -> Authorization -> TankSelection
     controller->handleCardPresented("customer-card");
-    ASSERT_TRUE(waitForState(SystemState::TankSelection));
-
-    // Select tank -> VolumeEntry
-    controller->selectTank(1);
     ASSERT_TRUE(waitForState(SystemState::VolumeEntry));
 
     // Wait for display to update
@@ -2223,10 +2251,6 @@ TEST_F(ControllerTest, VolumeEntryDisplayShowsTankVolumeWhenLower) {
 
     // Present card -> Authorization -> TankSelection
     controller->handleCardPresented("customer-card");
-    ASSERT_TRUE(waitForState(SystemState::TankSelection));
-
-    // Select tank -> VolumeEntry
-    controller->selectTank(1);
     ASSERT_TRUE(waitForState(SystemState::VolumeEntry));
 
     // Wait for display to update
@@ -2276,10 +2300,6 @@ TEST_F(ControllerTest, VolumeEntryDisplayShowsAllowanceWhenNoTankVolume) {
 
     // Present card -> Authorization -> TankSelection
     controller->handleCardPresented("customer-card");
-    ASSERT_TRUE(waitForState(SystemState::TankSelection));
-
-    // Select tank -> VolumeEntry
-    controller->selectTank(1);
     ASSERT_TRUE(waitForState(SystemState::VolumeEntry));
 
     // Wait for display to update
@@ -2646,7 +2666,7 @@ TEST_F(ControllerTest, NotAuthorizedStateRetriesAuthorization) {
 
     // Second attempt succeeds
     controller->handleCardPresented("valid-card");
-    ASSERT_TRUE(waitForState(SystemState::TankSelection));
+    ASSERT_TRUE(waitForState(SystemState::VolumeEntry));
 
     shutdownControllerAndJoinThread(controllerThread);
 }
@@ -2680,7 +2700,7 @@ TEST_F(ControllerTest, CannotAuthorizeStateRetriesAuthorization) {
 
     // Retry after network recovery
     controller->handleCardPresented("card");
-    ASSERT_TRUE(waitForState(SystemState::TankSelection));
+    ASSERT_TRUE(waitForState(SystemState::VolumeEntry));
 
     shutdownControllerAndJoinThread(controllerThread);
 }
