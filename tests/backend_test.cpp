@@ -620,7 +620,7 @@ TEST_F(BackendTest, IntakeJsonParseError) {
     EXPECT_TRUE(backend.Authorize("operator-card-uid"));
     
     // Setup malformed JSON for intake
-    mockServer->handleFuelIntake = [](const httplib::Request& req [[maybe_unused]], httplib::Response& res) {
+    mockServer->handleFuelIntake = [](const httplib::Request& req, httplib::Response& res) {
         res.status = 200;
         res.set_content("not valid json at all!", "application/json");
     };
