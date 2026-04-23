@@ -1319,10 +1319,7 @@ TEST_F(ControllerTest, OperatorIntakeWorkflowSingleTankSkipsSelection) {
     controller->handleKeyPress(KeyCode::KeyStart);
     ASSERT_TRUE(waitForState(SystemState::IntakeComplete));
 
-    controller->shutdown();
-    if (controllerThread.joinable()) {
-        controllerThread.join();
-    }
+    shutdownControllerAndJoinThread(controllerThread);
 }
 
 TEST_F(ControllerTest, CustomerRefuelWorkflow) {
