@@ -4,7 +4,12 @@ set -euo pipefail
 SERVICE_NAME="fuelflux"
 
 case "${1:-}" in
-  upgrade|failed-upgrade|remove|purge|deconfigure)
+  upgrade|failed-upgrade)
+    if systemctl is-active --quiet "${SERVICE_NAME}" 2>/dev/null; then
+      systemctl stop "${SERVICE_NAME}" || true
+    fi
+    ;;
+  remove|purge|deconfigure)
     if systemctl is-active --quiet "${SERVICE_NAME}" 2>/dev/null; then
       systemctl stop "${SERVICE_NAME}" || true
     fi
