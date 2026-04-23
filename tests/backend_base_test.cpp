@@ -159,10 +159,10 @@ TEST(BackendBaseFetchFuelTanksTest, SendsExpectedRequestAndParsesValidTanks) {
         EXPECT_EQ(body.value("PumpControllerUid", ""), "controller-uid-42");
 
         return nlohmann::json::array({
-            {{"VisualNumberTank", 1}, {"IdTank", 11}, {"NameTank", "Diesel"}, {"Volume", 1000.5}},
-            {{"VisualNumberTank", 2}},
+            {{"visualNumberTank", 1}, {"idTank", 11}, {"nameTank", "Diesel"}, {"volume", 1000.5}},
+            {{"visualNumberTank", 2}},
             7,
-            {{"IdTank", 99}},
+            {{"idTank", 99}},
         });
     };
 
@@ -198,7 +198,7 @@ TEST(BackendBaseFetchFuelTanksTest, BadVolumeTypeIsHandledAsFailure) {
     TestBackendBase backend("controller-uid-42");
 
     backend.boolTokenHandler = [](const std::string&, const std::string&, const nlohmann::json&, bool) {
-        return nlohmann::json::array({{{"VisualNumberTank", 1}, {"Volume", "bad"}}});
+        return nlohmann::json::array({{{"visualNumberTank", 1}, {"volume", "bad"}}});
     };
 
     const auto tanks = backend.FetchFuelTanks(0, 1);
