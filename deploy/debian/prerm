@@ -1,22 +1,15 @@
 #!/bin/bash
 set -euo pipefail
 
+SERVICE_NAME="fuelflux"
+
 case "${1:-}" in
-  upgrade|failed-upgrade)
-    if [[ -x /opt/fuelflux/deploy/install.sh ]]; then
-      if ! /opt/fuelflux/deploy/install.sh stop; then
-        echo "Warning: failed to stop fuelflux service during package upgrade" >&2
-      fi
+  upgrade|failed-upgrade|remove|purge|deconfigure)
+    if systemctl is-active --quiet "${SERVICE_NAME}" 2>/dev/null; then
+      systemctl stop "${SERVICE_NAME}" || true
     fi
-    ;;
-  remove|purge|deconfigure)
-    if [[ -x /opt/fuelflux/deploy/install.sh ]]; then
-      if ! /opt/fuelflux/deploy/install.sh stop; then
-        echo "Warning: failed to stop fuelflux service during package removal" >&2
-      fi
-      if ! /opt/fuelflux/deploy/install.sh disable; then
-        echo "Warning: failed to disable fuelflux service during package removal" >&2
-      fi
+    if systemctl is-enabled --quiet "${SERVICE_NAME}" 2>/dev/null; then
+      systemctl disable "${SERVICE_NAME}" || true
     fi
     ;;
   *)

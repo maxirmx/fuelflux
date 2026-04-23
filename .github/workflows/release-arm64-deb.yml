@@ -67,9 +67,11 @@ jobs:
               mkdir -p pkgroot/DEBIAN dist
               cmake --install build-arm64 --prefix /work/pkgroot/opt/fuelflux
 
-              mkdir -p /work/pkgroot/opt/fuelflux/deploy
-              cp -a deploy/. /work/pkgroot/opt/fuelflux/deploy/
-              chmod 755 /work/pkgroot/opt/fuelflux/deploy/install.sh
+              mkdir -p /work/pkgroot/opt/fuelflux/config
+              install -m 0644 /work/deploy/logging.json /work/pkgroot/opt/fuelflux/config/logging.json
+
+              mkdir -p /work/pkgroot/lib/systemd/system
+              install -m 0644 /work/deploy/fuelflux.service /work/pkgroot/lib/systemd/system/fuelflux.service
 
               install -m 0644 /work/deploy/debian/control /work/pkgroot/DEBIAN/control
               sed -i "s/@DEB_VERSION@/${DEB_VERSION}/g; s/@DEB_ARCH@/arm64/g" /work/pkgroot/DEBIAN/control
@@ -109,7 +111,7 @@ jobs:
               dpkg -i "${deb_pkg}"
 
               test -x /opt/fuelflux/bin/fuelflux
-              test -x /opt/fuelflux/deploy/install.sh
+              test -f /lib/systemd/system/fuelflux.service
               getent passwd fuelflux > /dev/null
 
               dpkg -r fuelflux
