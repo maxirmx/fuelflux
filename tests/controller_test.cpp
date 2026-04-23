@@ -339,6 +339,9 @@ TEST_F(ControllerTest, CachedAuthorizationAllowsOnlyCachedTankSelection) {
 
     controller->handleCardPresented("offline-user");
     ASSERT_TRUE(waitForState(SystemState::TankSelection));
+    ASSERT_EQ(controller->getAvailableTanks().size(), 2);
+    EXPECT_EQ(controller->getAvailableTanks()[0].number, 7);
+    EXPECT_EQ(controller->getAvailableTanks()[1].number, 8);
 
     controller->handleKeyPress(KeyCode::Key9);
     controller->handleKeyPress(KeyCode::Key9);
