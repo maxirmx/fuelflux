@@ -16,6 +16,88 @@
 
 namespace fuelflux {
 
+namespace {
+
+bool ParseFuelTank(const nlohmann::json& tank,
+                   BackendTankInfo& tankInfo,
+                   bool parseAuthorizeVolume,
+                   std::string* errorMessage) {
+    tankInfo = BackendTankInfo{};
+
+    if (!tank.is_object()) {
+        return false;
+    }
+
+    if (!tank.contains("visualNumberTank") || !tank["visualNumberTank"].is_number_integer()) {
+        return false;
+    }
+    tankInfo.visualNumberTank = tank["visualNumberTank"].get<int>();
+
+    if (tank.contains("idTank") && !tank["idTank"].is_null()) {
+        if (!tank["idTank"].is_number_integer()) {
+            if (errorMessage) {
+                *errorMessage = StdBackendError;
+            }
+            return false;
+        }
+        tankInfo.idTank = tank["idTank"].get<int>();
+    }
+
+    if (tank.contains("nameTank") && !tank["nameTank"].is_null()) {
+        if (!tank["nameTank"].is_string()) {
+            if (errorMessage) {
+                *errorMessage = StdBackendError;
+            }
+            return false;
+        }
+        tankInfo.nameTank = tank["nameTank"].get<std::string>();
+    }
+
+    if (tank.contains("volume") && !tank["volume"].is_null()) {
+        if (!tank["volume"].is_number()) {
+            if (errorMessage) {
+                *errorMessage = StdBackendError;
+            }
+            return false;
+        }
+        tankInfo.volume = tank["volume"].get<double>();
+        return true;
+    }
+
+    if (!parseAuthorizeVolume) {
+        return true;
+    }
+
+    bool checkEnoughFuel = false;
+    if (tank.contains("isCheckEnoughFuel") && !tank["isCheckEnoughFuel"].is_null()) {
+        const auto& isCheckEnoughFuel = tank["isCheckEnoughFuel"];
+        if (isCheckEnoughFuel.is_boolean()) {
+            checkEnoughFuel = isCheckEnoughFuel.get<bool>();
+        } else if (isCheckEnoughFuel.is_number_integer()) {
+            checkEnoughFuel = isCheckEnoughFuel.get<int>() != 0;
+        }
+    }
+
+    if (checkEnoughFuel && tank.contains("allowanceTank") && !tank["allowanceTank"].is_null()) {
+        const auto& allowanceTank = tank["allowanceTank"];
+        if (allowanceTank.is_string()) {
+            try {
+                tankInfo.volume = std::stod(allowanceTank.get<std::string>());
+            } catch (const std::exception& e) {
+                tankInfo.volume = 0.0;
+                LOG_BCK_WARN("Failed to parse allowanceTank '{}' as number (defaulting to 0): {}",
+                             allowanceTank.get<std::string>(), e.what());
+            }
+        } else if (allowanceTank.is_number()) {
+            tankInfo.volume = allowanceTank.get<double>();
+        }
+    }
+
+    return true;
+}
+
+} // namespace
+
 // Meyer's singleton for bounded executor - thread-safe lazy initialization
 // Initialized on first use, avoiding static initialization order issues
 // and allowing exception handling at runtime instead of during startup
@@ -93,32 +175,14 @@ bool BackendBase::Authorize(const std::string& uid) {
         if (response.contains("fuelTanks") && response["fuelTanks"].is_array()) {
             for (const auto& tank : response["fuelTanks"]) {
                 BackendTankInfo tankInfo;
-                tankInfo.idTank = tank.value("idTank", 0);
-                tankInfo.visualNumberTank = tank.value("visualNumberTank", 0);
-                tankInfo.nameTank = tank.value("nameTank", "");
-
-                bool checkEnoughFuel = false;
-                if (tank.contains("isCheckEnoughFuel") && !tank["isCheckEnoughFuel"].is_null()) {
-                    const auto& isCheckEnoughFuel = tank["isCheckEnoughFuel"];
-                    if (isCheckEnoughFuel.is_boolean()) {
-                        checkEnoughFuel = isCheckEnoughFuel.get<bool>();
-                    } else if (isCheckEnoughFuel.is_number_integer()) {
-                        checkEnoughFuel = isCheckEnoughFuel.get<int>() != 0;
+                std::string parseError;
+                if (!ParseFuelTank(tank, tankInfo, true, &parseError)) {
+                    if (!parseError.empty()) {
+                        LOG_BCK_ERROR("Invalid response format: fuel tank fields");
+                        lastError_ = parseError;
+                        return false;
                     }
-                }
-                if (checkEnoughFuel && tank.contains("allowanceTank") && !tank["allowanceTank"].is_null()) {
-                    const auto& allowanceTank = tank["allowanceTank"];
-                    if (allowanceTank.is_string()) {
-                        try {
-                            tankInfo.volume = std::stod(allowanceTank.get<std::string>());
-                        } catch (const std::exception& e) {
-                            tankInfo.volume = 0.0;
-                            LOG_BCK_WARN("Failed to parse allowanceTank '{}' as number (defaulting to 0): {}",
-                                         allowanceTank.get<std::string>(), e.what());
-                        }
-                    } else if (allowanceTank.is_number()) {
-                        tankInfo.volume = allowanceTank.get<double>();
-                    }
+                    continue;
                 }
 
                 fuelTanks.push_back(tankInfo);
@@ -567,34 +631,21 @@ std::vector<FuelTank> BackendBase::FetchFuelTanks(int first, int number) {
         }
 
         for (const auto& item : response) {
-            if (!item.is_object()) {
-                continue;
-            }
-
-            if (!item.contains("VisualNumberTank") || !item["VisualNumberTank"].is_number_integer()) {
-                continue;
-            }
-
-            FuelTank tank;
-            tank.visualNumberTank = item["VisualNumberTank"].get<int>();
-
-            if (item.contains("IdTank") && item["IdTank"].is_number_integer()) {
-                tank.idTank = item["IdTank"].get<int>();
-            }
-            if (item.contains("NameTank") && item["NameTank"].is_string()) {
-                tank.nameTank = item["NameTank"].get<std::string>();
-            }
-            if (item.contains("Volume") && !item["Volume"].is_null()) {
-                if (item["Volume"].is_number()) {
-                    tank.volume = item["Volume"].get<double>();
-                } else {
-                    LOG_BCK_ERROR("Invalid response format: field 'Volume' must be a number");
-                    lastError_ = StdBackendError;
+            BackendTankInfo tankInfo;
+            std::string parseError;
+            if (!ParseFuelTank(item, tankInfo, false, &parseError)) {
+                if (!parseError.empty()) {
+                    LOG_BCK_ERROR("Invalid response format: field 'volume' must be a number");
+                    lastError_ = parseError;
                     return std::vector<FuelTank>{};
                 }
+                continue;
             }
 
-            result.push_back(tank);
+            result.push_back(FuelTank{tankInfo.idTank,
+                                      tankInfo.visualNumberTank,
+                                      tankInfo.nameTank,
+                                      tankInfo.volume});
         }
 
         LOG_BCK_INFO("Fetched {} fuel tanks", result.size());
