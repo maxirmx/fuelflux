@@ -20,7 +20,9 @@ case "${1:-}" in
     if ! id "${SERVICE_USER}" > /dev/null 2>&1; then
       useradd -r -s /sbin/nologin -g "${SERVICE_GROUP}" -d "${INSTALL_DIR}" "${SERVICE_USER}"
     else
-      usermod -g "${SERVICE_GROUP}" "${SERVICE_USER}" 2>/dev/null || true
+      # Do not change the primary group of a pre-existing user created outside this package.
+      # Instead, ensure it has supplementary membership in the service group if needed.
+      usermod -aG "${SERVICE_GROUP}" "${SERVICE_USER}" 2>/dev/null || true
     fi
 
     # Add user to hardware groups (ignore errors for non-existent groups)
