@@ -20,6 +20,13 @@ struct UserCacheEntry {
     int roleId = 0;
 };
 
+struct TankCacheEntry {
+    int idTank = 0;
+    int visualNumberTank = 0;
+    std::string nameTank;
+    double volume = 0.0;
+};
+
 // User cache class with flip/flop table mechanism for atomic updates
 class UserCache {
 public:
@@ -36,10 +43,13 @@ public:
     bool UpdateEntry(const std::string& uid, double allowance, int roleId);
     bool DeductAllowance(const std::string& uid, double amount);
     int GetCount() const;
+    std::vector<TankCacheEntry> GetTanks() const;
+    int GetTankCount() const;
 
     // Population operations with flip/flop mechanism
     bool BeginPopulation();
     bool AddPopulationEntry(const std::string& uid, double allowance, int roleId);
+    bool AddPopulationTank(int idTank, int visualNumberTank, const std::string& nameTank, double volume);
     bool CommitPopulation();
     void AbortPopulation();
 

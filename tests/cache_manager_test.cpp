@@ -38,6 +38,7 @@ public:
     MOCK_METHOD((const std::string&), GetLastError, (), (const, override));
     MOCK_METHOD(bool, IsNetworkError, (), (const, override));
     MOCK_METHOD(std::vector<UserCard>, FetchUserCards, (int first, int number), (override));
+    MOCK_METHOD(std::vector<FuelTank>, FetchFuelTanks, (int first, int number), (override));
     MOCK_METHOD((const std::string&), GetControllerUid, (), (const, override));
 };
 
@@ -97,6 +98,10 @@ TEST_F(CacheManagerTest, StartPerformsInitialPaginatedPopulation) {
         {"uid-100", 1, 555.0},
         {"uid-101", 2, 777.0},
     };
+    std::vector<FuelTank> tanksBatch = {
+        {11, 1, "Tank-1", 5000.0},
+        {12, 2, "Tank-2", 7000.0},
+    };
 
     std::string controllerUid = "test-controller-uid";
     
@@ -110,6 +115,7 @@ TEST_F(CacheManagerTest, StartPerformsInitialPaginatedPopulation) {
         // Data fetching
         EXPECT_CALL(*backend, FetchUserCards(0, 100)).WillOnce(Return(firstBatch));
         EXPECT_CALL(*backend, FetchUserCards(100, 100)).WillOnce(Return(secondBatch));
+        EXPECT_CALL(*backend, FetchFuelTanks(0, 100)).WillOnce(Return(tanksBatch));
         
         // Synchronization session cleanup
         EXPECT_CALL(*backend, Deauthorize()).WillOnce(Return(true));
@@ -124,6 +130,7 @@ TEST_F(CacheManagerTest, StartPerformsInitialPaginatedPopulation) {
     ASSERT_TRUE(WaitForPopulation(manager, before));
     EXPECT_TRUE(manager.GetLastPopulationSuccess());
     EXPECT_EQ(cache->GetCount(), 102);
+    EXPECT_EQ(cache->GetTankCount(), 2);
 
     auto last = cache->GetEntry("uid-101");
     ASSERT_TRUE(last.has_value());
@@ -139,6 +146,8 @@ TEST_F(CacheManagerTest, TriggerPopulationReplacesActiveTableWithFreshData) {
 
     std::vector<UserCard> initial = {{"uid-initial", 1, 100.0}};
     std::vector<UserCard> refreshed = {{"uid-refreshed", 2, 42.5}};
+    std::vector<FuelTank> initialTanks = {{21, 1, "Tank-A", 1000.0}};
+    std::vector<FuelTank> refreshedTanks = {{22, 2, "Tank-B", 2000.0}};
 
     std::string controllerUid = "test-controller-uid";
     
@@ -149,6 +158,7 @@ TEST_F(CacheManagerTest, TriggerPopulationReplacesActiveTableWithFreshData) {
         EXPECT_CALL(*backend, Authorize(controllerUid)).WillOnce(Return(true));
         EXPECT_CALL(*backend, GetRoleId()).WillOnce(Return(3));
         EXPECT_CALL(*backend, FetchUserCards(0, 100)).WillOnce(Return(initial));
+        EXPECT_CALL(*backend, FetchFuelTanks(0, 100)).WillOnce(Return(initialTanks));
         EXPECT_CALL(*backend, Deauthorize()).WillOnce(Return(true));
         
         // Second population
@@ -156,6 +166,7 @@ TEST_F(CacheManagerTest, TriggerPopulationReplacesActiveTableWithFreshData) {
         EXPECT_CALL(*backend, Authorize(controllerUid)).WillOnce(Return(true));
         EXPECT_CALL(*backend, GetRoleId()).WillOnce(Return(3));
         EXPECT_CALL(*backend, FetchUserCards(0, 100)).WillOnce(Return(refreshed));
+        EXPECT_CALL(*backend, FetchFuelTanks(0, 100)).WillOnce(Return(refreshedTanks));
         EXPECT_CALL(*backend, Deauthorize()).WillOnce(Return(true));
     }
 
@@ -171,6 +182,7 @@ TEST_F(CacheManagerTest, TriggerPopulationReplacesActiveTableWithFreshData) {
     EXPECT_TRUE(manager.GetLastPopulationSuccess());
     EXPECT_EQ(cache->GetCount(), 1);
     EXPECT_FALSE(cache->GetEntry("uid-initial").has_value());
+    EXPECT_EQ(cache->GetTankCount(), 1);
 
     auto entry = cache->GetEntry("uid-refreshed");
     ASSERT_TRUE(entry.has_value());

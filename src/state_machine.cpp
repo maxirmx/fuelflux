@@ -216,7 +216,7 @@ void StateMachine::setupTransitions() {
     transitions_[{SystemState::Authorization, Event::CardPresented}]       = {SystemState::Authorization,     noOp};
     transitions_[{SystemState::Authorization, Event::PinEntered}]          = {SystemState::Authorization,     noOp};
     transitions_[{SystemState::Authorization, Event::InputUpdated}]        = {SystemState::Authorization,     noOp};
-    transitions_[{SystemState::Authorization, Event::AuthorizationSuccess}]= {SystemState::TankSelection,     noOp};
+    transitions_[{SystemState::Authorization, Event::AuthorizationSuccess}]= {SystemState::TankSelection,     [this]() { onAuthorizationSuccess(); }};
     transitions_[{SystemState::Authorization, Event::AuthorizationDenied}] = {SystemState::NotAuthorized,     noOp};
     transitions_[{SystemState::Authorization, Event::AuthorizationFailed}] = {SystemState::CannotAuthorize,   noOp};
     transitions_[{SystemState::Authorization, Event::TankSelected}]        = {SystemState::Authorization,     noOp};
@@ -283,7 +283,7 @@ void StateMachine::setupTransitions() {
     transitions_[{SystemState::TankSelection, Event::PinEntered}]          = {SystemState::TankSelection,     noOp};
     transitions_[{SystemState::TankSelection, Event::InputUpdated}]        = {SystemState::TankSelection,     noOp};
     transitions_[{SystemState::TankSelection, Event::AuthorizationSuccess}]= {SystemState::TankSelection,     noOp};
-    transitions_[{SystemState::TankSelection, Event::AuthorizationDenied}] = {SystemState::TankSelection,     noOp};
+    transitions_[{SystemState::TankSelection, Event::AuthorizationDenied}] = {SystemState::NotAuthorized,     noOp};
     transitions_[{SystemState::TankSelection, Event::AuthorizationFailed}] = {SystemState::TankSelection,     noOp};
     transitions_[{SystemState::TankSelection, Event::TankSelected}]        = {SystemState::VolumeEntry,       [this]() { onTankSelected();         }};
     transitions_[{SystemState::TankSelection, Event::VolumeEntered}]       = {SystemState::TankSelection,     noOp};
@@ -656,6 +656,25 @@ void StateMachine::doAuthorization() {
     // Clear sensitive input (PIN/card UID) silently 
     controller_->clearInputSilent();
     // requestAuthorization will post AuthorizationSuccess or AuthorizationFailed event
+}
+
+void StateMachine::onAuthorizationSuccess() {
+    if (!controller_) {
+        return;
+    }
+
+    const auto& availableTanks = controller_->getAvailableTanks();
+    if (availableTanks.empty()) {
+        LOG_SM_WARN("Authorization rejected: no available tanks");
+        controller_->endCurrentSession();
+        controller_->postEvent(Event::AuthorizationDenied);
+        return;
+    }
+
+    if (availableTanks.size() == 1U) {
+        LOG_SM_INFO("Single available tank detected ({}), selecting automatically", availableTanks.front().number);
+        controller_->selectTank(availableTanks.front().number);
+    }
 }
 
 void StateMachine::doRefuelingDataTransmission() {

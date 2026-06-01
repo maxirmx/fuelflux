@@ -21,9 +21,13 @@ class MessageStorage;
 
 // Tank information structure for backend
 struct BackendTankInfo {
-    int idTank;
+    int idTank = 0;                 // Backend tank identifier used in API reports
+    int visualNumberTank = 0;       // Tank number shown to users in UI
     std::string nameTank = "";
-    Volume volume = 0.0;  // Tank capacity in liters
+    Volume volume = 0.0;            // Effective maximum permitted volume for this tank (liters);
+                                     // controller-side validation treats this as the upper bound for
+                                     // entered volume. This may represent the physical tank capacity
+                                     // or a backend-configured per-tank limit, depending on backend semantics.
 };
 
 // User card structure for cache population
@@ -31,6 +35,14 @@ struct UserCard {
     std::string uid;
     int roleId = 0;
     double allowance = 0.0;
+};
+
+// Fuel tank structure for cache population
+struct FuelTank {
+    int idTank = 0;
+    int visualNumberTank = 0;
+    std::string nameTank;
+    Volume volume = 0.0;
 };
 
 // Interface for backend communication to enable mocking in tests
@@ -52,6 +64,7 @@ public:
     virtual const std::string& GetLastError() const = 0;
     virtual bool IsNetworkError() const = 0;
     virtual std::vector<UserCard> FetchUserCards(int first, int number) = 0;
+    virtual std::vector<FuelTank> FetchFuelTanks(int first, int number) = 0;
     virtual const std::string& GetControllerUid() const = 0;
 };
 
@@ -90,6 +103,7 @@ public:
     const std::string& GetLastError() const override { return lastError_; }
     bool IsNetworkError() const override { return networkError_; }
     std::vector<UserCard> FetchUserCards(int first, int number) override;
+    std::vector<FuelTank> FetchFuelTanks(int first, int number) override;
     const std::string& GetControllerUid() const override { return controllerUid_; }
 
 protected:
@@ -112,6 +126,10 @@ protected:
     // Get the bounded executor for async deauthorization requests
     // Uses Meyer's singleton pattern for thread-safe lazy initialization
     static BoundedExecutor& GetDeauthorizeExecutor();
+
+    // Map TankNumber in a payload from visualNumberTank to idTank.
+    // Returns true if a match was found and the mapping was applied.
+    bool ApplyVisualTankMapping(nlohmann::json& requestBody) const;
 
     std::string controllerUid_;
     std::string authorizedUid_;
