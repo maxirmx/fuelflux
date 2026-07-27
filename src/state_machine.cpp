@@ -5,6 +5,7 @@
 #include "state_machine.h"
 #include "controller.h"
 #include "logger.h"
+#include "peripherals/keyboard_utils.h"
 
 namespace fuelflux {
 
@@ -504,6 +505,7 @@ void StateMachine::setupTransitions() {
 DisplayMessage StateMachine::getDisplayMessage() const {
     DisplayMessage message;
     std::scoped_lock lock(mutex_);
+    const auto& keyboardUi = peripherals::configuredKeyboardUiProfile();
     
     if (!controller_) {
         // No controller means error
@@ -526,7 +528,7 @@ DisplayMessage StateMachine::getDisplayMessage() const {
             message.line1 = "Введите PIN";
             message.line2 = std::string(controller_->getCurrentInput().length(), '*');
             message.line3 = "";
-            message.line4 = "Ввод(A)/Отмена(B)";
+            message.line4 = std::string(keyboardUi.entryConfirmCancel);
             break;
 
         case SystemState::Authorization:
@@ -557,7 +559,7 @@ DisplayMessage StateMachine::getDisplayMessage() const {
             for (const auto& tank : controller_->getAvailableTanks()) {
                 message.line3 += std::to_string(tank.number) + " ";
             }
-            message.line4 = "Ввод(A)/Отмена(B)";
+            message.line4 = std::string(keyboardUi.entryConfirmCancel);
             break;
 
         case SystemState::VolumeEntry:
@@ -571,18 +573,19 @@ DisplayMessage StateMachine::getDisplayMessage() const {
                     maxVolume = std::min(maxVolume, tankVolume);
                 }
 
-                message.line3 = controller_->formatVolume(maxVolume) + " макс(*)";
+                message.line3 = controller_->formatVolume(maxVolume) + " " +
+                                std::string(keyboardUi.maximumLabel);
             } else {
                 message.line3 = "";
             }
-            message.line4 = "Старт(A)/Отмена(B)"; 
+            message.line4 = std::string(keyboardUi.volumeConfirmCancel);
             break;
 
         case SystemState::Refueling:
             message.line1 = "Заправка " + controller_->formatVolume(controller_->getEnteredVolume());
             message.line2 = controller_->formatVolume(controller_->getCurrentRefuelVolume());
             message.line3 = "";
-            message.line4 = "Стоп(B)";
+            message.line4 = std::string(keyboardUi.refuelingStop);
             break;
 
         case SystemState::RefuelDataTransmission:
@@ -603,7 +606,7 @@ DisplayMessage StateMachine::getDisplayMessage() const {
             message.line1 = "1 - Приём / 2 - Слив";
             message.line2 = controller_->getCurrentInput();
             message.line3 = "Цистерна " + std::to_string(controller_->getSelectedTank());  
-            message.line4 = "Ввод(A)/Отмена(B)";
+            message.line4 = std::string(keyboardUi.entryConfirmCancel);
             break;                               
 
         case SystemState::IntakeVolumeEntry:
@@ -611,7 +614,7 @@ DisplayMessage StateMachine::getDisplayMessage() const {
             message.line2 = controller_->getCurrentInput();
             message.line3 = "Цистерна " + std::to_string(controller_->getSelectedTank()) +
                              ((controller_->getSelectedIntakeDirection() == IntakeDirection::In) ? " приём" : " слив");
-            message.line4 = "Ввод(A)/Отмена(B)";
+            message.line4 = std::string(keyboardUi.entryConfirmCancel);
             break;
 
         case SystemState::IntakeDataTransmission:
@@ -633,7 +636,7 @@ DisplayMessage StateMachine::getDisplayMessage() const {
             message.line1 = "";
             message.line2 = "ОШИБКА";
             message.line3 = controller_->getLastErrorMessage();
-            message.line4 = "Сброс(B)";
+            message.line4 = std::string(keyboardUi.errorReset);
             break;
             
         default:

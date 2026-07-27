@@ -11,6 +11,7 @@
 #include "message_storage.h"
 #include "logger.h"
 #include "peripherals/flow_meter.h"
+#include "peripherals/keyboard_utils.h"
 #include <sstream>
 #include <iomanip>
 #include <ctime>
@@ -410,7 +411,8 @@ void Controller::showError(const std::string& message) {
         DisplayMessage errorMsg;
         errorMsg.line1 = "ОШИБКА";
         errorMsg.line2 = message;
-        errorMsg.line3 = "Нажмите ОТМЕНА (B)";
+        errorMsg.line3 =
+            std::string(peripherals::configuredKeyboardUiProfile().cancelPrompt);
         errorMsg.line4 = getCurrentTimeString();
         showMessage(errorMsg);
     }

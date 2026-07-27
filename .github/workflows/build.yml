@@ -48,6 +48,7 @@ jobs:
                                           -DCODE_COVERAGE=ON \
                                           -DTARGET_REAL_FLOW_METER=OFF \
                                           -DDISPLAY_TYPE=CONSOLE \
+                                          -DKEYBOARD_TYPE=CONSOLE \
                                           -DUNIX_FOLDER_CONVENTION=OFF
 
       - name: Build
@@ -76,3 +77,104 @@ jobs:
           files: ./coverage.info
           fail_ci_if_error: false
           token: ${{ secrets.CODECOV_TOKEN }}
+
+  keyboard-builds:
+    name: Keyboard ${{ matrix.name }}
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: default-vid
+            keyboard_args: ''
+          - name: vid-port-a
+            keyboard_args: '-DKEYBOARD_TYPE=VID -DKEYBOARD_MCP_PORT=A'
+          - name: vid-port-b
+            keyboard_args: '-DKEYBOARD_TYPE=VID -DKEYBOARD_MCP_PORT=B'
+          - name: legacy-port-a
+            keyboard_args: '-DKEYBOARD_TYPE=LEGACY -DKEYBOARD_MCP_PORT=A'
+          - name: legacy-port-b
+            keyboard_args: '-DKEYBOARD_TYPE=LEGACY -DKEYBOARD_MCP_PORT=B'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends pkg-config libsqlite3-dev \
+               build-essential cmake ninja-build g++ ca-certificates git libssl-dev \
+               libcurl4-openssl-dev libfmt-dev nlohmann-json3-dev
+
+      - name: Configure keyboard variant
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+                                          -DDISPLAY_TYPE=CONSOLE \
+                                          -DTARGET_SIM800C=OFF \
+                                          -DTARGET_REAL_CARD_READER=OFF \
+                                          -DTARGET_REAL_PUMP=OFF \
+                                          -DTARGET_REAL_FLOW_METER=OFF \
+                                          -DENABLE_TESTING=OFF \
+                                          -DUNIX_FOLDER_CONVENTION=OFF \
+                                          ${{ matrix.keyboard_args }}
+
+      - name: Verify non-MSVC default
+        if: matrix.name == 'default-vid'
+        run: grep -q '^KEYBOARD_TYPE:STRING=VID$' build/CMakeCache.txt
+
+      - name: Verify rejected keyboard configurations
+        if: matrix.name == 'default-vid'
+        run: |
+          if cmake -S . -B invalid-old-option -DTARGET_REAL_KEYBOARD=ON; then
+            echo "TARGET_REAL_KEYBOARD was unexpectedly accepted"
+            exit 1
+          fi
+          if cmake -S . -B invalid-type -DKEYBOARD_TYPE=UNKNOWN; then
+            echo "Invalid KEYBOARD_TYPE was unexpectedly accepted"
+            exit 1
+          fi
+          if cmake -S . -B invalid-port -DKEYBOARD_MCP_PORT=C; then
+            echo "Invalid KEYBOARD_MCP_PORT was unexpectedly accepted"
+            exit 1
+          fi
+          if cmake -S . -B invalid-threshold -DKEYBOARD_LONG_PRESS_MS=0; then
+            echo "Invalid KEYBOARD_LONG_PRESS_MS was unexpectedly accepted"
+            exit 1
+          fi
+
+      - name: Build keyboard variant
+        run: cmake --build build --config Release -j$(nproc)
+
+  keyboard-default-msvc:
+    name: Keyboard default MSVC
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Install native dependencies
+        shell: pwsh
+        run: |
+          & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" install `
+            curl:x64-windows sqlite3:x64-windows
+
+      - name: Configure default keyboard
+        shell: pwsh
+        run: |
+          cmake -S . -B build -A x64 `
+            -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" `
+            -DENABLE_TESTING=OFF `
+            -DUNIX_FOLDER_CONVENTION=OFF
+
+      - name: Verify MSVC default
+        shell: pwsh
+        run: |
+          $cacheEntry = Select-String -Path build/CMakeCache.txt `
+            -Pattern '^KEYBOARD_TYPE:STRING=CONSOLE$'
+          if (-not $cacheEntry) {
+            throw "MSVC did not default to KEYBOARD_TYPE=CONSOLE"
+          }
+
+      - name: Build default keyboard
+        run: cmake --build build --config Release -j 2

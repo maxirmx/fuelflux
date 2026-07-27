@@ -5,11 +5,13 @@
 #include "peripherals/keyboard.h"
 
 #include "logger.h"
+#include "peripherals/key_press_tracker.h"
+#include "peripherals/keyboard_layout.h"
 #include "peripherals/keyboard_utils.h"
 
 #include <utility>
 
-#ifdef TARGET_REAL_KEYBOARD
+#if defined(KEYBOARD_TYPE_LEGACY) || defined(KEYBOARD_TYPE_VID)
 #include "hardware/hardware_config.h"
 #include "hardware/mcp23017.h"
 
@@ -19,42 +21,52 @@
 
 namespace fuelflux::peripherals {
 
-#ifdef TARGET_REAL_KEYBOARD
+#if defined(KEYBOARD_TYPE_LEGACY) || defined(KEYBOARD_TYPE_VID)
 namespace {
-constexpr uint8_t kRowMask = 0b0000'1111;
-constexpr uint8_t kColMask = 0b1111'0000;
 constexpr int kScanDelayUs = hardware::config::keyboard::SCAN_DELAY_US;
+constexpr auto kKeyboardType = configuredKeyboardType();
+constexpr auto kKeyboardPort = configuredKeyboardPort();
+constexpr const auto& kKeyboardLayout = configuredHardwareLayout();
+constexpr auto kPortPins = makePortPinMapping(kKeyboardLayout, kKeyboardPort);
+constexpr std::chrono::milliseconds kLongPressThreshold{KEYBOARD_LONG_PRESS_MS};
 
-constexpr char kKeymap[4][4] = {
-    {'1', '2', '3', 'A'},
-    {'4', '5', '6', 'B'},
-    {'7', '8', '9', 'C'},
-    {'*', '0', '#', 'D'}
-};
+static_assert(KEYBOARD_LONG_PRESS_MS > 0, "long-press threshold must be positive");
 
-uint8_t rowsIdle() {
-    return kRowMask;
+constexpr hardware::MCP23017::Port mcpPort() {
+    return kKeyboardPort == KeyboardPort::A
+        ? hardware::MCP23017::Port::A
+        : hardware::MCP23017::Port::B;
 }
 
-char scanKey(hardware::MCP23017& mcp) {
-    char found = '\0';
-    for (int r = 0; r < 4 && !found; r++) {
-        uint8_t out = static_cast<uint8_t>(rowsIdle() & ~(1u << r));
-        mcp.writeOlatA(out);
+const char* portName() {
+    return kKeyboardPort == KeyboardPort::A ? "A" : "B";
+}
+
+PhysicalKey scanKey(hardware::MCP23017& mcp) {
+    for (std::size_t row = 0; row < kKeyboardMatrixSize; ++row) {
+        uint8_t output = static_cast<uint8_t>(
+            kPortPins.rowMask & ~(1u << kPortPins.rowBits[row]));
+        mcp.writeOlat(mcpPort(), output);
         std::this_thread::sleep_for(std::chrono::microseconds(kScanDelayUs));
-        uint8_t cols = static_cast<uint8_t>(mcp.readGpioA() & kColMask);
-        if (cols != kColMask) {
-            for (int c = 0; c < 4; c++) {
-                uint8_t bit = static_cast<uint8_t>(1u << (4 + c));
-                if ((cols & bit) == 0) {
-                    found = kKeymap[r][c];
-                    break;
-                }
+
+        uint8_t columns = static_cast<uint8_t>(
+            mcp.readGpio(mcpPort()) & kPortPins.colMask);
+        if (columns == kPortPins.colMask) {
+            continue;
+        }
+
+        for (std::size_t column = 0; column < kKeyboardMatrixSize; ++column) {
+            uint8_t bit = static_cast<uint8_t>(
+                1u << kPortPins.colBits[column]);
+            if ((columns & bit) == 0) {
+                mcp.writeOlat(mcpPort(), kPortPins.rowMask);
+                return kKeyboardLayout.keys[row][column];
             }
         }
     }
-    mcp.writeOlatA(rowsIdle());
-    return found;
+
+    mcp.writeOlat(mcpPort(), kPortPins.rowMask);
+    return PhysicalKey::None;
 }
 } // namespace
 #endif
@@ -66,7 +78,7 @@ HardwareKeyboard::~HardwareKeyboard() {
 }
 
 bool HardwareKeyboard::initialize() {
-#ifdef TARGET_REAL_KEYBOARD
+#if defined(KEYBOARD_TYPE_LEGACY) || defined(KEYBOARD_TYPE_VID)
     namespace cfg = hardware::config::keyboard;
     try {
         i2cDevice_ = cfg::I2C_DEVICE;
@@ -76,26 +88,32 @@ bool HardwareKeyboard::initialize() {
         releaseMs_ = cfg::RELEASE_MS;
 
         LOG_INFO("Initializing hardware keyboard");
-        LOG_INFO("  I2C dev  : {}", i2cDevice_);
-        LOG_INFO("  I2C addr : 0x{:02X}", i2cAddress_);
-        LOG_INFO("  Poll ms  : {}", pollMs_);
-        LOG_INFO("  Debounce : {}", debounceMs_);
-        LOG_INFO("  Release  : {}", releaseMs_);
+        LOG_INFO("  Layout     : {}", kKeyboardLayout.name);
+        LOG_INFO("  MCP port   : {} ({})", portName(),
+                 kKeyboardPort == KeyboardPort::A ? "direct" : "mirrored");
+        LOG_INFO("  I2C dev    : {}", i2cDevice_);
+        LOG_INFO("  I2C addr   : 0x{:02X}", i2cAddress_);
+        LOG_INFO("  Poll ms    : {}", pollMs_);
+        LOG_INFO("  Debounce ms: {}", debounceMs_);
+        LOG_INFO("  Release ms : {}", releaseMs_);
+        if constexpr (kKeyboardType == KeyboardType::Vid) {
+            LOG_INFO("  Long key ms: {}", kLongPressThreshold.count());
+        }
 
         mcp_ = std::make_unique<hardware::MCP23017>(i2cDevice_, i2cAddress_);
         mcp_->openBus();
 
-        uint8_t iodir = kColMask;
-        uint8_t gppu = kColMask;
-        mcp_->configurePortA(iodir, gppu);
-        mcp_->writeOlatA(rowsIdle());
+        mcp_->configurePort(mcpPort(), kPortPins.colMask, kPortPins.colMask);
+        mcp_->writeOlat(mcpPort(), kPortPins.rowMask);
 
         isConnected_ = true;
+        inputEnabled_ = false;
         shouldStop_ = false;
         pollThread_ = std::thread(&HardwareKeyboard::pollLoop, this);
         return true;
     } catch (const std::exception& ex) {
         LOG_ERROR("Failed to initialize hardware keyboard: {}", ex.what());
+        mcp_.reset();
         isConnected_ = false;
         return false;
     }
@@ -106,18 +124,17 @@ bool HardwareKeyboard::initialize() {
 }
 
 void HardwareKeyboard::shutdown() {
-#ifdef TARGET_REAL_KEYBOARD
+#if defined(KEYBOARD_TYPE_LEGACY) || defined(KEYBOARD_TYPE_VID)
     // Always signal the thread to stop and join it, regardless of isConnected_ state.
     // pollLoop() may have set isConnected_ = false on exception before returning,
     // but the thread is still joinable and must be joined to avoid std::terminate().
+    inputEnabled_ = false;
     shouldStop_ = true;
     if (pollThread_.joinable()) {
         pollThread_.join();
     }
-    if (isConnected_) {
-        mcp_.reset();
-        isConnected_ = false;
-    }
+    mcp_.reset();
+    isConnected_ = false;
 #else
     isConnected_ = false;
 #endif
@@ -136,17 +153,23 @@ void HardwareKeyboard::enableInput(bool enabled) {
     inputEnabled_ = enabled;
 }
 
-#ifdef TARGET_REAL_KEYBOARD
+#if defined(KEYBOARD_TYPE_LEGACY) || defined(KEYBOARD_TYPE_VID)
 void HardwareKeyboard::pollLoop() {
-    bool waitingRelease = false;
+    KeyPressTracker tracker(
+        kLongPressThreshold,
+        std::chrono::milliseconds(debounceMs_),
+        std::chrono::milliseconds(releaseMs_));
+    bool requireRelease = true;
 
     while (!shouldStop_) {
         if (!inputEnabled_) {
+            tracker.reset();
+            requireRelease = true;
             std::this_thread::sleep_for(std::chrono::milliseconds(pollMs_));
             continue;
         }
 
-        char found = '\0';
+        PhysicalKey found = PhysicalKey::None;
         try {
             found = scanKey(*mcp_);
         } catch (const std::exception& ex) {
@@ -155,41 +178,29 @@ void HardwareKeyboard::pollLoop() {
             return;
         }
 
-        if (!waitingRelease) {
-            if (found != '\0') {
-                std::this_thread::sleep_for(std::chrono::milliseconds(debounceMs_));
-                char confirm = '\0';
-                try {
-                    confirm = scanKey(*mcp_);
-                } catch (const std::exception& ex) {
-                    LOG_ERROR("Keyboard scan failed: {}", ex.what());
-                    isConnected_ = false;
-                    return;
-                }
-                if (confirm == found) {
-                    KeyCode keyCode = charToKeyCode(found);
-                    if (keyCode != static_cast<KeyCode>(0)) {
-                        std::lock_guard<std::mutex> lock(callbackMutex_);
-                        if (keyPressCallback_) {
-                            keyPressCallback_(keyCode);
-                        }
-                    }
-                    waitingRelease = true;
-                }
+        if (requireRelease) {
+            if (found == PhysicalKey::None) {
+                requireRelease = false;
             }
         } else {
-            if (found == '\0') {
-                std::this_thread::sleep_for(std::chrono::milliseconds(releaseMs_));
-                char confirm = '\0';
-                try {
-                    confirm = scanKey(*mcp_);
-                } catch (const std::exception& ex) {
-                    LOG_ERROR("Keyboard scan failed: {}", ex.what());
-                    isConnected_ = false;
-                    return;
+            const auto events = tracker.update(
+                found,
+                std::chrono::steady_clock::now());
+            for (const auto& event : events) {
+                const auto logicalKeys = translateKeyPress(kKeyboardType, event);
+                if (logicalKeys.empty() || !inputEnabled_ || shouldStop_) {
+                    continue;
                 }
-                if (confirm == '\0') {
-                    waitingRelease = false;
+
+                KeyPressCallback callback;
+                {
+                    std::lock_guard<std::mutex> lock(callbackMutex_);
+                    callback = keyPressCallback_;
+                }
+                if (callback) {
+                    for (KeyCode key : logicalKeys) {
+                        callback(key);
+                    }
                 }
             }
         }

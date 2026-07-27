@@ -12,25 +12,32 @@ settings, modify the configuration file and rebuild the application.
 
 ## Build configuration
 
-### Hardware peripheral flags
+### Hardware peripheral selection
 
 - `TARGET_REAL_DISPLAY` - Use real NHD display hardware
-- `TARGET_REAL_KEYBOARD` - Use real keyboard hardware (placeholder, not yet implemented)
+- `KEYBOARD_TYPE` - Select `CONSOLE`, `LEGACY`, or `VID`
+- `KEYBOARD_MCP_PORT` - Select `AUTO`, `A`, or `B` for a physical keyboard
+- `KEYBOARD_LONG_PRESS_MS` - VID long-press threshold; default `1000`
 - `TARGET_REAL_CARD_READER` - Use real NFC card reader hardware (PN532 via libnfc)
 - `TARGET_REAL_PUMP` - Use real pump hardware (placeholder, not yet implemented)
 - `TARGET_REAL_FLOW_METER` - Use real flow meter hardware (placeholder, not yet implemented)
 
 **Platform defaults:**
-- **ARM platforms**: `TARGET_REAL_DISPLAY` is enabled by default
-- **Windows/MSVC**: all flags are disabled by default
-- **Other platforms**: all flags are disabled by default
+- **Windows/MSVC**: `KEYBOARD_TYPE=CONSOLE`
+- **All non-MSVC platforms**: `KEYBOARD_TYPE=VID`
+- **Production builds**: VID; legacy must be selected explicitly
 
 Override defaults at configure time:
 
 ```bash
 cmake -DTARGET_REAL_DISPLAY=ON ..
 cmake -DTARGET_REAL_CARD_READER=ON ..
+cmake -DKEYBOARD_TYPE=VID -DKEYBOARD_MCP_PORT=AUTO ..
 ```
+
+`TARGET_REAL_KEYBOARD` has been removed. Supplying it, including through a
+stale CMake cache, is a configuration error. Delete the build directory or
+run CMake with `-U TARGET_REAL_KEYBOARD` before selecting `KEYBOARD_TYPE`.
 
 ## Display (NHD-C12864A1Z-FSW-FBW-HTT)
 
@@ -138,9 +145,19 @@ The connection string format is `pn532_i2c:<device>` and is auto-generated from 
 - Use 3.3V power, SDA/SCL, and GND connections appropriate to your board.
 - Confirm the I2C bus path matches your OS (`/dev/i2c-*`).
 
-## Keyboard (MCP23017 I2C GPIO expander with 4x4 matrix)
+## Keyboard (MCP23017 matrix keyboard)
 
-The hardware keyboard uses an MCP23017 I2C GPIO expander to interface with a 4x4 matrix keypad.
+FuelFlux supports three keyboard types:
+
+| `KEYBOARD_TYPE` | Description | Default MCP port |
+|---|---|---|
+| `CONSOLE` | Console keyboard emulator | Not applicable |
+| `VID` | VID 14-key membrane keyboard | B, mirrored |
+| `LEGACY` | Off-the-shelf 4x4 matrix keypad | A, direct |
+
+The VID keyboard is the production and non-MSVC default. Select legacy
+explicitly with `-DKEYBOARD_TYPE=LEGACY`. The selected MCP23017 port must be
+dedicated to the keyboard.
 
 ### Configuration
 
@@ -153,6 +170,97 @@ Keyboard configuration is defined in `include/hardware/hardware_config.h`:
 | POLL_MS | `5` | Polling interval in milliseconds |
 | DEBOUNCE_MS | `20` | Debounce delay in milliseconds |
 | RELEASE_MS | `30` | Key release delay in milliseconds |
+| SCAN_DELAY_US | `300` | Row settling delay in microseconds |
+
+Build-time settings:
+
+| Setting | Default | Description |
+|---|---|---|
+| `KEYBOARD_TYPE` | `VID` non-MSVC, `CONSOLE` MSVC | Keyboard implementation |
+| `KEYBOARD_MCP_PORT` | `AUTO` | `AUTO`, `A`, or `B`; AUTO selects B for VID and A for legacy |
+| `KEYBOARD_LONG_PRESS_MS` | `1000` | VID long-press threshold; positive integer up to `2147483647` ms |
+
+Examples:
+
+```bash
+# Production VID keyboard on the default mirrored Port B
+cmake -S . -B build -DKEYBOARD_TYPE=VID
+
+# VID keyboard wired to Port A
+cmake -S . -B build -DKEYBOARD_TYPE=VID -DKEYBOARD_MCP_PORT=A
+
+# Legacy keypad; it is never selected as the production default
+cmake -S . -B build-legacy -DKEYBOARD_TYPE=LEGACY
+```
+
+### MCP23017 port mapping
+
+Layouts use logical pins P0 through P7. Port A maps them directly. Port B
+reverses them for the mirrored connector:
+
+| Logical pin | Port A | Port B |
+|---|---|---|
+| P0 | PA0 | PB7 |
+| P1 | PA1 | PB6 |
+| P2 | PA2 | PB5 |
+| P3 | PA3 | PB4 |
+| P4 | PA4 | PB3 |
+| P5 | PA5 | PB2 |
+| P6 | PA6 | PB1 |
+| P7 | PA7 | PB0 |
+
+### VID 14-key wiring
+
+The eight Crimpflex contacts are numbered left-to-right when the keyboard is
+viewed from the front:
+
+| Contact | Matrix net | Logical pin | Direction |
+|---:|---|---|---|
+| 1 | C1 | P0 | Input with pull-up |
+| 2 | R4 | P1 | Output |
+| 3 | C2 | P2 | Input with pull-up |
+| 4 | R3 | P3 | Output |
+| 5 | C3 | P4 | Input with pull-up |
+| 6 | R2 | P5 | Output |
+| 7 | C4 | P6 | Input with pull-up |
+| 8 | R1 | P7 | Output |
+
+| | C1 | C2 | C3 | C4 |
+|---|---|---|---|---|
+| R1 | `1` | `2` | `3` | `START` |
+| R2 | `4` | `5` | `6` | `STOP` |
+| R3 | `7` | `8` | `9` | Unused |
+| R4 | `RUS/ENG` | `0` | `BACKSPACE` | Unused |
+
+### VID key behavior
+
+| Physical key | Short press | Long press |
+|---|---|---|
+| `0`-`9` | Digit | Same digit |
+| `START` | Start/enter (`A`) | Maximum (`*`) immediately followed by start (`A`) |
+| `STOP` | Stop/cancel (`B`) | Stop/cancel (`B`) |
+| `BACKSPACE` | Remove the last digit (`#`) | Remove the last digit (`#`) |
+| `RUS/ENG` | Ignored | Reinitialize the display (`D`) |
+
+Short VID presses are reported after confirmed release. Long presses are
+reported once as soon as the threshold is reached and produce no event on
+release. The exact threshold duration counts as long.
+
+### Legacy 4x4 wiring
+
+- P0-P3: row outputs R1-R4
+- P4-P7: column inputs C1-C4 with internal pull-ups
+
+| | C1/P4 | C2/P5 | C3/P6 | C4/P7 |
+|---|---|---|---|---|
+| R1/P0 | `1` | `2` | `3` | `A` |
+| R2/P1 | `4` | `5` | `6` | `B` |
+| R3/P2 | `7` | `8` | `9` | `C` (ignored) |
+| R4/P3 | `*` | `0` | `#` | `D` |
+
+Legacy keys are emitted after press debounce, without waiting for release.
+Both physical scanners report one key at a time; multi-key rollover and
+ghosting prevention are not supported.
 
 ## Flow Meter (GPIO pulse counting)
 
