@@ -635,7 +635,7 @@ std::vector<FuelTank> BackendBase::FetchFuelTanks(int first, int number) {
             std::string parseError;
             if (!ParseFuelTank(item, tankInfo, false, &parseError)) {
                 if (!parseError.empty()) {
-                    LOG_BCK_ERROR("Invalid response format: field 'volume' must be a number");
+                    LOG_BCK_ERROR("Invalid response format: fuel tank fields");
                     lastError_ = parseError;
                     return std::vector<FuelTank>{};
                 }

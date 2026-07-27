@@ -60,10 +60,14 @@ EOF
       chmod 600 "${CONFIG_DIR}/${SERVICE_NAME}.env"
     fi
 
-    # Enable and start the service
-    systemctl daemon-reload
-    systemctl enable "${SERVICE_NAME}"
-    systemctl start "${SERVICE_NAME}"
+    # Enable and start the service when systemctl is available. These operations
+    # are best-effort so package configuration also succeeds in chroots and
+    # containers where systemd is not running.
+    if command -v systemctl > /dev/null 2>&1; then
+      systemctl daemon-reload || true
+      systemctl enable "${SERVICE_NAME}" || true
+      systemctl start "${SERVICE_NAME}" || true
+    fi
     ;;
   abort-upgrade|abort-remove|abort-deconfigure)
     # No action needed for abort states.

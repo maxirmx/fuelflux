@@ -99,7 +99,8 @@ jobs:
 
               cat > /usr/local/bin/systemctl << "EOF"
               #!/bin/sh
-              exit 0
+              # Simulate systemctl being present but unusable in a non-systemd container.
+              exit 1
               EOF
               chmod 755 /usr/local/bin/systemctl
 
