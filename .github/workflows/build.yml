@@ -87,14 +87,8 @@ jobs:
         include:
           - name: default-vid
             keyboard_args: ''
-          - name: vid-port-a
-            keyboard_args: '-DKEYBOARD_TYPE=VID -DKEYBOARD_MCP_PORT=A'
-          - name: vid-port-b
-            keyboard_args: '-DKEYBOARD_TYPE=VID -DKEYBOARD_MCP_PORT=B'
           - name: legacy-port-a
             keyboard_args: '-DKEYBOARD_TYPE=LEGACY -DKEYBOARD_MCP_PORT=A'
-          - name: legacy-port-b
-            keyboard_args: '-DKEYBOARD_TYPE=LEGACY -DKEYBOARD_MCP_PORT=B'
 
     steps:
       - name: Checkout code
@@ -103,9 +97,9 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends pkg-config libsqlite3-dev \
-               build-essential cmake ninja-build g++ ca-certificates git libssl-dev \
-               libcurl4-openssl-dev libfmt-dev nlohmann-json3-dev
+          sudo apt-get install -y --no-install-recommends pkg-config libsqlite3-dev libgpiod-dev \
+               build-essential cmake ninja-build g++ ca-certificates git libssl-dev libnfc-dev   \
+               libcurl4-openssl-dev libfmt-dev nlohmann-json3-dev libc-ares-dev libfreetype6-dev
 
       - name: Configure keyboard variant
         run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
