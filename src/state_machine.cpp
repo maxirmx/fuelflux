@@ -7,6 +7,10 @@
 #include "logger.h"
 #include "peripherals/keyboard_utils.h"
 
+#include <algorithm>
+#include <iomanip>
+#include <sstream>
+
 namespace fuelflux {
 
 StateMachine::StateMachine(Controller* controller)
@@ -205,6 +209,27 @@ void StateMachine::setupTransitions() {
     transitions_[{SystemState::Waiting, Event::Timeout}]              = {SystemState::Waiting,           noOp};
     transitions_[{SystemState::Waiting, Event::Error}]                = {SystemState::Error,             noOp};
     transitions_[{SystemState::Waiting, Event::ErrorRecovery}]        = {SystemState::Waiting,           noOp};
+    transitions_[{SystemState::Waiting, Event::CalibrationRequested}] = {SystemState::CalibrationPasswordEntry, [this]() { onCalibrationRequested(); }};
+
+    // From calibration password entry
+    transitions_[{SystemState::CalibrationPasswordEntry, Event::InputUpdated}] = {SystemState::CalibrationPasswordEntry, noOp};
+    transitions_[{SystemState::CalibrationPasswordEntry, Event::CalibrationPasswordAccepted}] = {SystemState::CalibrationCoefficientEntry, [this]() { onCalibrationPasswordAccepted(); }};
+    transitions_[{SystemState::CalibrationPasswordEntry, Event::CancelPressed}] = {SystemState::Waiting, [this]() { onCancelPressed(); }};
+    transitions_[{SystemState::CalibrationPasswordEntry, Event::Timeout}] = {SystemState::Waiting, [this]() { onTimeout(); }};
+    transitions_[{SystemState::CalibrationPasswordEntry, Event::Error}] = {SystemState::Error, noOp};
+
+    // From calibration coefficient entry
+    transitions_[{SystemState::CalibrationCoefficientEntry, Event::InputUpdated}] = {SystemState::CalibrationCoefficientEntry, noOp};
+    transitions_[{SystemState::CalibrationCoefficientEntry, Event::CalibrationCoefficientSaved}] = {SystemState::CalibrationSaved, [this]() { onCalibrationCoefficientSaved(); }};
+    transitions_[{SystemState::CalibrationCoefficientEntry, Event::CancelPressed}] = {SystemState::Waiting, [this]() { onCancelPressed(); }};
+    transitions_[{SystemState::CalibrationCoefficientEntry, Event::Timeout}] = {SystemState::Waiting, [this]() { onTimeout(); }};
+    transitions_[{SystemState::CalibrationCoefficientEntry, Event::Error}] = {SystemState::Error, noOp};
+
+    // From calibration saved confirmation
+    transitions_[{SystemState::CalibrationSaved, Event::InputUpdated}] = {SystemState::CalibrationSaved, noOp};
+    transitions_[{SystemState::CalibrationSaved, Event::CancelPressed}] = {SystemState::Waiting, [this]() { onCancelPressed(); }};
+    transitions_[{SystemState::CalibrationSaved, Event::Timeout}] = {SystemState::Waiting, [this]() { onTimeout(); }};
+    transitions_[{SystemState::CalibrationSaved, Event::Error}] = {SystemState::Error, noOp};
 
     // From PinEntry state
     transitions_[{SystemState::PinEntry, Event::CardPresented}]       = {SystemState::PinEntry,          noOp};
@@ -539,6 +564,42 @@ DisplayMessage StateMachine::getDisplayMessage() const {
             message.line4 = "приложите карту"; 
             break;
 
+        case SystemState::CalibrationPasswordEntry:
+            {
+                const auto inputLength = controller_->getCurrentInput().length();
+                std::ostringstream count;
+                count << std::setw(2) << std::setfill('0')
+                      << inputLength << " из 10";
+                message.line1 = controller_->calibrationPasswordInvalid_
+                    ? "Пароль неверен"
+                    : "Введите пароль";
+                message.line2 = std::string(std::min<std::size_t>(inputLength, 7U), '*');
+                message.line3 = count.str();
+                message.line4 = std::string(keyboardUi.calibrationConfirmCancel);
+            }
+            break;
+
+        case SystemState::CalibrationCoefficientEntry:
+            {
+                const auto& input = controller_->getCurrentInput();
+                message.line1 = controller_->getCalibrationCoefficientTitle();
+                if (!input.empty()) {
+                    message.line2 = input.substr(0, 1) + "." + input.substr(1);
+                }
+                message.line3 = "Сейчас: " + controller_->formatCalibrationCoefficient(
+                    controller_->getCalibrationCoefficient());
+                message.line4 = std::string(keyboardUi.calibrationConfirmCancel);
+            }
+            break;
+
+        case SystemState::CalibrationSaved:
+            message.line1 = "Коэф. сохранён";
+            message.line2 = controller_->formatCalibrationCoefficient(
+                controller_->getCalibrationCoefficient());
+            message.line3 = "";
+            message.line4 = "";
+            break;
+
         case SystemState::PinEntry:
             message.line1 = "Введите PIN";
             message.line2 = std::string(controller_->getCurrentInput().length(), '*');
@@ -783,6 +844,27 @@ void StateMachine::onTimeout() {
     }
 }
 
+void StateMachine::onCalibrationRequested() {
+    LOG_SM_INFO("Calibration requested");
+    if (controller_) {
+        controller_->beginCalibration();
+    }
+}
+
+void StateMachine::onCalibrationPasswordAccepted() {
+    LOG_SM_INFO("Calibration password accepted");
+    if (controller_) {
+        controller_->clearInputSilent();
+    }
+}
+
+void StateMachine::onCalibrationCoefficientSaved() {
+    LOG_SM_INFO("Calibration coefficient saved");
+    if (controller_) {
+        controller_->clearInputSilent();
+    }
+}
+
 bool StateMachine::isTimeoutEnabled() const {
     std::scoped_lock lock(mutex_);
     return currentState_ != SystemState::Waiting && 
@@ -825,7 +907,10 @@ void StateMachine::timeoutThreadFunction() {
 
         auto now = std::chrono::steady_clock::now();
         auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - lastActivityCopy);
-        if (elapsed >= TIMEOUT_DURATION) {
+        const auto timeoutDuration = stateCopy == SystemState::CalibrationSaved
+            ? timing::kCalibrationSavedDisplayDuration
+            : TIMEOUT_DURATION;
+        if (elapsed >= timeoutDuration) {
             shouldTrigger = true;
         }
 

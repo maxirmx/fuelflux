@@ -1,4 +1,4 @@
-﻿# Display Output Reference
+# Display Output Reference
 
 This document outlines the display output for each system state in the FuelFlux application. The display has 4 lines, each capable of showing text content.
 
@@ -8,12 +8,13 @@ The physical legends shown to the operator depend on `KEYBOARD_TYPE`:
 
 | Context | Console / legacy | VID |
 |---|---|---|
-| PIN, tank, and intake entry | `Ввод(A)/Отмена(B)` | `START/STOP` |
-| Volume confirmation | `Старт(A)/Отмена(B)` | `START/STOP` |
-| Customer maximum suffix | `макс(*)` | `макс(START)` |
-| Refueling stop | `Стоп(B)` | `STOP` |
-| Error reset | `Сброс(B)` | `Сброс(STOP)` |
-| Immediate error cancellation | `Нажмите ОТМЕНА (B)` | `Нажмите STOP` |
+| PIN, tank, and intake entry | `Ввод(A)/Отмена(B)` | `СТАРТ/СТОП` |
+| Volume confirmation | `Старт(A)/Отмена(B)` | `СТАРТ/СТОП` |
+| Customer maximum suffix | `макс(*)` | `макс(СТАРТ)` |
+| Refueling stop | `Стоп(B)` | `СТОП` |
+| Error reset | `Сброс(B)` | `Сброс(СТОП)` |
+| Immediate error cancellation | `Нажмите ОТМЕНА (B)` | `Нажмите СТОП` |
+| Calibration entry | `A=Ввод B=Отмена` | `СТАРТ / СТОП` |
 
 VID is the non-MSVC and production default. Therefore production display
 examples should use the VID column unless the build explicitly selects
@@ -25,6 +26,9 @@ examples should use the VID column unless the build explicitly selects
 |-------|--------|-----|---------|-----|---------|-----|----------|-----|
 | **No Controller** | "ОШИБКА" | 6 | "Контроллер недоступен" | 21 | "" | 0 | "" | 0 |
 | **Waiting** | "Поднесите карту или введите PIN" | 31 | `getCurrentTimeString()` | 16 | "" | 0 | `getDeviceSerialNumber()` | 15 |
+| **CalibrationPasswordEntry** | `Введите пароль` or `Пароль неверен` | 14 | Up to 7 `*` | 0-7 | `NN из 10` | 8 | Compact calibration hint | 12-15 |
+| **CalibrationCoefficientEntry** | `Коэф. 0.500-1.500`, `Нужно 0.500-1.500`, or `Ошибка записи` | 13-17 | Decimal-formatted input (`0500` → `0.500`) | 0-5 | `Сейчас: ` + coefficient | 13 | Compact calibration hint | 12-15 |
+| **CalibrationSaved** | `Коэф. сохранён` | 14 | Saved coefficient | 5 | "" | 0 | "" | 0 |
 | **PinEntry** | "Введите PIN и нажмите Старт (A)" | 33 | Asterisks (*) matching PIN length | var | "" | 0 | `getCurrentTimeString()` | 16 |
 | **Authorization** | "Авторизация..." | 14 | "" | 0 | "Пожалуйста, подождите" | 22 | `getDeviceSerialNumber()` | 15 |
 | **NotAuthorized** | "Доступ запрещен" | 15 | "" | 0 | "Нажмите Отмена (B)" | 18 | "или подождите" | 13 |
@@ -188,11 +192,11 @@ Formats volume as `X.XX L` (e.g., "50.00 L", "0.25 L")
 
 ### Keyboard Input Summary
 - **0-9**: Input digits (volume, PIN, tank number) on every keyboard.
-- **Console/legacy A** or **VID START**: Confirm/start. In customer volume
-  entry, START with an empty or zero volume selects maximum and starts.
-- **Console/legacy B** or **VID STOP**: Stop/cancel.
+- **Console/legacy A** or **VID СТАРТ**: Confirm/start. In customer volume
+  entry, СТАРТ with an empty or zero volume selects maximum and starts.
+- **Console/legacy B** or **VID СТОП**: Stop/cancel.
 - **Console/legacy \***: Set the maximum allowed customer volume.
-- **Long VID START**: The same logical START action as a short press; it has
+- **Long VID СТАРТ**: The same logical СТАРТ action as a short press; it has
   no duration-specific behavior.
 - **Console/legacy #** or **VID BACKSPACE**: Clear the last digit.
 - **Short VID RUS/ENG**: Ignored.

@@ -11,6 +11,9 @@ The FuelFlux controller uses a Mealy state machine to manage the fuel dispensing
 | State | Description |
 |-------|-------------|
 | `Waiting` | Initial state, waiting for user interaction (card or PIN) |
+| `CalibrationPasswordEntry` | Calibration password entry after long СТОП in `Waiting` |
+| `CalibrationCoefficientEntry` | Four-digit flow coefficient entry (`0500`-`1500`) |
+| `CalibrationSaved` | Two-second confirmation after the coefficient is stored |
 | `PinEntry` | User is entering a PIN code |
 | `Authorization` | Authorization request is being processed |
 | `NotAuthorized` | Authorization failed, user cannot proceed |
@@ -32,6 +35,9 @@ The FuelFlux controller uses a Mealy state machine to manage the fuel dispensing
 | Event | Description |
 |-------|-------------|
 | `CardPresented` | User presented an RFID card |
+| `CalibrationRequested` | A СТОП hold began and completed in `Waiting` |
+| `CalibrationPasswordAccepted` | Hardcoded calibration password matched |
+| `CalibrationCoefficientSaved` | Valid coefficient was persisted successfully |
 | `PinEntryStarted` | User pressed first digit to start PIN entry |
 | `PinEntered` | User completed PIN entry (pressed 'A') |
 | `AuthorizationSuccess` | Backend authorization succeeded |
@@ -50,6 +56,22 @@ The FuelFlux controller uses a Mealy state machine to manage the fuel dispensing
 | `Timeout` | User inactivity timeout (30 seconds) |
 | `Error` | System error occurred |
 | `ErrorRecovery` | Device reinitialization after error successful |
+
+## Calibration Workflow
+
+1. Hold `СТОП` in `Waiting` for `KEYBOARD_LONG_PRESS_MS`.
+2. Enter the 10-digit password and press `СТАРТ`. An incorrect password is
+   cleared and may be retried.
+3. Enter exactly four digits from `0500` through `1500` and press `СТАРТ`.
+   The value is interpreted as thousandths (`0500` = `0.500`) and the large
+   display line inserts the decimal separator while the digits are entered.
+4. The coefficient is saved in the local SQLite database, shown for two
+   seconds, and the state machine returns to `Waiting`.
+
+`СТОП` cancels password or coefficient entry. Both entry states use the normal
+30-second inactivity timeout. Card reading is disabled throughout calibration.
+The coefficient scales live flow volume before display, target cutoff, backend
+reporting, offline backlog storage, and allowance deduction.
 
 ## Refuel Scenario (Customer Role)
 

@@ -266,6 +266,14 @@ void ConsoleKeyboard::enableInput(bool enabled) {
 
 void ConsoleKeyboard::injectKey(char c) {
     if (!inputEnabled_) return;
+    if (c == 'L' || c == 'l') {
+        std::lock_guard<std::mutex> lock(callbackMutex_);
+        if (keyPressCallback_) {
+            keyPressCallback_(KeyCode::KeyStopPressed);
+            keyPressCallback_(KeyCode::KeyStopLong);
+        }
+        return;
+    }
     KeyCode keyCode = charToKeyCode(c);
     if (keyCode == static_cast<KeyCode>(0)) return;
     std::lock_guard<std::mutex> lock(callbackMutex_);

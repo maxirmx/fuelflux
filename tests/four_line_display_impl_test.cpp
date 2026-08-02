@@ -61,6 +61,16 @@ std::pair<int, int> FindRenderedXBounds(const std::vector<unsigned char>& fb,
     return {min_x, max_x};
 }
 
+std::size_t Utf8CodePointCount(const std::string& text) {
+    std::size_t count = 0;
+    for (unsigned char byte : text) {
+        if ((byte & 0xC0U) != 0x80U) {
+            ++count;
+        }
+    }
+    return count;
+}
+
 } // namespace
 
 class FourLineDisplayImplTest : public ::testing::Test {
@@ -86,6 +96,38 @@ TEST_F(FourLineDisplayImplTest, ConstructorValidatesWidth) {
     EXPECT_THROW({
         FourLineDisplayImpl display(-10, 64, 12, 24, 2, 2);
     }, std::invalid_argument);
+}
+
+TEST_F(FourLineDisplayImplTest, CompactCalibrationMessagesFitBothHardwareLayouts) {
+    const std::array<std::string, 4> longestCalibrationLines{{
+        "Коэф. 0.500-1.500",
+        "0.500",
+        "Введите пароль",
+        "A=Ввод B=Отмена"
+    }};
+
+    FourLineDisplayImpl st7565(128, 64, 12, 28, 2, 2, 0);
+    FourLineDisplayImpl ili9488(480, 320, 40, 80, 5, 5, 10);
+
+    for (FourLineDisplayImpl* display : {&st7565, &ili9488}) {
+        for (unsigned int line = 0; line < longestCalibrationLines.size(); ++line) {
+            EXPECT_LE(Utf8CodePointCount(longestCalibrationLines[line]),
+                      display->length(line));
+            display->puts(line, longestCalibrationLines[line]);
+        }
+    }
+
+    const auto& fontPath = FindTestFontPath();
+    if (!fontPath.empty()) {
+        ASSERT_TRUE(st7565.initialize(fontPath));
+        ASSERT_TRUE(ili9488.initialize(fontPath));
+        for (unsigned int line = 0; line < longestCalibrationLines.size(); ++line) {
+            st7565.puts(line, longestCalibrationLines[line]);
+            ili9488.puts(line, longestCalibrationLines[line]);
+        }
+        EXPECT_FALSE(st7565.render().empty());
+        EXPECT_FALSE(ili9488.render().empty());
+    }
 }
 
 TEST_F(FourLineDisplayImplTest, ConstructorValidatesHeight) {

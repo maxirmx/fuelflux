@@ -44,6 +44,9 @@ public:
     int BacklogCount() const;
     int DeadMessageCount() const;
 
+    std::optional<double> GetCalibrationCoefficient() const;
+    bool SetCalibrationCoefficient(double coefficient);
+
 private:
     bool Execute(const std::string& sql) const;
     std::string MethodToString(MessageMethod method) const;

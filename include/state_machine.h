@@ -69,6 +69,9 @@ private:
     void onCancelPressed();
     void onErrorCancelPressed();
     void onTimeout();
+    void onCalibrationRequested();
+    void onCalibrationPasswordAccepted();
+    void onCalibrationCoefficientSaved();
 
 private:
     Controller* controller_;

@@ -6,6 +6,8 @@
 #include <gmock/gmock.h>
 #include <array>
 #include <filesystem>
+#include <nlohmann/json.hpp>
+#include <sqlite3.h>
 #include "backend.h"
 #include "config.h"
 #include "controller.h"
@@ -24,6 +26,25 @@ using ::testing::_;
 using ::testing::Return;
 using ::testing::ReturnPointee;
 using ::testing::ReturnRef;
+
+namespace {
+std::size_t Utf8CodePointCount(const std::string& text) {
+    std::size_t count = 0;
+    for (unsigned char byte : text) {
+        if ((byte & 0xC0U) != 0x80U) {
+            ++count;
+        }
+    }
+    return count;
+}
+
+void ExpectCompactCalibrationMessage(const DisplayMessage& message) {
+    EXPECT_LE(Utf8CodePointCount(message.line1), 17u);
+    EXPECT_LE(Utf8CodePointCount(message.line2), 7u);
+    EXPECT_LE(Utf8CodePointCount(message.line3), 17u);
+    EXPECT_LE(Utf8CodePointCount(message.line4), 17u);
+}
+} // namespace
 using ::testing::NiceMock;
 
 // Mock Backend
@@ -288,6 +309,43 @@ protected:
         }
         return controller->getStateMachine().getCurrentState() == expected;
     }
+
+    void pressDigits(const std::string& digits) {
+        for (char digit : digits) {
+            controller->handleKeyPress(static_cast<KeyCode>(digit));
+        }
+    }
+
+    void startCalibration() {
+        controller->handleKeyPress(KeyCode::KeyStopPressed);
+        controller->handleKeyPress(KeyCode::KeyStopLong);
+        ASSERT_TRUE(waitForState(SystemState::CalibrationPasswordEntry));
+        // processEvent publishes the target state before running its transition
+        // action. Let beginCalibration finish before simulating the first digit.
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        ASSERT_EQ(controller->getStateMachine().getCurrentState(),
+                  SystemState::CalibrationPasswordEntry);
+    }
+
+    void enterCalibrationPassword() {
+        startCalibration();
+        pressDigits("4004714746");
+        controller->handleKeyPress(KeyCode::KeyStart);
+        ASSERT_TRUE(waitForState(SystemState::CalibrationCoefficientEntry));
+        // Let the password-accepted action clear the password before coefficient input.
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        ASSERT_EQ(controller->getStateMachine().getCurrentState(),
+                  SystemState::CalibrationCoefficientEntry);
+    }
+
+    void recreateControllerWithCalibration(double coefficient) {
+        controller.reset();
+        {
+            MessageStorage storage(STORAGE_DB_PATH);
+            ASSERT_TRUE(storage.SetCalibrationCoefficient(coefficient));
+        }
+        createController();
+    }
 };
 
 // Test Controller construction
@@ -359,6 +417,7 @@ TEST_F(ControllerTest, CachedAuthorizationAllowsOnlyCachedTankSelection) {
 }
 
 TEST_F(ControllerTest, CachedAuthorizationRefuelGoesToBacklogAndSkipsDeauthorize) {
+    recreateControllerWithCalibration(0.5);
     ASSERT_NE(controller->getUserCache(), nullptr);
     ASSERT_TRUE(controller->getUserCache()->BeginPopulation());
     ASSERT_TRUE(controller->getUserCache()->AddPopulationEntry("offline-user", 50.0, static_cast<int>(UserRole::Customer)));
@@ -388,6 +447,12 @@ TEST_F(ControllerTest, CachedAuthorizationRefuelGoesToBacklogAndSkipsDeauthorize
     ASSERT_TRUE(message.has_value());
     EXPECT_EQ(message->uid, "offline-user");
     EXPECT_EQ(message->method, MessageMethod::Refuel);
+    const auto payload = nlohmann::json::parse(message->data);
+    EXPECT_DOUBLE_EQ(payload.at("FuelVolume").get<double>(), 4.0);
+
+    const auto cachedUser = controller->getUserCache()->GetEntry("offline-user");
+    ASSERT_TRUE(cachedUser.has_value());
+    EXPECT_DOUBLE_EQ(cachedUser->allowance, 46.0);
 }
 
 TEST_F(ControllerTest, CachedAuthorizationIntakeGoesToBacklog) {
@@ -508,6 +573,207 @@ TEST_F(ControllerTest, HandleKeyPressClear) {
     EXPECT_EQ(controller->getCurrentInput(), "1");
 
     // Shutdown to stop event loop
+    shutdownControllerAndJoinThread(controllerThread);
+}
+
+TEST_F(ControllerTest, CalibrationPasswordUsesCompactMaskedDisplayAndRetries) {
+    controller->initialize();
+    std::thread controllerThread([this]() { controller->run(); });
+
+    startCalibration();
+    auto message = controller->getStateMachine().getDisplayMessage();
+    EXPECT_EQ(message.line1, "Введите пароль");
+    EXPECT_TRUE(message.line2.empty());
+    EXPECT_EQ(message.line3, "00 из 10");
+    EXPECT_EQ(message.line4,
+              peripherals::configuredKeyboardUiProfile().calibrationConfirmCancel);
+    ExpectCompactCalibrationMessage(message);
+
+    pressDigits("40");
+    controller->handleKeyPress(KeyCode::KeyClear);
+    EXPECT_EQ(controller->getCurrentInput(), "4");
+    controller->handleKeyPress(KeyCode::KeyClear);
+    EXPECT_TRUE(controller->getCurrentInput().empty());
+
+    pressDigits("1111111111");
+    message = controller->getStateMachine().getDisplayMessage();
+    EXPECT_EQ(message.line1, "Введите пароль");
+    EXPECT_EQ(message.line2, "*******");
+    EXPECT_EQ(message.line3, "10 из 10");
+    ExpectCompactCalibrationMessage(message);
+
+    controller->handleKeyPress(KeyCode::KeyStart);
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    EXPECT_EQ(controller->getStateMachine().getCurrentState(),
+              SystemState::CalibrationPasswordEntry);
+    EXPECT_TRUE(controller->getCurrentInput().empty());
+    message = controller->getStateMachine().getDisplayMessage();
+    EXPECT_EQ(message.line1, "Пароль неверен");
+    EXPECT_TRUE(message.line2.empty());
+    EXPECT_EQ(message.line3, "00 из 10");
+    ExpectCompactCalibrationMessage(message);
+
+    pressDigits("4004714746");
+    controller->handleKeyPress(KeyCode::KeyStart);
+    ASSERT_TRUE(waitForState(SystemState::CalibrationCoefficientEntry));
+
+    shutdownControllerAndJoinThread(controllerThread);
+}
+
+TEST_F(ControllerTest, CalibrationRequiresLongStopThatBeginsInWaiting) {
+    controller->initialize();
+    std::thread controllerThread([this]() { controller->run(); });
+
+    controller->handleKeyPress(KeyCode::KeyStop);
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    EXPECT_EQ(controller->getStateMachine().getCurrentState(), SystemState::Waiting);
+
+    controller->handleKeyPress(KeyCode::Key1);
+    ASSERT_TRUE(waitForState(SystemState::PinEntry));
+    controller->handleKeyPress(KeyCode::KeyStopPressed);
+    controller->handleKeyPress(KeyCode::KeyStopLong);
+    ASSERT_TRUE(waitForState(SystemState::Waiting));
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    EXPECT_NE(controller->getStateMachine().getCurrentState(),
+              SystemState::CalibrationPasswordEntry);
+
+    shutdownControllerAndJoinThread(controllerThread);
+}
+
+TEST_F(ControllerTest, CalibrationValidatesFourDigitsSavesAndReturnsToWaiting) {
+    controller->initialize();
+    std::thread controllerThread([this]() { controller->run(); });
+    enterCalibrationPassword();
+
+    auto message = controller->getStateMachine().getDisplayMessage();
+    EXPECT_EQ(message.line1, "Коэф. 0.500-1.500");
+    EXPECT_TRUE(message.line2.empty());
+    EXPECT_EQ(message.line3, "Сейчас: 1.000");
+    ExpectCompactCalibrationMessage(message);
+
+    pressDigits("05");
+    EXPECT_EQ(controller->getStateMachine().getDisplayMessage().line2, "0.5");
+    controller->handleKeyPress(KeyCode::KeyClear);
+    EXPECT_EQ(controller->getCurrentInput(), "0");
+    EXPECT_EQ(controller->getStateMachine().getDisplayMessage().line2, "0.");
+    controller->clearInputSilent();
+
+    pressDigits("500");
+    controller->handleKeyPress(KeyCode::KeyStart);
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    message = controller->getStateMachine().getDisplayMessage();
+    EXPECT_EQ(message.line1, "Нужно 0.500-1.500");
+    EXPECT_EQ(message.line2, "5.00");
+
+    controller->clearInputSilent();
+    pressDigits("0499");
+    controller->handleKeyPress(KeyCode::KeyStart);
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    EXPECT_EQ(controller->getStateMachine().getDisplayMessage().line1,
+              "Нужно 0.500-1.500");
+
+    controller->clearInputSilent();
+    pressDigits("05000");
+    EXPECT_EQ(controller->getCurrentInput(), "0500");
+    controller->handleKeyPress(KeyCode::KeyStart);
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    EXPECT_EQ(controller->getStateMachine().getCurrentState(),
+              SystemState::CalibrationCoefficientEntry);
+
+    controller->handleKeyPress(KeyCode::KeyClear);
+    controller->handleKeyPress(KeyCode::KeyStart);
+    ASSERT_TRUE(waitForState(SystemState::CalibrationSaved));
+    EXPECT_DOUBLE_EQ(controller->getCalibrationCoefficient(), 0.5);
+    message = controller->getStateMachine().getDisplayMessage();
+    EXPECT_EQ(message.line1, "Коэф. сохранён");
+    EXPECT_EQ(message.line2, "0.500");
+    EXPECT_TRUE(message.line3.empty());
+    EXPECT_TRUE(message.line4.empty());
+    ExpectCompactCalibrationMessage(message);
+
+    ASSERT_TRUE(waitForState(SystemState::Waiting, std::chrono::milliseconds(3500)));
+    shutdownControllerAndJoinThread(controllerThread);
+}
+
+TEST_F(ControllerTest, CalibrationCoefficientLoadsFromDatabase) {
+    recreateControllerWithCalibration(1.5);
+    EXPECT_DOUBLE_EQ(controller->getCalibrationCoefficient(), 1.5);
+}
+
+TEST_F(ControllerTest, CalibrationAcceptsUnityAndUpperBoundary) {
+    controller->initialize();
+    std::thread controllerThread([this]() { controller->run(); });
+
+    enterCalibrationPassword();
+    pressDigits("1501");
+    controller->handleKeyPress(KeyCode::KeyStart);
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    EXPECT_EQ(controller->getStateMachine().getCurrentState(),
+              SystemState::CalibrationCoefficientEntry);
+    EXPECT_EQ(controller->getStateMachine().getDisplayMessage().line1,
+              "Нужно 0.500-1.500");
+
+    controller->clearInputSilent();
+    pressDigits("1000");
+    controller->handleKeyPress(KeyCode::KeyStart);
+    ASSERT_TRUE(waitForState(SystemState::CalibrationSaved));
+    EXPECT_DOUBLE_EQ(controller->getCalibrationCoefficient(), 1.0);
+    controller->postEvent(Event::Timeout);
+    ASSERT_TRUE(waitForState(SystemState::Waiting));
+
+    enterCalibrationPassword();
+    pressDigits("1500");
+    controller->handleKeyPress(KeyCode::KeyStart);
+    ASSERT_TRUE(waitForState(SystemState::CalibrationSaved));
+    EXPECT_DOUBLE_EQ(controller->getCalibrationCoefficient(), 1.5);
+
+    shutdownControllerAndJoinThread(controllerThread);
+}
+
+TEST_F(ControllerTest, CalibrationCancelAndTimeoutReturnToWaiting) {
+    controller->initialize();
+    std::thread controllerThread([this]() { controller->run(); });
+
+    startCalibration();
+    controller->handleKeyPress(KeyCode::KeyStop);
+    ASSERT_TRUE(waitForState(SystemState::Waiting));
+
+    enterCalibrationPassword();
+    controller->postEvent(Event::Timeout);
+    ASSERT_TRUE(waitForState(SystemState::Waiting));
+
+    shutdownControllerAndJoinThread(controllerThread);
+}
+
+TEST_F(ControllerTest, CalibrationSaveFailureRetainsActiveCoefficient) {
+    controller->initialize();
+    std::thread controllerThread([this]() { controller->run(); });
+    enterCalibrationPassword();
+
+    sqlite3* db = nullptr;
+    ASSERT_EQ(sqlite3_open(STORAGE_DB_PATH.c_str(), &db), SQLITE_OK);
+    char* error = nullptr;
+    const int dropResult = sqlite3_exec(
+        db, "DROP TABLE device_settings;", nullptr, nullptr, &error);
+    if (error) {
+        sqlite3_free(error);
+    }
+    sqlite3_close(db);
+    ASSERT_EQ(dropResult, SQLITE_OK);
+
+    pressDigits("1250");
+    controller->handleKeyPress(KeyCode::KeyStart);
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+
+    EXPECT_EQ(controller->getStateMachine().getCurrentState(),
+              SystemState::CalibrationCoefficientEntry);
+    EXPECT_DOUBLE_EQ(controller->getCalibrationCoefficient(), 1.0);
+    const auto message = controller->getStateMachine().getDisplayMessage();
+    EXPECT_EQ(message.line1, "Ошибка записи");
+    EXPECT_EQ(message.line2, "1.250");
+    EXPECT_EQ(message.line3, "Сейчас: 1.000");
+    ExpectCompactCalibrationMessage(message);
+
     shutdownControllerAndJoinThread(controllerThread);
 }
 
@@ -1011,6 +1277,28 @@ TEST_F(ControllerTest, HandleFlowUpdate) {
     
     controller->handleFlowUpdate(10.5);
     // This test just verifies the method doesn't crash
+}
+
+TEST_F(ControllerTest, CalibrationScalesLiveVolumeCutoffAndBackendReportOnce) {
+    recreateControllerWithCalibration(0.5);
+    mockBackend->roleId_ = static_cast<int>(UserRole::Customer);
+    mockBackend->allowance_ = 100.0;
+    mockBackend->tanksStorage_ = {BackendTankInfo{1, 1, "Tank A", 100.0}};
+    controller->requestAuthorization("customer");
+    controller->selectTank(1);
+    controller->enterVolume(10.0);
+
+    mockPump->running_ = true;
+    controller->handleFlowUpdate(18.0);
+    EXPECT_DOUBLE_EQ(controller->getCurrentRefuelVolume(), 9.0);
+    EXPECT_TRUE(mockPump->running_);
+
+    controller->handleFlowUpdate(20.0);
+    EXPECT_DOUBLE_EQ(controller->getCurrentRefuelVolume(), 10.0);
+    EXPECT_FALSE(mockPump->running_);
+
+    EXPECT_CALL(*mockBackend, Refuel(1, 10.0)).WillOnce(Return(true));
+    controller->completeRefueling();
 }
 
 // Test that rapid handleFlowUpdate calls post InputUpdated at most once per

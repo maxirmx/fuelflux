@@ -238,13 +238,26 @@ TEST(KeyPressTranslationTest, VidSpecialKeysFollowShortAndLongContract) {
     ASSERT_EQ(keys.count, 1u);
     EXPECT_EQ(keys.values[0], KeyCode::KeyStart);
 
+    keys = translateKeyPress(
+        KeyboardType::Vid,
+        {PhysicalKey::Stop, KeyPressEventKind::Pressed});
+    ASSERT_EQ(keys.count, 1u);
+    EXPECT_EQ(keys.values[0], KeyCode::KeyStopPressed);
+
+    keys = translateKeyPress(
+        KeyboardType::Vid,
+        {PhysicalKey::Stop, KeyPressEventKind::Short});
+    ASSERT_EQ(keys.count, 1u);
+    EXPECT_EQ(keys.values[0], KeyCode::KeyStop);
+
+    keys = translateKeyPress(
+        KeyboardType::Vid,
+        {PhysicalKey::Stop, KeyPressEventKind::Long});
+    ASSERT_EQ(keys.count, 1u);
+    EXPECT_EQ(keys.values[0], KeyCode::KeyStopLong);
+
     for (const auto kind :
          {KeyPressEventKind::Short, KeyPressEventKind::Long}) {
-        keys = translateKeyPress(
-            KeyboardType::Vid, {PhysicalKey::Stop, kind});
-        ASSERT_EQ(keys.count, 1u);
-        EXPECT_EQ(keys.values[0], KeyCode::KeyStop);
-
         keys = translateKeyPress(
             KeyboardType::Vid, {PhysicalKey::Clear, kind});
         ASSERT_EQ(keys.count, 1u);
@@ -265,7 +278,7 @@ TEST(KeyPressTranslationTest, VidRusEngIgnoresShortAndResetsOnLong) {
     EXPECT_EQ(keys.values[0], KeyCode::KeyDisplayReset);
 }
 
-TEST(KeyPressTranslationTest, VidIgnoresPressedAndLegacyUsesOnlyPressed) {
+TEST(KeyPressTranslationTest, StopPressOriginAndLongArePreserved) {
     EXPECT_TRUE(translateKeyPress(
         KeyboardType::Vid,
         {PhysicalKey::Start, KeyPressEventKind::Pressed}).empty());
@@ -282,21 +295,37 @@ TEST(KeyPressTranslationTest, VidIgnoresPressedAndLegacyUsesOnlyPressed) {
     EXPECT_TRUE(translateKeyPress(
         KeyboardType::Legacy,
         {PhysicalKey::Start, KeyPressEventKind::Long}).empty());
+
+    keys = translateKeyPress(
+        KeyboardType::Legacy,
+        {PhysicalKey::Stop, KeyPressEventKind::Pressed});
+    ASSERT_EQ(keys.count, 2u);
+    EXPECT_EQ(keys.values[0], KeyCode::KeyStopPressed);
+    EXPECT_EQ(keys.values[1], KeyCode::KeyStop);
+
+    EXPECT_TRUE(translateKeyPress(
+        KeyboardType::Legacy,
+        {PhysicalKey::Stop, KeyPressEventKind::Short}).empty());
+    keys = translateKeyPress(
+        KeyboardType::Legacy,
+        {PhysicalKey::Stop, KeyPressEventKind::Long});
+    ASSERT_EQ(keys.count, 1u);
+    EXPECT_EQ(keys.values[0], KeyCode::KeyStopLong);
 }
 
 TEST(KeyPressTranslationTest, LegacyPressedMapsEverySupportedPhysicalKey) {
-    constexpr std::array<PhysicalKey, 15> physical{{
+    constexpr std::array<PhysicalKey, 14> physical{{
         PhysicalKey::Key0, PhysicalKey::Key1, PhysicalKey::Key2,
         PhysicalKey::Key3, PhysicalKey::Key4, PhysicalKey::Key5,
         PhysicalKey::Key6, PhysicalKey::Key7, PhysicalKey::Key8,
         PhysicalKey::Key9, PhysicalKey::Maximum, PhysicalKey::Clear,
-        PhysicalKey::Start, PhysicalKey::Stop, PhysicalKey::DisplayReset
+        PhysicalKey::Start, PhysicalKey::DisplayReset
     }};
-    constexpr std::array<KeyCode, 15> logical{{
+    constexpr std::array<KeyCode, 14> logical{{
         KeyCode::Key0, KeyCode::Key1, KeyCode::Key2, KeyCode::Key3,
         KeyCode::Key4, KeyCode::Key5, KeyCode::Key6, KeyCode::Key7,
         KeyCode::Key8, KeyCode::Key9, KeyCode::KeyMax, KeyCode::KeyClear,
-        KeyCode::KeyStart, KeyCode::KeyStop, KeyCode::KeyDisplayReset
+        KeyCode::KeyStart, KeyCode::KeyDisplayReset
     }};
 
     for (std::size_t index = 0; index < physical.size(); ++index) {
@@ -319,10 +348,13 @@ TEST(KeyboardUiProfileTest, ClassicAndVidExposeDifferentKeyLegends) {
     EXPECT_EQ(console.entryConfirmCancel, "Ввод(A)/Отмена(B)");
     EXPECT_EQ(legacy.entryConfirmCancel, console.entryConfirmCancel);
     EXPECT_EQ(legacy.maximumLabel, "макс(*)");
-    EXPECT_EQ(vid.entryConfirmCancel, "START/STOP");
-    EXPECT_EQ(vid.maximumLabel, "макс(START)");
-    EXPECT_EQ(vid.refuelingStop, "STOP");
-    EXPECT_EQ(vid.errorReset, "Сброс(STOP)");
+    EXPECT_EQ(vid.entryConfirmCancel, "СТАРТ/СТОП");
+    EXPECT_EQ(vid.maximumLabel, "макс(СТАРТ)");
+    EXPECT_EQ(vid.refuelingStop, "СТОП");
+    EXPECT_EQ(vid.errorReset, "Сброс(СТОП)");
+    EXPECT_EQ(console.calibrationConfirmCancel, "A=Ввод B=Отмена");
+    EXPECT_EQ(legacy.calibrationConfirmCancel, console.calibrationConfirmCancel);
+    EXPECT_EQ(vid.calibrationConfirmCancel, "СТАРТ / СТОП");
 }
 
 } // namespace

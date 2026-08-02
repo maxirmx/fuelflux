@@ -227,8 +227,8 @@ viewed from the front:
 
 | | C1 | C2 | C3 | C4 |
 |---|---|---|---|---|
-| R1 | `1` | `2` | `3` | `START` |
-| R2 | `4` | `5` | `6` | `STOP` |
+| R1 | `1` | `2` | `3` | `СТАРТ` |
+| R2 | `4` | `5` | `6` | `СТОП` |
 | R3 | `7` | `8` | `9` | Unused |
 | R4 | `RUS/ENG` | `0` | `BACKSPACE` | Unused |
 
@@ -237,12 +237,12 @@ viewed from the front:
 | Physical key | Short press | Long press |
 |---|---|---|
 | `0`-`9` | Digit | Same digit |
-| `START` | Start/enter (`A`) | Start/enter (`A`) |
-| `STOP` | Stop/cancel (`B`) | Stop/cancel (`B`) |
+| `СТАРТ` | Start/enter (`A`) | Start/enter (`A`) |
+| `СТОП` | Stop/cancel (`B`) | Enter calibration when the hold begins and ends in idle; otherwise stop/cancel |
 | `BACKSPACE` | Remove the last digit (`#`) | Remove the last digit (`#`) |
 | `RUS/ENG` | Ignored | Reinitialize the display (`D`) |
 
-In customer volume entry, pressing `START` with an empty or zero volume is
+In customer volume entry, pressing `СТАРТ` with an empty or zero volume is
 interpreted by the state machine as maximum followed by start. This behavior
 is shared by console, legacy, and VID keyboards and does not depend on press
 duration.
@@ -250,6 +250,11 @@ duration.
 Short VID presses are reported after confirmed release. Long presses are
 reported once as soon as the threshold is reached and produce no event on
 release. The exact threshold duration counts as long.
+
+The console emulator uses `B` for a short СТОП press and `L` to simulate a
+long СТОП press. The legacy keypad keeps its immediate `B` cancel behavior;
+the controller remembers where the press began so a hold outside idle cannot
+cancel and then enter calibration.
 
 ### Legacy 4x4 wiring
 

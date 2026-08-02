@@ -218,6 +218,21 @@ TEST_F(ConsoleKeyboardTest, InjectKeyTriggersCallback) {
     }
 }
 
+TEST_F(ConsoleKeyboardTest, LInjectsLongStopSequence) {
+    ASSERT_TRUE(keyboard->initialize());
+    keyboard->setKeyPressCallback([this](KeyCode key) {
+        keyCallback(key);
+    });
+    keyboard->enableInput(true);
+
+    keyboard->injectKey('L');
+
+    std::lock_guard<std::mutex> lock(callbackMutex);
+    ASSERT_EQ(receivedKeys.size(), 2u);
+    EXPECT_EQ(receivedKeys[0], KeyCode::KeyStopPressed);
+    EXPECT_EQ(receivedKeys[1], KeyCode::KeyStopLong);
+}
+
 TEST_F(ConsoleKeyboardTest, HandlesMultipleKeyInjections) {
     ASSERT_TRUE(keyboard->initialize());
     

@@ -53,6 +53,9 @@ _codeql_detected_source_root
 # logs
 logs/
 
+# Runtime SQLite data for non-Unix builds and tests
+fuelflux/db/
+
 # Generated config files (from .in templates)
 config/logging.json
 
