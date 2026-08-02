@@ -83,20 +83,37 @@ inline LogicalKeySequence translateKeyPress(
     LogicalKeySequence keys;
 
     if (keyboardType == KeyboardType::Legacy) {
+        if (event.key == PhysicalKey::Stop) {
+            if (event.kind == KeyPressEventKind::Pressed) {
+                keys.push(KeyCode::KeyStopPressed);
+                keys.push(KeyCode::KeyStop);
+            } else if (event.kind == KeyPressEventKind::Long) {
+                keys.push(KeyCode::KeyStopLong);
+            }
+            return keys;
+        }
         if (event.kind == KeyPressEventKind::Pressed) {
             appendStandardLogicalKey(keys, event.key);
         }
         return keys;
     }
 
-    if (keyboardType != KeyboardType::Vid ||
-        event.kind == KeyPressEventKind::Pressed) {
+    if (keyboardType != KeyboardType::Vid) {
+        return keys;
+    }
+
+    if (event.kind == KeyPressEventKind::Pressed) {
+        if (event.key == PhysicalKey::Stop) {
+            keys.push(KeyCode::KeyStopPressed);
+        }
         return keys;
     }
 
     if (event.kind == KeyPressEventKind::Long) {
         if (event.key == PhysicalKey::RusEng) {
             keys.push(KeyCode::KeyDisplayReset);
+        } else if (event.key == PhysicalKey::Stop) {
+            keys.push(KeyCode::KeyStopLong);
         } else {
             appendStandardLogicalKey(keys, event.key);
         }
@@ -116,6 +133,7 @@ struct KeyboardUiProfile {
     std::string_view refuelingStop;
     std::string_view errorReset;
     std::string_view cancelPrompt;
+    std::string_view calibrationConfirmCancel;
 };
 
 inline constexpr KeyboardUiProfile kClassicKeyboardUiProfile{
@@ -124,16 +142,18 @@ inline constexpr KeyboardUiProfile kClassicKeyboardUiProfile{
     "макс(*)",
     "Стоп(B)",
     "Сброс(B)",
-    "Нажмите ОТМЕНА (B)"
+    "Нажмите ОТМЕНА (B)",
+    "A=Ввод B=Отмена"
 };
 
 inline constexpr KeyboardUiProfile kVidKeyboardUiProfile{
-    "START/STOP",
-    "START/STOP",
-    "макс(START)",
-    "STOP",
-    "Сброс(STOP)",
-    "Нажмите STOP"
+    "СТАРТ/СТОП",
+    "СТАРТ/СТОП",
+    "макс(СТАРТ)",
+    "СТОП",
+    "Сброс(СТОП)",
+    "Нажмите СТОП",
+    "СТАРТ / СТОП"
 };
 
 inline constexpr const KeyboardUiProfile& keyboardUiProfile(

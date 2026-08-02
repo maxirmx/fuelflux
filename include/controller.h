@@ -89,6 +89,7 @@ class Controller {
     const std::string& getCurrentInput() const { return currentInput_; }
     IntakeDirection getSelectedIntakeDirection() const { return selectedIntakeDirection_; }
     Volume getCurrentRefuelVolume() const { return currentRefuelVolume_; }
+    double getCalibrationCoefficient() const { return calibrationCoefficient_; }
     const std::string& getLastErrorMessage() const { return lastErrorMessage_; }
 
     // Input handling
@@ -192,6 +193,18 @@ class Controller {
     Volume currentRefuelVolume_;
     Volume targetRefuelVolume_;
     std::chrono::steady_clock::time_point refuelStartTime_;
+
+    enum class CalibrationInputError {
+        None,
+        InvalidCoefficient,
+        SaveFailed
+    };
+
+    double calibrationCoefficient_ = 1.0;
+    bool calibrationPasswordInvalid_ = false;
+    CalibrationInputError calibrationInputError_ = CalibrationInputError::None;
+    bool calibrationInputOverflow_ = false;
+    bool stopPressBeganInWaiting_ = false;
     
     // System state
     bool isRunning_;
@@ -221,6 +234,11 @@ class Controller {
     void setupPeripheralCallbacks();
     void dispatchKeyPress(KeyCode key);
     void processNumericInput();
+    void beginCalibration();
+    void validateCalibrationPassword();
+    void saveCalibrationCoefficient();
+    std::string formatCalibrationCoefficient(double coefficient) const;
+    std::string getCalibrationCoefficientTitle() const;
     Volume parseVolumeFromInput() const;
     TankNumber parseTankFromInput() const;
     void resetSessionData();

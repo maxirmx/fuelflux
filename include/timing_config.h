@@ -25,6 +25,9 @@ constexpr std::chrono::seconds kInactivityTimeout{30};
 // State machine timeout thread: how often to check for inactivity (seconds).
 constexpr std::chrono::seconds kTimeoutThreadPollInterval{1};
 
+// How long to show a successfully saved calibration coefficient.
+constexpr std::chrono::seconds kCalibrationSavedDisplayDuration{2};
+
 // ─── Controller ───────────────────────────────────────────────────────────────
 
 // Default no-flow cancel timeout: pump stops if no flow pulses are received

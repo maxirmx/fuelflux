@@ -6,6 +6,7 @@
 
 #include <sqlite3.h>
 #include <filesystem>
+#include <cmath>
 #include <stdexcept>
 
 namespace fuelflux {
@@ -31,6 +32,8 @@ if (sqlite3_open(dbPath.c_str(), &db) != SQLITE_OK) {
 
     Execute("CREATE TABLE IF NOT EXISTS backlog (uid TEXT NOT NULL, method TEXT NOT NULL, data TEXT NOT NULL);");
     Execute("CREATE TABLE IF NOT EXISTS dead_messages (uid TEXT NOT NULL, method TEXT NOT NULL, data TEXT NOT NULL);");
+    Execute("CREATE TABLE IF NOT EXISTS device_settings (key TEXT PRIMARY KEY, value REAL NOT NULL);");
+    Execute("INSERT OR IGNORE INTO device_settings (key, value) VALUES ('calibration_coefficient', 1.0);");
 }
 
 MessageStorage::~MessageStorage() {
@@ -224,6 +227,53 @@ int MessageStorage::DeadMessageCount() const {
     }
     sqlite3_finalize(stmt);
     return count;
+}
+
+std::optional<double> MessageStorage::GetCalibrationCoefficient() const {
+    std::lock_guard<std::mutex> lock(dbMutex_);
+    if (!db_) {
+        return std::nullopt;
+    }
+
+    sqlite3_stmt* stmt = nullptr;
+    const char* sql = "SELECT value FROM device_settings WHERE key = 'calibration_coefficient';";
+    if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) != SQLITE_OK) {
+        return std::nullopt;
+    }
+
+    std::optional<double> result;
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
+        const double value = sqlite3_column_double(stmt, 0);
+        if (std::isfinite(value) && value >= 0.5 && value <= 1.5) {
+            result = value;
+        }
+    }
+    sqlite3_finalize(stmt);
+    return result;
+}
+
+bool MessageStorage::SetCalibrationCoefficient(double coefficient) {
+    if (!std::isfinite(coefficient) || coefficient < 0.5 || coefficient > 1.5) {
+        return false;
+    }
+
+    std::lock_guard<std::mutex> lock(dbMutex_);
+    if (!db_) {
+        return false;
+    }
+
+    sqlite3_stmt* stmt = nullptr;
+    const char* sql =
+        "INSERT OR REPLACE INTO device_settings (key, value) "
+        "VALUES ('calibration_coefficient', ?);";
+    if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) != SQLITE_OK) {
+        return false;
+    }
+
+    sqlite3_bind_double(stmt, 1, coefficient);
+    const bool ok = (sqlite3_step(stmt) == SQLITE_DONE);
+    sqlite3_finalize(stmt);
+    return ok;
 }
 
 } // namespace fuelflux

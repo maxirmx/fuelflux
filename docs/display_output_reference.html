@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
@@ -112,12 +112,13 @@
             </tr>
         </thead>
         <tbody>
-            <tr><td>PIN, tank, and intake entry</td><td><code>Ввод(A)/Отмена(B)</code></td><td><code>START/STOP</code></td></tr>
-            <tr><td>Volume confirmation</td><td><code>Старт(A)/Отмена(B)</code></td><td><code>START/STOP</code></td></tr>
-            <tr><td>Customer maximum suffix</td><td><code>макс(*)</code></td><td><code>макс(START)</code></td></tr>
-            <tr><td>Refueling stop</td><td><code>Стоп(B)</code></td><td><code>STOP</code></td></tr>
-            <tr><td>Error reset</td><td><code>Сброс(B)</code></td><td><code>Сброс(STOP)</code></td></tr>
-            <tr><td>Immediate error cancellation</td><td><code>Нажмите ОТМЕНА (B)</code></td><td><code>Нажмите STOP</code></td></tr>
+            <tr><td>PIN, tank, and intake entry</td><td><code>Ввод(A)/Отмена(B)</code></td><td><code>СТАРТ/СТОП</code></td></tr>
+            <tr><td>Volume confirmation</td><td><code>Старт(A)/Отмена(B)</code></td><td><code>СТАРТ/СТОП</code></td></tr>
+            <tr><td>Customer maximum suffix</td><td><code>макс(*)</code></td><td><code>макс(СТАРТ)</code></td></tr>
+            <tr><td>Refueling stop</td><td><code>Стоп(B)</code></td><td><code>СТОП</code></td></tr>
+            <tr><td>Error reset</td><td><code>Сброс(B)</code></td><td><code>Сброс(СТОП)</code></td></tr>
+            <tr><td>Immediate error cancellation</td><td><code>Нажмите ОТМЕНА (B)</code></td><td><code>Нажмите СТОП</code></td></tr>
+            <tr><td>Calibration confirm / cancel</td><td><code>A=Ввод B=Отмена</code></td><td><code>СТАРТ / СТОП</code></td></tr>
         </tbody>
     </table>
 
@@ -159,6 +160,39 @@
                 <td>0</td>
                 <td><code>getDeviceSerialNumber()</code></td>
                 <td>15</td>
+            </tr>
+            <tr>
+                <td><strong>CalibrationPasswordEntry</strong></td>
+                <td>"Введите пароль" / "Пароль неверен"</td>
+                <td>14 / 14</td>
+                <td>Up to seven asterisks</td>
+                <td>0-7</td>
+                <td>"00 из 10"</td>
+                <td>8</td>
+                <td>Keyboard calibration hint</td>
+                <td>12 / 15</td>
+            </tr>
+            <tr>
+                <td><strong>CalibrationCoefficientEntry</strong></td>
+                <td>"Коэф. 0.500-1.500" / "Нужно 0.500-1.500" / "Ошибка записи"</td>
+                <td>17 / 17 / 13</td>
+                <td>Decimal-formatted input (0500 → 0.500)</td>
+                <td>0-5</td>
+                <td>"Сейчас: 1.000"</td>
+                <td>13</td>
+                <td>Keyboard calibration hint</td>
+                <td>12 / 15</td>
+            </tr>
+            <tr>
+                <td><strong>CalibrationSaved</strong></td>
+                <td>"Коэф. сохранён"</td>
+                <td>14</td>
+                <td>"1.000"</td>
+                <td>5</td>
+                <td>""</td>
+                <td>0</td>
+                <td>""</td>
+                <td>0</td>
             </tr>
             <tr>
                 <td><strong>PinEntry</strong></td>

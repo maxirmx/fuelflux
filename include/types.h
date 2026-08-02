@@ -37,6 +37,9 @@ enum class IntakeDirection {
 // System states for Mealy machine
 enum class SystemState {
     Waiting,
+    CalibrationPasswordEntry,
+    CalibrationCoefficientEntry,
+    CalibrationSaved,
     PinEntry,
     Authorization,
     NotAuthorized,
@@ -56,6 +59,9 @@ enum class SystemState {
 // Events that trigger state transitions
 enum class Event {
     CardPresented,
+    CalibrationRequested,
+    CalibrationPasswordAccepted,
+    CalibrationCoefficientSaved,
     PinEntered,
     InputUpdated,
     AuthorizationSuccess,
@@ -87,7 +93,9 @@ enum class KeyCode {
     KeyClear = '#',         // Clear last digit
     KeyStart = 'A',         // Start/Enter
     KeyStop  = 'B',         // Stop/Cancel
-    KeyDisplayReset = 'D'   // Reinitialize and update display
+    KeyDisplayReset = 'D',  // Reinitialize and update display
+    KeyStopPressed = 0x100, // Internal marker: physical STOP press began
+    KeyStopLong = 0x101     // Internal marker: physical STOP became long
 };
 
 // User information

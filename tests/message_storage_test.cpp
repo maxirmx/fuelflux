@@ -10,6 +10,7 @@
 #include <random>
 #include <sstream>
 #include <iomanip>
+#include <limits>
 
 using namespace fuelflux;
 
@@ -76,6 +77,47 @@ TEST(MessageStorageTest, FetchesAndRemovesBacklogInOrder) {
         ASSERT_TRUE(second.has_value());
         EXPECT_EQ(second->uid, "uid-2");
         EXPECT_EQ(second->method, MessageMethod::Intake);
+    }
+
+    std::filesystem::remove(dbPath);
+}
+
+TEST(MessageStorageTest, CalibrationCoefficientDefaultsAndPersists) {
+    const std::string dbPath = MakeTempDbPath();
+    std::filesystem::remove(dbPath);
+
+    {
+        MessageStorage storage(dbPath);
+        const auto initial = storage.GetCalibrationCoefficient();
+        ASSERT_TRUE(initial.has_value());
+        EXPECT_DOUBLE_EQ(*initial, 1.0);
+        EXPECT_TRUE(storage.SetCalibrationCoefficient(0.5));
+    }
+
+    {
+        MessageStorage storage(dbPath);
+        const auto persisted = storage.GetCalibrationCoefficient();
+        ASSERT_TRUE(persisted.has_value());
+        EXPECT_DOUBLE_EQ(*persisted, 0.5);
+        EXPECT_TRUE(storage.SetCalibrationCoefficient(1.5));
+    }
+
+    std::filesystem::remove(dbPath);
+}
+
+TEST(MessageStorageTest, CalibrationCoefficientRejectsInvalidValues) {
+    const std::string dbPath = MakeTempDbPath();
+    std::filesystem::remove(dbPath);
+
+    {
+        MessageStorage storage(dbPath);
+        EXPECT_FALSE(storage.SetCalibrationCoefficient(0.499));
+        EXPECT_FALSE(storage.SetCalibrationCoefficient(1.501));
+        EXPECT_FALSE(storage.SetCalibrationCoefficient(
+            std::numeric_limits<double>::quiet_NaN()));
+        const auto value = storage.GetCalibrationCoefficient();
+        ASSERT_TRUE(value.has_value());
+        EXPECT_DOUBLE_EQ(*value, 1.0);
     }
 
     std::filesystem::remove(dbPath);

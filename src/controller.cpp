@@ -22,6 +22,12 @@
 
 namespace fuelflux {
 
+namespace {
+constexpr const char* kCalibrationPassword = "4004714746";
+constexpr std::size_t kCalibrationPasswordLength = 10;
+constexpr std::size_t kCalibrationInputLength = 4;
+}
+
 std::shared_ptr<IBackend> Controller::CreateDefaultBackend(std::shared_ptr<MessageStorage> storage) {
     return std::make_shared<Backend>(BACKEND_API_URL, CONTROLLER_UID, storage);
 }
@@ -64,8 +70,16 @@ Controller::Controller(ControllerId controllerId,
     try {
         messageStorage_ = std::make_shared<MessageStorage>(STORAGE_DB_PATH);
         LOG_CTRL_INFO("Message storage initialized at: {}", STORAGE_DB_PATH);
+        const auto storedCoefficient = messageStorage_->GetCalibrationCoefficient();
+        if (storedCoefficient.has_value()) {
+            calibrationCoefficient_ = *storedCoefficient;
+            LOG_CTRL_INFO("Flow calibration coefficient loaded: {:.3f}", calibrationCoefficient_);
+        } else {
+            LOG_CTRL_WARN("Flow calibration coefficient unavailable or invalid; using 1.000");
+        }
     } catch (const std::exception& e) {
         LOG_CTRL_ERROR("Failed to initialize message storage: {}", e.what());
+        LOG_CTRL_WARN("Using default flow calibration coefficient 1.000");
     }
 }
 
@@ -259,7 +273,7 @@ void Controller::setFlowMeter(std::unique_ptr<peripherals::IFlowMeter> flowMeter
 
 // Input handling
 void Controller::handleKeyPress(KeyCode key) {
-    LOG_CTRL_DEBUG("Key pressed: {}", static_cast<char>(key));
+    LOG_CTRL_DEBUG("Key pressed: {}", static_cast<int>(key));
     
     // Reset inactivity timer on any key press
     stateMachine_.updateActivityTime();
@@ -310,6 +324,24 @@ void Controller::dispatchKeyPress(KeyCode key) {
             postEvent(Event::CancelPressed);
             break;
 
+        case KeyCode::KeyStopPressed:
+            stopPressBeganInWaiting_ = (currentState == SystemState::Waiting);
+            break;
+
+        case KeyCode::KeyStopLong:
+            {
+                const bool calibrationAllowed = stopPressBeganInWaiting_ &&
+                    currentState == SystemState::Waiting;
+                stopPressBeganInWaiting_ = false;
+                if (calibrationAllowed) {
+                    postEvent(Event::CalibrationRequested);
+                } else {
+                    // Outside idle a long STOP retains the normal cancel/stop action.
+                    postEvent(Event::CancelPressed);
+                }
+            }
+            break;
+
         case KeyCode::KeyDisplayReset:
             postEvent(Event::DisplayReset);
             break;
@@ -358,7 +390,8 @@ void Controller::handlePumpStateChanged(bool isRunning) {
 }
 
 void Controller::handleFlowUpdate(Volume currentVolume) {
-    currentRefuelVolume_ = currentVolume;
+    const Volume scaledVolume = currentVolume * calibrationCoefficient_;
+    currentRefuelVolume_ = scaledVolume;
 
     {
         std::lock_guard<std::mutex> lock(noFlowMonitorMutex_);
@@ -366,7 +399,7 @@ void Controller::handleFlowUpdate(Volume currentVolume) {
     }
     
     // Check if target volume reached — runs on every tick to minimize overfill.
-    if (targetRefuelVolume_ > 0.0 && currentVolume >= targetRefuelVolume_) {
+    if (targetRefuelVolume_ > 0.0 && scaledVolume >= targetRefuelVolume_) {
         if (pump_) {
             pump_->stop();
         }
@@ -465,6 +498,22 @@ void Controller::clearInputSilent() {
 }
 
 void Controller::addDigitToInput(char digit) {
+    const auto state = stateMachine_.getCurrentState();
+    if (state == SystemState::CalibrationPasswordEntry) {
+        calibrationPasswordInvalid_ = false;
+        if (currentInput_.length() >= kCalibrationPasswordLength) {
+            return;
+        }
+    } else if (state == SystemState::CalibrationCoefficientEntry) {
+        calibrationInputError_ = CalibrationInputError::None;
+        if (currentInput_.length() >= kCalibrationInputLength) {
+            calibrationInputOverflow_ = true;
+            calibrationInputError_ = CalibrationInputError::InvalidCoefficient;
+            postEvent(Event::InputUpdated);
+            return;
+        }
+    }
+
     // Normal inputs are far shorter than INPUT_MAX_LENGTH; this cap protects
     // against abnormal or chained conditions that could grow the buffer indefinitely.
     if (currentInput_.length() < INPUT_MAX_LENGTH) { 
@@ -474,6 +523,18 @@ void Controller::addDigitToInput(char digit) {
 }
 
 void Controller::removeLastDigit() {
+    const auto state = stateMachine_.getCurrentState();
+    if (state == SystemState::CalibrationPasswordEntry) {
+        calibrationPasswordInvalid_ = false;
+    } else if (state == SystemState::CalibrationCoefficientEntry) {
+        calibrationInputError_ = CalibrationInputError::None;
+        if (calibrationInputOverflow_) {
+            calibrationInputOverflow_ = false;
+            postEvent(Event::InputUpdated);
+            return;
+        }
+    }
+
     if (!currentInput_.empty()) {
         currentInput_.pop_back();
         postEvent(Event::InputUpdated);
@@ -836,10 +897,19 @@ void Controller::setupPeripheralCallbacks() {
 }
 
 void Controller::processNumericInput() {
+    const auto currentState = stateMachine_.getCurrentState();
+    if (currentState == SystemState::CalibrationPasswordEntry) {
+        validateCalibrationPassword();
+        return;
+    }
+    if (currentState == SystemState::CalibrationCoefficientEntry) {
+        saveCalibrationCoefficient();
+        return;
+    }
     if (currentInput_.empty()) return;
-    
+
     Volume volume = 0.0;
-    switch (stateMachine_.getCurrentState()) {
+    switch (currentState) {
         case SystemState::PinEntry:
             // PIN entered - trigger authorization
             postEvent(Event::PinEntered);
@@ -894,6 +964,80 @@ void Controller::processNumericInput() {
     }
 }
 
+void Controller::beginCalibration() {
+    clearInputSilent();
+    calibrationPasswordInvalid_ = false;
+    calibrationInputError_ = CalibrationInputError::None;
+    calibrationInputOverflow_ = false;
+}
+
+void Controller::validateCalibrationPassword() {
+    if (currentInput_ == kCalibrationPassword) {
+        calibrationPasswordInvalid_ = false;
+        clearInputSilent();
+        postEvent(Event::CalibrationPasswordAccepted);
+        return;
+    }
+
+    clearInputSilent();
+    calibrationPasswordInvalid_ = true;
+    postEvent(Event::InputUpdated);
+}
+
+void Controller::saveCalibrationCoefficient() {
+    int thousandths = 0;
+    bool valid = !calibrationInputOverflow_ &&
+        currentInput_.length() == kCalibrationInputLength;
+    if (valid) {
+        try {
+            std::size_t parsed = 0;
+            thousandths = std::stoi(currentInput_, &parsed);
+            valid = parsed == currentInput_.length() &&
+                thousandths >= 500 && thousandths <= 1500;
+        } catch (const std::exception&) {
+            valid = false;
+        }
+    }
+
+    if (!valid) {
+        calibrationInputError_ = CalibrationInputError::InvalidCoefficient;
+        postEvent(Event::InputUpdated);
+        return;
+    }
+
+    const double coefficient = static_cast<double>(thousandths) / 1000.0;
+    if (!messageStorage_ || !messageStorage_->SetCalibrationCoefficient(coefficient)) {
+        calibrationInputError_ = CalibrationInputError::SaveFailed;
+        postEvent(Event::InputUpdated);
+        return;
+    }
+
+    calibrationCoefficient_ = coefficient;
+    calibrationInputError_ = CalibrationInputError::None;
+    calibrationInputOverflow_ = false;
+    clearInputSilent();
+    LOG_CTRL_INFO("Flow calibration coefficient saved: {:.3f}", calibrationCoefficient_);
+    postEvent(Event::CalibrationCoefficientSaved);
+}
+
+std::string Controller::formatCalibrationCoefficient(double coefficient) const {
+    std::ostringstream oss;
+    oss << std::fixed << std::setprecision(3) << coefficient;
+    return oss.str();
+}
+
+std::string Controller::getCalibrationCoefficientTitle() const {
+    switch (calibrationInputError_) {
+        case CalibrationInputError::InvalidCoefficient:
+            return "Нужно 0.500-1.500";
+        case CalibrationInputError::SaveFailed:
+            return "Ошибка записи";
+        case CalibrationInputError::None:
+            return "Коэф. 0.500-1.500";
+    }
+    return "Коэф. 0.500-1.500";
+}
+
 Volume Controller::parseVolumeFromInput() const {
     try {
         return std::stod(currentInput_);
@@ -920,6 +1064,10 @@ void Controller::resetSessionData() {
     currentRefuelVolume_ = 0.0;
     targetRefuelVolume_ = 0.0;
     sessionAuthorizedFromCache_ = false;
+    calibrationPasswordInvalid_ = false;
+    calibrationInputError_ = CalibrationInputError::None;
+    calibrationInputOverflow_ = false;
+    stopPressBeganInWaiting_ = false;
 }
 
 bool Controller::initializePeripherals() {
