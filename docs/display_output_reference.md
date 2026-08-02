@@ -2,6 +2,23 @@
 
 This document outlines the display output for each system state in the FuelFlux application. The display has 4 lines, each capable of showing text content.
 
+## Keyboard-dependent hints
+
+The physical legends shown to the operator depend on `KEYBOARD_TYPE`:
+
+| Context | Console / legacy | VID |
+|---|---|---|
+| PIN, tank, and intake entry | `Ввод(A)/Отмена(B)` | `START/STOP` |
+| Volume confirmation | `Старт(A)/Отмена(B)` | `START/STOP` |
+| Customer maximum suffix | `макс(*)` | `макс(START)` |
+| Refueling stop | `Стоп(B)` | `STOP` |
+| Error reset | `Сброс(B)` | `Сброс(STOP)` |
+| Immediate error cancellation | `Нажмите ОТМЕНА (B)` | `Нажмите STOP` |
+
+VID is the non-MSVC and production default. Therefore production display
+examples should use the VID column unless the build explicitly selects
+`KEYBOARD_TYPE=LEGACY`.
+
 ## Display Output Table
 
 | State | Line 1 | Len | Line 2 | Len | Line 3 | Len | Line 4 | Len |
@@ -170,11 +187,16 @@ Formats volume as `X.XX L` (e.g., "50.00 L", "0.25 L")
 ## User Interaction
 
 ### Keyboard Input Summary
-- **0-9**: Input digits (volume, PIN, tank number)
-- **A (KeyStart)**: Confirm/Start current operation
-- **B (KeyStop)**: Cancel operation
-- **\* (KeyMax)**: Set maximum allowed volume (minimum of tank capacity and user allowance, only in VolumeEntry state for customers)
-- **# (KeyClear)**: Clear last digit
+- **0-9**: Input digits (volume, PIN, tank number) on every keyboard.
+- **Console/legacy A** or **VID START**: Confirm/start. In customer volume
+  entry, START with an empty or zero volume selects maximum and starts.
+- **Console/legacy B** or **VID STOP**: Stop/cancel.
+- **Console/legacy \***: Set the maximum allowed customer volume.
+- **Long VID START**: The same logical START action as a short press; it has
+  no duration-specific behavior.
+- **Console/legacy #** or **VID BACKSPACE**: Clear the last digit.
+- **Short VID RUS/ENG**: Ignored.
+- **Long VID RUS/ENG**: Reinitialize the display.
 
 ### Display Updates
 Display is updated when:
@@ -183,4 +205,3 @@ Display is updated when:
 3. Flow meter updates during refueling
 4. Current input changes
 5. Error conditions are triggered
-

@@ -100,6 +100,27 @@
     <p><em>FuelFlux Application - Display State Documentation</em></p>
     <p>This document outlines the display output for each system state in the FuelFlux application. The display has 4 lines, each capable of showing text content.</p>
 
+    <h2>Keyboard-dependent hints</h2>
+    <p>The physical legends shown to the operator depend on
+    <code>KEYBOARD_TYPE</code>. VID is the non-MSVC and production default.</p>
+    <table>
+        <thead>
+            <tr>
+                <th>Context</th>
+                <th>Console / legacy</th>
+                <th>VID</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr><td>PIN, tank, and intake entry</td><td><code>Ввод(A)/Отмена(B)</code></td><td><code>START/STOP</code></td></tr>
+            <tr><td>Volume confirmation</td><td><code>Старт(A)/Отмена(B)</code></td><td><code>START/STOP</code></td></tr>
+            <tr><td>Customer maximum suffix</td><td><code>макс(*)</code></td><td><code>макс(START)</code></td></tr>
+            <tr><td>Refueling stop</td><td><code>Стоп(B)</code></td><td><code>STOP</code></td></tr>
+            <tr><td>Error reset</td><td><code>Сброс(B)</code></td><td><code>Сброс(STOP)</code></td></tr>
+            <tr><td>Immediate error cancellation</td><td><code>Нажмите ОТМЕНА (B)</code></td><td><code>Нажмите STOP</code></td></tr>
+        </tbody>
+    </table>
+
     <div class="section-break"></div>
     <h2>Display Output Table</h2>
     <table>
@@ -488,7 +509,7 @@
             </tr>
             <tr>
                 <td><strong>A (KeyStart)</strong></td>
-                <td>Confirm/Start current operation</td>
+                <td>Confirm/start; in customer volume entry, an empty or zero volume selects maximum and starts</td>
             </tr>
             <tr>
                 <td><strong>B (KeyStop)</strong></td>

@@ -43,6 +43,27 @@ cmake -B build -DDISPLAY_TYPE=ST7565
 cmake -B build -DDISPLAY_TYPE=ILI9488
 ```
 
+### Keyboard Configuration
+
+FuelFlux supports console input, the legacy 4x4 matrix keypad, and the VID
+14-key membrane keyboard:
+
+```bash
+# Development/console input
+cmake -B build -DKEYBOARD_TYPE=CONSOLE
+
+# Production default on non-MSVC platforms
+cmake -B build -DKEYBOARD_TYPE=VID
+
+# Off-the-shelf legacy 4x4 keypad (must be selected explicitly)
+cmake -B build -DKEYBOARD_TYPE=LEGACY
+```
+
+`KEYBOARD_MCP_PORT=AUTO` selects Port B for VID and Port A for legacy.
+Set it explicitly to `A` or `B` when the wiring requires an override.
+See [Hardware Integration](docs/hardware.md) for the matrix wiring and
+short/long-press behavior.
+
 ### Installation (Production)
 
 For production deployment:

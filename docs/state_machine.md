@@ -88,6 +88,7 @@ The FuelFlux controller uses a Mealy state machine to manage the fuel dispensing
    - Display shows maximum allowed volume (minimum of user allowance and tank capacity)
    - User enters volume (digits) or presses '*' for maximum
    - User presses 'A' (Start/Enter key)
+     - If the selected volume is empty or zero, the state machine applies maximum before confirming
    - System validates:
      - volume > 0
      - volume ≤ tank capacity (if tank capacity is specified)
@@ -321,7 +322,7 @@ Removes the last entered digit in input states:
 Confirms the current input and advances to the next state:
 - `PinEntry`: Complete PIN entry → `Authorization`
 - `TankSelection`: Confirm tank selection → `VolumeEntry` (customer) or `IntakeDirectionSelection` (operator)
-- `VolumeEntry`: Confirm volume → `Refueling` (if valid)
+- `VolumeEntry`: Confirm volume → `Refueling` (if valid); empty or zero input is translated to maximum then confirm
 - `IntakeDirectionSelection`: Confirm direction → `IntakeVolumeEntry`
 - `IntakeVolumeEntry`: Confirm intake volume → `IntakeDataTransmission` (if valid)
 
@@ -645,7 +646,7 @@ This ensures thread-safe event delivery from peripheral callbacks and the timeou
 | 0-9 | '0'-'9' | Digit input | Enter numbers for PIN, tank, volume |
 | * | '*' | Max | Set input to maximum allowed volume (min of tank capacity and allowance, VolumeEntry only) |
 | # | '#' | Clear | Remove last digit (backspace) |
-| A | 'A' | **Start/Enter** | **Confirm input and proceed to next state** |
+| A | 'A' | **Start/Enter** | **Confirm input and proceed; in customer VolumeEntry, zero input selects maximum first** |
 | B | 'B' | **Stop/Cancel** | **Cancel current operation, return to Waiting** |
 
 ### Console Emulator Key Mapping

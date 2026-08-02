@@ -3,7 +3,7 @@
 # This file is a part of fuelflux application
 
 cmake_minimum_required(VERSION 3.16)
-project(FuelFlux VERSION 0.2.3 LANGUAGES CXX)
+project(FuelFlux VERSION 0.3.0 LANGUAGES CXX)
 
 # Generate version header from template
 configure_file(
@@ -15,6 +15,13 @@ configure_file(
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
+
+if(DEFINED TARGET_REAL_KEYBOARD)
+    message(FATAL_ERROR
+        "TARGET_REAL_KEYBOARD is no longer supported. "
+        "Remove it from the CMake command line/cache and use "
+        "KEYBOARD_TYPE=CONSOLE, LEGACY, or VID.")
+endif()
 
 # Compiler-specific options
 if(MSVC)
@@ -29,7 +36,7 @@ endif()
 if(MSVC)
     option(TARGET_SIM800C "Enable PPP interface binding for HTTP backend" OFF) 
     set(DISPLAY_TYPE "CONSOLE" CACHE STRING "Display type: ST7565, ILI9488, or CONSOLE")
-    option(TARGET_REAL_KEYBOARD "Use real keyboard hardware" OFF)
+    set(KEYBOARD_TYPE_DEFAULT "CONSOLE")
     option(TARGET_REAL_CARD_READER "Use real card reader hardware" OFF)
     option(TARGET_REAL_PUMP "Use real pump hardware" OFF)
     option(TARGET_REAL_FLOW_METER "Use real flow meter hardware" OFF)
@@ -41,7 +48,7 @@ if(MSVC)
 else()
     option(TARGET_SIM800C "Use PPP interface binding for HTTP backend" ON) 
     set(DISPLAY_TYPE "ILI9488" CACHE STRING "Display type: ST7565, ILI9488, or CONSOLE")
-    option(TARGET_REAL_KEYBOARD "Use real keyboard hardware" ON)
+    set(KEYBOARD_TYPE_DEFAULT "VID")
     option(TARGET_REAL_CARD_READER "Use real card reader hardware" ON)
     option(TARGET_REAL_PUMP "Use real pump hardware" ON)
     option(TARGET_REAL_FLOW_METER "Use real flow meter hardware" ON)
@@ -49,6 +56,86 @@ else()
     option(ENABLE_AUTH_DELAY "Enable 3-second authorization delay for testing/simulation" OFF)
     option(CODE_COVERAGE "Enable code coverage instrumentation" OFF)
     option(UNIX_FOLDER_CONVENTION "Use Unix-style folder convention (e.g. /var/fuelflux) for logs and database" ON) 
+endif()
+
+set(KEYBOARD_TYPE "${KEYBOARD_TYPE_DEFAULT}" CACHE STRING
+    "Keyboard type: CONSOLE, LEGACY, or VID")
+set_property(CACHE KEYBOARD_TYPE PROPERTY STRINGS "CONSOLE" "LEGACY" "VID")
+string(TOUPPER "${KEYBOARD_TYPE}" KEYBOARD_TYPE)
+set(KEYBOARD_TYPE "${KEYBOARD_TYPE}" CACHE STRING
+    "Keyboard type: CONSOLE, LEGACY, or VID" FORCE)
+if(NOT KEYBOARD_TYPE MATCHES "^(CONSOLE|LEGACY|VID)$")
+    message(FATAL_ERROR
+        "Invalid KEYBOARD_TYPE: ${KEYBOARD_TYPE}. "
+        "Must be CONSOLE, LEGACY, or VID")
+endif()
+
+set(KEYBOARD_MCP_PORT "AUTO" CACHE STRING
+    "MCP23017 keyboard port: AUTO, A, or B")
+set_property(CACHE KEYBOARD_MCP_PORT PROPERTY STRINGS "AUTO" "A" "B")
+string(TOUPPER "${KEYBOARD_MCP_PORT}" KEYBOARD_MCP_PORT)
+set(KEYBOARD_MCP_PORT "${KEYBOARD_MCP_PORT}" CACHE STRING
+    "MCP23017 keyboard port: AUTO, A, or B" FORCE)
+if(NOT KEYBOARD_MCP_PORT MATCHES "^(AUTO|A|B)$")
+    message(FATAL_ERROR
+        "Invalid KEYBOARD_MCP_PORT: ${KEYBOARD_MCP_PORT}. "
+        "Must be AUTO, A, or B")
+endif()
+
+set(KEYBOARD_LONG_PRESS_MS "1000" CACHE STRING
+    "Milliseconds a VID key must be held to count as a long press")
+if(NOT KEYBOARD_LONG_PRESS_MS MATCHES "^[1-9][0-9]*$")
+    message(FATAL_ERROR "KEYBOARD_LONG_PRESS_MS must be a positive integer")
+endif()
+if(KEYBOARD_LONG_PRESS_MS GREATER 2147483647)
+    message(FATAL_ERROR
+        "KEYBOARD_LONG_PRESS_MS must not exceed 2147483647")
+endif()
+
+if(KEYBOARD_TYPE STREQUAL "CONSOLE")
+    set(KEYBOARD_IS_HARDWARE OFF)
+    set(KEYBOARD_RESOLVED_MCP_PORT "NONE")
+    add_compile_definitions(KEYBOARD_TYPE_CONSOLE)
+    message(STATUS "KEYBOARD_TYPE: CONSOLE - using keyboard emulation")
+    if(NOT KEYBOARD_MCP_PORT STREQUAL "AUTO")
+        message(WARNING
+            "KEYBOARD_MCP_PORT=${KEYBOARD_MCP_PORT} is ignored for "
+            "KEYBOARD_TYPE=CONSOLE")
+    endif()
+elseif(KEYBOARD_TYPE STREQUAL "LEGACY")
+    set(KEYBOARD_IS_HARDWARE ON)
+    if(KEYBOARD_MCP_PORT STREQUAL "AUTO")
+        set(KEYBOARD_RESOLVED_MCP_PORT "A")
+    else()
+        set(KEYBOARD_RESOLVED_MCP_PORT "${KEYBOARD_MCP_PORT}")
+    endif()
+    add_compile_definitions(KEYBOARD_TYPE_LEGACY)
+    message(STATUS "KEYBOARD_TYPE: LEGACY - using legacy 4x4 keyboard")
+else()
+    set(KEYBOARD_IS_HARDWARE ON)
+    if(KEYBOARD_MCP_PORT STREQUAL "AUTO")
+        set(KEYBOARD_RESOLVED_MCP_PORT "B")
+    else()
+        set(KEYBOARD_RESOLVED_MCP_PORT "${KEYBOARD_MCP_PORT}")
+    endif()
+    add_compile_definitions(KEYBOARD_TYPE_VID)
+    message(STATUS "KEYBOARD_TYPE: VID - using VID 14-key keyboard")
+endif()
+
+if(KEYBOARD_IS_HARDWARE)
+    if(KEYBOARD_RESOLVED_MCP_PORT STREQUAL "A")
+        add_compile_definitions(KEYBOARD_MCP_PORT_A)
+        message(STATUS "Keyboard MCP23017 port: A (direct pin mapping)")
+    else()
+        add_compile_definitions(KEYBOARD_MCP_PORT_B)
+        message(STATUS "Keyboard MCP23017 port: B (mirrored pin mapping)")
+    endif()
+else()
+    message(STATUS "Keyboard MCP23017 port: not used")
+endif()
+add_compile_definitions(KEYBOARD_LONG_PRESS_MS=${KEYBOARD_LONG_PRESS_MS})
+if(KEYBOARD_TYPE STREQUAL "VID")
+    message(STATUS "VID keyboard long-press threshold: ${KEYBOARD_LONG_PRESS_MS} ms")
 endif()
 
 # Validate DISPLAY_TYPE
@@ -76,13 +163,6 @@ elseif(DISPLAY_TYPE STREQUAL "ILI9488")
 else()
     message(STATUS "DISPLAY_TYPE: CONSOLE - console display emulation")
     set(TARGET_REAL_DISPLAY OFF)
-endif()
-
-if(TARGET_REAL_KEYBOARD)
-    message(STATUS "TARGET_REAL_KEYBOARD enabled - using real keyboard hardware")
-    add_compile_definitions(TARGET_REAL_KEYBOARD)
-else()
-    message(STATUS "TARGET_REAL_KEYBOARD disabled - using keyboard emulation")
 endif()
 
 if(TARGET_REAL_CARD_READER)
@@ -221,6 +301,7 @@ set(LIB_SOURCES
     src/bounded_executor.cpp
     src/peripherals/display.cpp
     src/peripherals/keyboard.cpp
+    src/peripherals/key_press_tracker.cpp
     src/peripherals/card_reader.cpp
     src/peripherals/pump.cpp
     src/peripherals/flow_meter.cpp
@@ -239,7 +320,7 @@ endif()
 if(TARGET_REAL_DISPLAY OR TARGET_REAL_PUMP)
     list(APPEND LIB_SOURCES src/hardware/gpio_line.cpp )
 endif()
-if(TARGET_REAL_KEYBOARD)
+if(KEYBOARD_IS_HARDWARE)
     list(APPEND LIB_SOURCES src/hardware/mcp23017.cpp)
 endif()
 
@@ -290,6 +371,8 @@ set(HEADERS
     include/backlog_worker.h
     include/peripherals/display.h
     include/peripherals/keyboard.h
+    include/peripherals/keyboard_layout.h
+    include/peripherals/key_press_tracker.h
     include/peripherals/keyboard_utils.h
     include/peripherals/card_reader.h
     include/peripherals/pump.h
@@ -305,7 +388,7 @@ set(HEADERS
 if(TARGET_REAL_DISPLAY OR TARGET_REAL_PUMP)
     list(APPEND HEADERS include/hardware/gpio_line.h)
 endif()
-if(TARGET_REAL_KEYBOARD)
+if(KEYBOARD_IS_HARDWARE)
     list(APPEND HEADERS include/hardware/mcp23017.h)
 endif()
 
@@ -449,6 +532,7 @@ if(ENABLE_TESTING)
         tests/cares_resolver_test.cpp
         tests/url_utils_test.cpp
         tests/console_emulator_test.cpp
+        tests/keyboard_test.cpp
         tests/four_line_display_test.cpp
         tests/flow_meter_test.cpp
     )

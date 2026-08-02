@@ -118,7 +118,11 @@ cmake -B build \
     -DTARGET_REAL_DISPLAY=ON \
     -DTARGET_REAL_CARD_READER=ON \
     -DTARGET_REAL_PUMP=ON \
-    -DTARGET_REAL_KEYBOARD=ON
+    -DKEYBOARD_TYPE=VID \
+    -DKEYBOARD_MCP_PORT=AUTO
 
 cmake --build build
 ```
+
+Production deployments use the VID keyboard. The legacy keypad is available
+only when explicitly configured with `-DKEYBOARD_TYPE=LEGACY`.

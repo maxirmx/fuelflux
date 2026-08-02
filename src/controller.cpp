@@ -11,6 +11,7 @@
 #include "message_storage.h"
 #include "logger.h"
 #include "peripherals/flow_meter.h"
+#include "peripherals/keyboard_utils.h"
 #include <sstream>
 #include <iomanip>
 #include <ctime>
@@ -262,9 +263,13 @@ void Controller::handleKeyPress(KeyCode key) {
     
     // Reset inactivity timer on any key press
     stateMachine_.updateActivityTime();
-    
+
+    stateMachine_.handleKeyPress(key);
+}
+
+void Controller::dispatchKeyPress(KeyCode key) {
     const auto currentState = stateMachine_.getCurrentState();
-     
+
     switch (key) {
         case KeyCode::Key0: 
         case KeyCode::Key1: 
@@ -309,7 +314,6 @@ void Controller::handleKeyPress(KeyCode key) {
             postEvent(Event::DisplayReset);
             break;
     }
-
 }
 
 void Controller::handleCardPresented(const UserId& userId) {
@@ -410,7 +414,8 @@ void Controller::showError(const std::string& message) {
         DisplayMessage errorMsg;
         errorMsg.line1 = "ОШИБКА";
         errorMsg.line2 = message;
-        errorMsg.line3 = "Нажмите ОТМЕНА (B)";
+        errorMsg.line3 =
+            std::string(peripherals::configuredKeyboardUiProfile().cancelPrompt);
         errorMsg.line4 = getCurrentTimeString();
         showMessage(errorMsg);
     }

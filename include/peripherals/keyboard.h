@@ -37,7 +37,7 @@ private:
     KeyPressCallback keyPressCallback_;
     std::mutex callbackMutex_;
 
-#ifdef TARGET_REAL_KEYBOARD
+#if defined(KEYBOARD_TYPE_LEGACY) || defined(KEYBOARD_TYPE_VID)
     void pollLoop();
 
     std::thread pollThread_;

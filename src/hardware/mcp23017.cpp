@@ -25,6 +25,10 @@ constexpr uint8_t REG_GPPUA = 0x0C;
 constexpr uint8_t REG_GPIOA = 0x12;
 constexpr uint8_t REG_OLATA = 0x14;
 
+constexpr uint8_t portOffset(MCP23017::Port port) {
+    return port == MCP23017::Port::B ? 1u : 0u;
+}
+
 std::runtime_error sysErr(const char* what) {
     return std::runtime_error(std::string(what) + ": " + std::strerror(errno));
 }
@@ -79,18 +83,35 @@ void MCP23017::writeReg(uint8_t reg, uint8_t value) {
     if (::write(fd_, buf, 2) != 2) throw sysErr("i2c write(reg,value)");
 }
 
+void MCP23017::configurePort(
+    Port port,
+    uint8_t iodir,
+    uint8_t gppu,
+    uint8_t ipol) {
+    const uint8_t offset = portOffset(port);
+    writeReg(static_cast<uint8_t>(REG_IODIRA + offset), iodir);
+    writeReg(static_cast<uint8_t>(REG_GPPUA + offset), gppu);
+    writeReg(static_cast<uint8_t>(REG_IPOLA + offset), ipol);
+}
+
+uint8_t MCP23017::readGpio(Port port) {
+    return readReg(static_cast<uint8_t>(REG_GPIOA + portOffset(port)));
+}
+
+void MCP23017::writeOlat(Port port, uint8_t value) {
+    writeReg(static_cast<uint8_t>(REG_OLATA + portOffset(port)), value);
+}
+
 void MCP23017::configurePortA(uint8_t iodir, uint8_t gppu, uint8_t ipol) {
-    writeReg(REG_IODIRA, iodir);
-    writeReg(REG_GPPUA, gppu);
-    writeReg(REG_IPOLA, ipol);
+    configurePort(Port::A, iodir, gppu, ipol);
 }
 
 uint8_t MCP23017::readGpioA() {
-    return readReg(REG_GPIOA);
+    return readGpio(Port::A);
 }
 
 void MCP23017::writeOlatA(uint8_t value) {
-    writeReg(REG_OLATA, value);
+    writeOlat(Port::A, value);
 }
 
 } // namespace fuelflux::hardware

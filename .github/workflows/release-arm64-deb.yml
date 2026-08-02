@@ -60,7 +60,8 @@ jobs:
                 libcurl4-openssl-dev libfmt-dev nlohmann-json3-dev \
                 libc-ares-dev libfreetype6-dev ca-certificates git
 
-              cmake -S . -B build-arm64 -G Ninja -DCMAKE_BUILD_TYPE=Release -DUNIX_FOLDER_CONVENTION=ON
+              cmake -S . -B build-arm64 -G Ninja -DCMAKE_BUILD_TYPE=Release \
+                -DUNIX_FOLDER_CONVENTION=ON -DKEYBOARD_TYPE=VID
               cmake --build build-arm64 --config Release -j$(nproc)
 
               rm -rf pkgroot dist

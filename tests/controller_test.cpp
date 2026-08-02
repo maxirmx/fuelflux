@@ -13,6 +13,7 @@
 #include "message_storage.h"
 #include "peripherals/display.h"
 #include "peripherals/keyboard.h"
+#include "peripherals/keyboard_utils.h"
 #include "peripherals/card_reader.h"
 #include "peripherals/pump.h"
 #include "peripherals/flow_meter.h"
@@ -673,6 +674,76 @@ TEST_F(ControllerTest, AuthorizationWithSingleTankAutoSelectsForCustomerRefuel) 
 
     shutdownControllerAndJoinThread(controllerThread);
 }
+
+TEST_F(ControllerTest, MaximumThenStartSelectsAndSubmitsCustomerAllowance) {
+    mockBackend->roleId_ = static_cast<int>(UserRole::Customer);
+    mockBackend->allowance_ = 75.0;
+    mockBackend->price_ = 1.0;
+    mockBackend->tanksStorage_ = { BackendTankInfo{1, 42, "Tank 42"} };
+
+    EXPECT_CALL(*mockBackend, Authorize("customer-card")).WillOnce([this]() {
+        mockBackend->authorized_ = true;
+        return true;
+    });
+
+    controller->initialize();
+
+    std::thread controllerThread([this]() { controller->run(); });
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+
+    controller->handleCardPresented("customer-card");
+    ASSERT_TRUE(waitForState(SystemState::VolumeEntry));
+
+    mockKeyboard->simulateKeyPress(KeyCode::KeyMax);
+    EXPECT_EQ(controller->getCurrentInput(), "75");
+    mockKeyboard->simulateKeyPress(KeyCode::KeyStart);
+
+    ASSERT_TRUE(waitForState(SystemState::Refueling));
+    EXPECT_DOUBLE_EQ(controller->getEnteredVolume(), 75.0);
+
+    shutdownControllerAndJoinThread(controllerThread);
+}
+
+class ZeroVolumeStartTest
+    : public ControllerTest,
+      public ::testing::WithParamInterface<const char*> {};
+
+TEST_P(ZeroVolumeStartTest, SelectsAndSubmitsCustomerMaximum) {
+    mockBackend->roleId_ = static_cast<int>(UserRole::Customer);
+    mockBackend->allowance_ = 75.0;
+    mockBackend->price_ = 1.0;
+    mockBackend->tanksStorage_ = { BackendTankInfo{1, 42, "Tank 42"} };
+
+    EXPECT_CALL(*mockBackend, Authorize("customer-card")).WillOnce([this]() {
+        mockBackend->authorized_ = true;
+        return true;
+    });
+
+    controller->initialize();
+
+    std::thread controllerThread([this]() { controller->run(); });
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+
+    controller->handleCardPresented("customer-card");
+    ASSERT_TRUE(waitForState(SystemState::VolumeEntry));
+
+    for (const char* digit = GetParam(); *digit != '\0'; ++digit) {
+        controller->handleKeyPress(static_cast<KeyCode>(*digit));
+    }
+    EXPECT_EQ(controller->getCurrentInput(), GetParam());
+
+    controller->handleKeyPress(KeyCode::KeyStart);
+
+    ASSERT_TRUE(waitForState(SystemState::Refueling));
+    EXPECT_DOUBLE_EQ(controller->getEnteredVolume(), 75.0);
+
+    shutdownControllerAndJoinThread(controllerThread);
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    EmptyAndZeroInputs,
+    ZeroVolumeStartTest,
+    ::testing::Values("", "0", "000"));
 
 TEST_F(ControllerTest, AuthorizationWithSingleTankAutoSelectsForOperatorIntake) {
     mockBackend->roleId_ = static_cast<int>(UserRole::Operator);
@@ -1436,7 +1507,8 @@ TEST_F(ControllerTest, DisplayMessagePinEntryState) {
     EXPECT_EQ(msg.line1, "Введите PIN");
     EXPECT_EQ(msg.line2, "*");  // One digit entered, masked
     EXPECT_EQ(msg.line3, "");
-    EXPECT_EQ(msg.line4, "Ввод(A)/Отмена(B)");  
+    EXPECT_EQ(msg.line4,
+              peripherals::configuredKeyboardUiProfile().entryConfirmCancel);
     
     shutdownControllerAndJoinThread(controllerThread);
 }
@@ -1468,7 +1540,8 @@ TEST_F(ControllerTest, DisplayMessageTankSelectionState) {
     // line2 should be current input (empty initially)
     EXPECT_TRUE(msg.line3.find("1") != std::string::npos);
     EXPECT_TRUE(msg.line3.find("2") != std::string::npos);
-    EXPECT_EQ(msg.line4, "Ввод(A)/Отмена(B)");
+    EXPECT_EQ(msg.line4,
+              peripherals::configuredKeyboardUiProfile().entryConfirmCancel);
     
     shutdownControllerAndJoinThread(controllerThread);
 }
@@ -1498,8 +1571,11 @@ TEST_F(ControllerTest, DisplayMessageVolumeEntryState) {
     // Verify structure
     EXPECT_EQ(msg.line1, "Введите объём");
     // line2 is current input
-    EXPECT_TRUE(msg.line3.find("макс(*)") != std::string::npos);  // Should show max for customers
-    EXPECT_EQ(msg.line4, "Старт(A)/Отмена(B)");
+    EXPECT_TRUE(msg.line3.find(std::string(
+        peripherals::configuredKeyboardUiProfile().maximumLabel)) !=
+        std::string::npos);  // Should show max for customers
+    EXPECT_EQ(msg.line4,
+              peripherals::configuredKeyboardUiProfile().volumeConfirmCancel);
     
     shutdownControllerAndJoinThread(controllerThread);
 }

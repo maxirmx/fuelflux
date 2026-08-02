@@ -25,7 +25,7 @@
 #ifdef TARGET_REAL_FLOW_METER
 #include "peripherals/flow_meter.h"
 #endif
-#ifdef TARGET_REAL_KEYBOARD
+#if defined(KEYBOARD_TYPE_LEGACY) || defined(KEYBOARD_TYPE_VID)
 #include "peripherals/keyboard.h"
 #endif
 #include <iostream>
@@ -151,6 +151,23 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
 #endif
             
             LOG_INFO("Starting FuelFlux Controller v{}...", FUELFLUX_VERSION);
+#if defined(KEYBOARD_TYPE_VID)
+#if defined(KEYBOARD_MCP_PORT_B)
+            LOG_INFO("Keyboard configuration: VID, MCP port B (mirrored), long press {} ms",
+                     KEYBOARD_LONG_PRESS_MS);
+#else
+            LOG_INFO("Keyboard configuration: VID, MCP port A (direct), long press {} ms",
+                     KEYBOARD_LONG_PRESS_MS);
+#endif
+#elif defined(KEYBOARD_TYPE_LEGACY)
+#if defined(KEYBOARD_MCP_PORT_B)
+            LOG_INFO("Keyboard configuration: LEGACY, MCP port B (mirrored)");
+#else
+            LOG_INFO("Keyboard configuration: LEGACY, MCP port A (direct)");
+#endif
+#else
+            LOG_INFO("Keyboard configuration: CONSOLE, MCP port not used");
+#endif
             // Create console emulator
             ConsoleEmulator emulator;
             
@@ -193,7 +210,7 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
             // ----- Клавиатура -----
             msg.line3 = "Клавиатура";
             controller.showMessage(msg);
-#ifdef TARGET_REAL_KEYBOARD
+#if defined(KEYBOARD_TYPE_LEGACY) || defined(KEYBOARD_TYPE_VID)
             controller.setKeyboard(std::make_unique<peripherals::HardwareKeyboard>());
 #else
             controller.setKeyboard(emulator.createKeyboard());

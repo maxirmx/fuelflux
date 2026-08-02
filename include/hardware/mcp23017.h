@@ -11,6 +11,11 @@ namespace fuelflux::hardware {
 
 class MCP23017 {
 public:
+    enum class Port : uint8_t {
+        A,
+        B
+    };
+
     MCP23017(std::string i2cDev, uint8_t i2cAddr);
     ~MCP23017();
 
@@ -23,6 +28,11 @@ public:
     uint8_t readReg(uint8_t reg);
     void writeReg(uint8_t reg, uint8_t value);
 
+    void configurePort(Port port, uint8_t iodir, uint8_t gppu, uint8_t ipol = 0x00);
+    uint8_t readGpio(Port port);
+    void writeOlat(Port port, uint8_t value);
+
+    // Port A compatibility helpers.
     void configurePortA(uint8_t iodir, uint8_t gppu, uint8_t ipol = 0x00);
     uint8_t readGpioA();
     void writeOlatA(uint8_t value);
