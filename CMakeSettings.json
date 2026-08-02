@@ -1,4 +1,4 @@
-﻿{
+{
   "configurations": [
     {
       "name": "x64-Debug",
@@ -29,7 +29,14 @@
       "remoteCopySources": true,
       "rsyncCommandArgs": "-t --delete",
       "remoteCopyBuildOutput": false,
-      "remoteCopySourcesMethod": "rsync"
+      "remoteCopySourcesMethod": "rsync",
+      "variables": [
+        {
+          "name": "DISPLAY_TYPE",
+          "value": "CONSOLE",
+          "type": "STRING"
+        }
+      ]
     },
     {
       "name": "WSL-GCC-Debug",
