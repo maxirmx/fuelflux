@@ -37,6 +37,7 @@ public:
     // State machine operations
     void initialize();
     bool processEvent(Event event);
+    void handleKeyPress(KeyCode key);
     SystemState getCurrentState() const { std::scoped_lock lock(mutex_); return currentState_; }
     
     // Display management - get display message for current state

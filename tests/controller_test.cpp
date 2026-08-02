@@ -704,6 +704,47 @@ TEST_F(ControllerTest, MaximumThenStartSelectsAndSubmitsCustomerAllowance) {
     shutdownControllerAndJoinThread(controllerThread);
 }
 
+class ZeroVolumeStartTest
+    : public ControllerTest,
+      public ::testing::WithParamInterface<const char*> {};
+
+TEST_P(ZeroVolumeStartTest, SelectsAndSubmitsCustomerMaximum) {
+    mockBackend->roleId_ = static_cast<int>(UserRole::Customer);
+    mockBackend->allowance_ = 75.0;
+    mockBackend->price_ = 1.0;
+    mockBackend->tanksStorage_ = { BackendTankInfo{1, 42, "Tank 42"} };
+
+    EXPECT_CALL(*mockBackend, Authorize("customer-card")).WillOnce([this]() {
+        mockBackend->authorized_ = true;
+        return true;
+    });
+
+    controller->initialize();
+
+    std::thread controllerThread([this]() { controller->run(); });
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+
+    controller->handleCardPresented("customer-card");
+    ASSERT_TRUE(waitForState(SystemState::VolumeEntry));
+
+    for (const char* digit = GetParam(); *digit != '\0'; ++digit) {
+        controller->handleKeyPress(static_cast<KeyCode>(*digit));
+    }
+    EXPECT_EQ(controller->getCurrentInput(), GetParam());
+
+    controller->handleKeyPress(KeyCode::KeyStart);
+
+    ASSERT_TRUE(waitForState(SystemState::Refueling));
+    EXPECT_DOUBLE_EQ(controller->getEnteredVolume(), 75.0);
+
+    shutdownControllerAndJoinThread(controllerThread);
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    EmptyAndZeroInputs,
+    ZeroVolumeStartTest,
+    ::testing::Values("", "0", "000"));
+
 TEST_F(ControllerTest, AuthorizationWithSingleTankAutoSelectsForOperatorIntake) {
     mockBackend->roleId_ = static_cast<int>(UserRole::Operator);
     mockBackend->allowance_ = 0.0;

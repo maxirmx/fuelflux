@@ -263,9 +263,13 @@ void Controller::handleKeyPress(KeyCode key) {
     
     // Reset inactivity timer on any key press
     stateMachine_.updateActivityTime();
-    
+
+    stateMachine_.handleKeyPress(key);
+}
+
+void Controller::dispatchKeyPress(KeyCode key) {
     const auto currentState = stateMachine_.getCurrentState();
-     
+
     switch (key) {
         case KeyCode::Key0: 
         case KeyCode::Key1: 
@@ -310,7 +314,6 @@ void Controller::handleKeyPress(KeyCode key) {
             postEvent(Event::DisplayReset);
             break;
     }
-
 }
 
 void Controller::handleCardPresented(const UserId& userId) {

@@ -45,6 +45,21 @@ void StateMachine::initialize() {
     }
 }
 
+void StateMachine::handleKeyPress(KeyCode key) {
+    if (!controller_) {
+        LOG_SM_ERROR("Controller is null, cannot process key {}", static_cast<int>(key));
+        return;
+    }
+
+    if (key == KeyCode::KeyStart &&
+        getCurrentState() == SystemState::VolumeEntry &&
+        controller_->parseVolumeFromInput() == 0.0) {
+        controller_->dispatchKeyPress(KeyCode::KeyMax);
+    }
+
+    controller_->dispatchKeyPress(key);
+}
+
 bool StateMachine::processEvent(Event event) {
     if (!controller_) {
         LOG_SM_ERROR("Controller is null, cannot process event {}", static_cast<int>(event));

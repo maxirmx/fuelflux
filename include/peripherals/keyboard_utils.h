@@ -95,10 +95,7 @@ inline LogicalKeySequence translateKeyPress(
     }
 
     if (event.kind == KeyPressEventKind::Long) {
-        if (event.key == PhysicalKey::Start) {
-            keys.push(KeyCode::KeyMax);
-            keys.push(KeyCode::KeyStart);
-        } else if (event.key == PhysicalKey::RusEng) {
+        if (event.key == PhysicalKey::RusEng) {
             keys.push(KeyCode::KeyDisplayReset);
         } else {
             appendStandardLogicalKey(keys, event.key);
@@ -133,7 +130,7 @@ inline constexpr KeyboardUiProfile kClassicKeyboardUiProfile{
 inline constexpr KeyboardUiProfile kVidKeyboardUiProfile{
     "START/STOP",
     "START/STOP",
-    "макс(долг.START)",
+    "макс(START)",
     "STOP",
     "Сброс(STOP)",
     "Нажмите STOP"

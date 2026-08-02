@@ -237,10 +237,15 @@ viewed from the front:
 | Physical key | Short press | Long press |
 |---|---|---|
 | `0`-`9` | Digit | Same digit |
-| `START` | Start/enter (`A`) | Maximum (`*`) immediately followed by start (`A`) |
+| `START` | Start/enter (`A`) | Start/enter (`A`) |
 | `STOP` | Stop/cancel (`B`) | Stop/cancel (`B`) |
 | `BACKSPACE` | Remove the last digit (`#`) | Remove the last digit (`#`) |
 | `RUS/ENG` | Ignored | Reinitialize the display (`D`) |
+
+In customer volume entry, pressing `START` with an empty or zero volume is
+interpreted by the state machine as maximum followed by start. This behavior
+is shared by console, legacy, and VID keyboards and does not depend on press
+duration.
 
 Short VID presses are reported after confirmed release. Long presses are
 reported once as soon as the threshold is reached and produce no event on

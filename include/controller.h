@@ -160,6 +160,8 @@ class Controller {
                                                                   std::shared_ptr<MessageStorage> storage = nullptr);
 
   private:
+    friend class StateMachine;
+
     // Core components
     ControllerId controllerId_;
     StateMachine stateMachine_;
@@ -217,6 +219,7 @@ class Controller {
 
     // Helper methods
     void setupPeripheralCallbacks();
+    void dispatchKeyPress(KeyCode key);
     void processNumericInput();
     Volume parseVolumeFromInput() const;
     TankNumber parseTankFromInput() const;

@@ -4,14 +4,13 @@ This document outlines the display output for each system state in the FuelFlux 
 
 ## Keyboard-dependent hints
 
-The logical actions are unchanged, but the physical legends shown to the
-operator depend on `KEYBOARD_TYPE`:
+The physical legends shown to the operator depend on `KEYBOARD_TYPE`:
 
 | Context | Console / legacy | VID |
 |---|---|---|
 | PIN, tank, and intake entry | `Ввод(A)/Отмена(B)` | `START/STOP` |
 | Volume confirmation | `Старт(A)/Отмена(B)` | `START/STOP` |
-| Customer maximum suffix | `макс(*)` | `макс(долг.START)` |
+| Customer maximum suffix | `макс(*)` | `макс(START)` |
 | Refueling stop | `Стоп(B)` | `STOP` |
 | Error reset | `Сброс(B)` | `Сброс(STOP)` |
 | Immediate error cancellation | `Нажмите ОТМЕНА (B)` | `Нажмите STOP` |
@@ -189,11 +188,12 @@ Formats volume as `X.XX L` (e.g., "50.00 L", "0.25 L")
 
 ### Keyboard Input Summary
 - **0-9**: Input digits (volume, PIN, tank number) on every keyboard.
-- **Console/legacy A** or **VID START**: Confirm/start.
+- **Console/legacy A** or **VID START**: Confirm/start. In customer volume
+  entry, START with an empty or zero volume selects maximum and starts.
 - **Console/legacy B** or **VID STOP**: Stop/cancel.
-- **Console/legacy \*** or **long VID START**: Set the maximum allowed
-  customer volume; long VID START immediately performs the corresponding
-  START action.
+- **Console/legacy \***: Set the maximum allowed customer volume.
+- **Long VID START**: The same logical START action as a short press; it has
+  no duration-specific behavior.
 - **Console/legacy #** or **VID BACKSPACE**: Clear the last digit.
 - **Short VID RUS/ENG**: Ignored.
 - **Long VID RUS/ENG**: Reinitialize the display.

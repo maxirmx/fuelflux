@@ -235,9 +235,8 @@ TEST(KeyPressTranslationTest, VidSpecialKeysFollowShortAndLongContract) {
     keys = translateKeyPress(
         KeyboardType::Vid,
         {PhysicalKey::Start, KeyPressEventKind::Long});
-    ASSERT_EQ(keys.count, 2u);
-    EXPECT_EQ(keys.values[0], KeyCode::KeyMax);
-    EXPECT_EQ(keys.values[1], KeyCode::KeyStart);
+    ASSERT_EQ(keys.count, 1u);
+    EXPECT_EQ(keys.values[0], KeyCode::KeyStart);
 
     for (const auto kind :
          {KeyPressEventKind::Short, KeyPressEventKind::Long}) {
@@ -321,7 +320,7 @@ TEST(KeyboardUiProfileTest, ClassicAndVidExposeDifferentKeyLegends) {
     EXPECT_EQ(legacy.entryConfirmCancel, console.entryConfirmCancel);
     EXPECT_EQ(legacy.maximumLabel, "макс(*)");
     EXPECT_EQ(vid.entryConfirmCancel, "START/STOP");
-    EXPECT_EQ(vid.maximumLabel, "макс(долг.START)");
+    EXPECT_EQ(vid.maximumLabel, "макс(START)");
     EXPECT_EQ(vid.refuelingStop, "STOP");
     EXPECT_EQ(vid.errorReset, "Сброс(STOP)");
 }
