@@ -12,6 +12,7 @@
 #include "logger.h"
 #include "peripherals/flow_meter.h"
 #include "peripherals/keyboard_utils.h"
+#include <algorithm>
 #include <sstream>
 #include <iomanip>
 #include <ctime>
@@ -362,6 +363,7 @@ void Controller::dispatchKeyPress(KeyCode key) {
 void Controller::handleCardPresented(const UserId& userId) {
     LOG_CTRL_INFO("Card presented: {}", userId);
     // Store the user ID and let state machine handle authorization
+    maximumVolumePreset_.reset();
     currentInput_ = userId;
     postEvent(Event::CardPresented);
 }
@@ -499,16 +501,19 @@ void Controller::endCurrentSession() {
 }
 
 void Controller::clearInput() {
+    maximumVolumePreset_.reset();
     currentInput_.clear();
     postEvent(Event::InputUpdated);
 }
 
 void Controller::clearInputSilent() {
+    maximumVolumePreset_.reset();
     currentInput_.clear();
     // No updateDisplay() call - avoid overwriting error messages
 }
 
 void Controller::addDigitToInput(char digit) {
+    maximumVolumePreset_.reset();
     const auto state = stateMachine_.getCurrentState();
     if (state == SystemState::CalibrationPasswordEntry) {
         calibrationPasswordInvalid_ = false;
@@ -534,6 +539,7 @@ void Controller::addDigitToInput(char digit) {
 }
 
 void Controller::removeLastDigit() {
+    maximumVolumePreset_.reset();
     const auto state = stateMachine_.getCurrentState();
     if (state == SystemState::CalibrationPasswordEntry) {
         calibrationPasswordInvalid_ = false;
@@ -553,7 +559,15 @@ void Controller::removeLastDigit() {
 }
 
 void Controller::setMaxValue() {
-    currentInput_ = std::to_string(static_cast<int>(currentUser_.allowance));
+    const Volume effectiveMaximum = getEffectiveMaximumVolume();
+    if (effectiveMaximum > 0.0) {
+        maximumVolumePreset_ = effectiveMaximum;
+    } else {
+        maximumVolumePreset_.reset();
+    }
+
+    const Volume previewVolume = std::max(effectiveMaximum, 0.0);
+    currentInput_ = std::to_string(static_cast<long long>(std::llround(previewVolume)));
     postEvent(Event::InputUpdated);
 }
 
@@ -676,6 +690,15 @@ Volume Controller::getTankVolume(TankNumber tankNumber) const {
         }
     }
     return 0.0;
+}
+
+Volume Controller::getEffectiveMaximumVolume() const {
+    Volume effectiveMaximum = currentUser_.allowance;
+    const Volume tankLimit = getTankVolume(selectedTank_);
+    if (tankLimit > 0.0) {
+        effectiveMaximum = std::min(effectiveMaximum, tankLimit);
+    }
+    return effectiveMaximum;
 }
 
 // Volume/Amount operations
@@ -958,7 +981,12 @@ void Controller::processNumericInput() {
             break;
             
         case SystemState::VolumeEntry:
-            volume = parseVolumeFromInput();
+            if (maximumVolumePreset_) {
+                volume = *maximumVolumePreset_;
+                maximumVolumePreset_.reset();
+            } else {
+                volume = parseVolumeFromInput();
+            }
             if (volume > 0.0) {
                 enterVolume(volume);
             } else {
@@ -1077,6 +1105,7 @@ void Controller::resetSessionData() {
     cachedFuelTanks_.clear();
     selectedTank_ = 0;
     enteredVolume_ = 0.0;
+    maximumVolumePreset_.reset();
     selectedIntakeDirection_ = IntakeDirection::In;
     currentRefuelVolume_ = 0.0;
     targetRefuelVolume_ = 0.0;

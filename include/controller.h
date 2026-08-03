@@ -9,6 +9,7 @@
 #include <condition_variable>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <queue>
 #include <string>
 #include <thread>
@@ -196,6 +197,7 @@ class Controller {
     TankNumber selectedTank_;
     Volume enteredVolume_;
     std::string currentInput_;
+    std::optional<Volume> maximumVolumePreset_;
     IntakeDirection selectedIntakeDirection_;
     
     // Refueling state
@@ -243,6 +245,7 @@ class Controller {
     void setupPeripheralCallbacks();
     void dispatchKeyPress(KeyCode key);
     void processNumericInput();
+    Volume getEffectiveMaximumVolume() const;
     void beginCalibration();
     void validateCalibrationPassword();
     void saveCalibrationCoefficient();

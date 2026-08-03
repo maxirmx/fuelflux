@@ -1042,11 +1042,11 @@ TEST_F(ControllerTest, AuthorizationWithSingleTankAutoSelectsForCustomerRefuel) 
     shutdownControllerAndJoinThread(controllerThread);
 }
 
-TEST_F(ControllerTest, MaximumThenStartSelectsAndSubmitsCustomerAllowance) {
+TEST_F(ControllerTest, MaximumThenStartSelectsAndSubmitsEffectiveMaximum) {
     mockBackend->roleId_ = static_cast<int>(UserRole::Customer);
-    mockBackend->allowance_ = 75.0;
+    mockBackend->allowance_ = 100.0;
     mockBackend->price_ = 1.0;
-    mockBackend->tanksStorage_ = { BackendTankInfo{1, 42, "Tank 42"} };
+    mockBackend->tanksStorage_ = { BackendTankInfo{1, 42, "Tank 42", 30.75} };
 
     EXPECT_CALL(*mockBackend, Authorize("customer-card")).WillOnce([this]() {
         mockBackend->authorized_ = true;
@@ -1062,11 +1062,42 @@ TEST_F(ControllerTest, MaximumThenStartSelectsAndSubmitsCustomerAllowance) {
     ASSERT_TRUE(waitForState(SystemState::VolumeEntry));
 
     mockKeyboard->simulateKeyPress(KeyCode::KeyMax);
-    EXPECT_EQ(controller->getCurrentInput(), "75");
+    EXPECT_EQ(controller->getCurrentInput(), "31");
     mockKeyboard->simulateKeyPress(KeyCode::KeyStart);
 
     ASSERT_TRUE(waitForState(SystemState::Refueling));
-    EXPECT_DOUBLE_EQ(controller->getEnteredVolume(), 75.0);
+    EXPECT_DOUBLE_EQ(controller->getEnteredVolume(), 30.75);
+
+    shutdownControllerAndJoinThread(controllerThread);
+}
+
+TEST_F(ControllerTest, EditingMaximumPreviewCancelsExactPreset) {
+    mockBackend->roleId_ = static_cast<int>(UserRole::Customer);
+    mockBackend->allowance_ = 100.0;
+    mockBackend->price_ = 1.0;
+    mockBackend->tanksStorage_ = { BackendTankInfo{1, 42, "Tank 42", 30.75} };
+
+    EXPECT_CALL(*mockBackend, Authorize("customer-card")).WillOnce([this]() {
+        mockBackend->authorized_ = true;
+        return true;
+    });
+
+    controller->initialize();
+
+    std::thread controllerThread([this]() { controller->run(); });
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+
+    controller->handleCardPresented("customer-card");
+    ASSERT_TRUE(waitForState(SystemState::VolumeEntry));
+
+    controller->handleKeyPress(KeyCode::KeyMax);
+    ASSERT_EQ(controller->getCurrentInput(), "31");
+    controller->handleKeyPress(KeyCode::KeyClear);
+    ASSERT_EQ(controller->getCurrentInput(), "3");
+    controller->handleKeyPress(KeyCode::KeyStart);
+
+    ASSERT_TRUE(waitForState(SystemState::Refueling));
+    EXPECT_DOUBLE_EQ(controller->getEnteredVolume(), 3.0);
 
     shutdownControllerAndJoinThread(controllerThread);
 }
@@ -1111,6 +1142,92 @@ INSTANTIATE_TEST_SUITE_P(
     EmptyAndZeroInputs,
     ZeroVolumeStartTest,
     ::testing::Values("", "0", "000"));
+
+struct EffectiveMaximumStartCase {
+    const char* name;
+    double allowance;
+    double tankLimit;
+    const char* input;
+    double expectedMaximum;
+};
+
+class EffectiveMaximumStartTest
+    : public ControllerTest,
+      public ::testing::WithParamInterface<EffectiveMaximumStartCase> {};
+
+TEST_P(EffectiveMaximumStartTest, UsesAllowanceConstrainedBySelectedTank) {
+    const auto& testCase = GetParam();
+    mockBackend->roleId_ = static_cast<int>(UserRole::Customer);
+    mockBackend->allowance_ = testCase.allowance;
+    mockBackend->price_ = 1.0;
+    mockBackend->tanksStorage_ = {
+        BackendTankInfo{1, 42, "Tank 42", testCase.tankLimit}
+    };
+
+    EXPECT_CALL(*mockBackend, Authorize("customer-card")).WillOnce([this]() {
+        mockBackend->authorized_ = true;
+        return true;
+    });
+
+    controller->initialize();
+
+    std::thread controllerThread([this]() { controller->run(); });
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+
+    controller->handleCardPresented("customer-card");
+    ASSERT_TRUE(waitForState(SystemState::VolumeEntry));
+
+    for (const char* digit = testCase.input; *digit != '\0'; ++digit) {
+        controller->handleKeyPress(static_cast<KeyCode>(*digit));
+    }
+    controller->handleKeyPress(KeyCode::KeyStart);
+
+    ASSERT_TRUE(waitForState(SystemState::Refueling));
+    EXPECT_DOUBLE_EQ(controller->getEnteredVolume(), testCase.expectedMaximum);
+
+    shutdownControllerAndJoinThread(controllerThread);
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    EffectiveMaximumCases,
+    EffectiveMaximumStartTest,
+    ::testing::Values(
+        EffectiveMaximumStartCase{"TankLimitLowerEmpty", 100.0, 50.0, "", 50.0},
+        EffectiveMaximumStartCase{"AllowanceLowerZero", 30.0, 100.0, "0", 30.0},
+        EffectiveMaximumStartCase{"FractionalAllowanceNoTankLimit", 30.75, 0.0, "000", 30.75},
+        EffectiveMaximumStartCase{"FractionalTankLimitEmpty", 100.0, 30.75, "", 30.75},
+        EffectiveMaximumStartCase{"ZeroTankLimitUsesAllowance", 42.0, 0.0, "", 42.0}),
+    [](const ::testing::TestParamInfo<EffectiveMaximumStartCase>& info) {
+        return info.param.name;
+    });
+
+TEST_F(ControllerTest, NonPositiveEffectiveMaximumDoesNotStartRefueling) {
+    mockBackend->roleId_ = static_cast<int>(UserRole::Customer);
+    mockBackend->allowance_ = 0.0;
+    mockBackend->price_ = 1.0;
+    mockBackend->tanksStorage_ = { BackendTankInfo{1, 42, "Tank 42", 50.0} };
+
+    EXPECT_CALL(*mockBackend, Authorize("customer-card")).WillOnce([this]() {
+        mockBackend->authorized_ = true;
+        return true;
+    });
+
+    controller->initialize();
+
+    std::thread controllerThread([this]() { controller->run(); });
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+
+    controller->handleCardPresented("customer-card");
+    ASSERT_TRUE(waitForState(SystemState::VolumeEntry));
+    controller->handleKeyPress(KeyCode::KeyStart);
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    EXPECT_EQ(controller->getStateMachine().getCurrentState(), SystemState::VolumeEntry);
+    EXPECT_DOUBLE_EQ(controller->getEnteredVolume(), 0.0);
+    EXPECT_FALSE(mockPump->running_);
+
+    shutdownControllerAndJoinThread(controllerThread);
+}
 
 TEST_F(ControllerTest, AuthorizationWithSingleTankAutoSelectsForOperatorIntake) {
     mockBackend->roleId_ = static_cast<int>(UserRole::Operator);
