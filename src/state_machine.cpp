@@ -649,7 +649,7 @@ DisplayMessage StateMachine::getDisplayMessage() const {
                     maxVolume = std::min(maxVolume, tankVolume);
                 }
 
-                message.line3 = controller_->formatVolume(maxVolume) + " " +
+                message.line3 = controller_->formatVolumeForSelection(maxVolume) + " " +
                                 std::string(keyboardUi.maximumLabel);
             } else {
                 message.line3 = "";
@@ -658,7 +658,8 @@ DisplayMessage StateMachine::getDisplayMessage() const {
             break;
 
         case SystemState::Refueling:
-            message.line1 = "Заправка " + controller_->formatVolume(controller_->getEnteredVolume());
+            message.line1 = "Заправка " +
+                            controller_->formatVolumeForSelection(controller_->getEnteredVolume());
             message.line2 = controller_->formatVolume(controller_->getCurrentRefuelVolume());
             message.line3 = "";
             message.line4 = std::string(keyboardUi.refuelingStop);

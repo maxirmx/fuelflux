@@ -829,6 +829,12 @@ std::string Controller::formatVolume(Volume volume) const {
     return oss.str();
 }
 
+std::string Controller::formatVolumeForSelection(Volume volume) const {
+    std::ostringstream oss;
+    oss << std::fixed << std::setprecision(0) << std::round(volume) << " л";
+    return oss.str();
+}
+
 std::string Controller::getCurrentTimeString() const {
     auto now = std::chrono::system_clock::now();
     auto time_t = std::chrono::system_clock::to_time_t(now);

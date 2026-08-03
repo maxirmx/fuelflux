@@ -405,14 +405,14 @@
     <ul>
         <li><strong>Line 1:</strong> "Введите объём и нажмите Старт (A)" (Enter volume and press Start A)</li>
         <li><strong>Line 2:</strong> Current input (volume being entered)</li>
-        <li><strong>Line 3:</strong> For customers: "Макс: X.XX L" (Max allowed volume). For operators: empty</li>
+        <li><strong>Line 3:</strong> For customers: "Макс: X L" (maximum volume rounded to the nearest whole liter). For operators: empty</li>
         <li><strong>Line 4:</strong> "Нажмите * для макс, # для очистки" (Press * for max, # to clear)</li>
     </ul>
 
     <h3>Refueling</h3>
     <p>Active refueling in progress.</p>
     <ul>
-        <li><strong>Line 1:</strong> "Заправка " + target volume (e.g., "Заправка 50.00 L")</li>
+        <li><strong>Line 1:</strong> "Заправка " + target volume rounded to a whole liter (e.g., "Заправка 50 L")</li>
         <li><strong>Line 2:</strong> Current refueled volume (format: X.XX L)</li>
         <li><strong>Line 3:</strong> Empty</li>
         <li><strong>Line 4:</strong> Empty</li>
@@ -505,10 +505,10 @@
     </ul>
 
     <h3>getCurrentRefuelVolume() / getEnteredVolume()</h3>
-    <p>Returns volume formatted as <code>X.XX L</code> where X.XX is a floating-point number with 2 decimal places.</p>
+    <p>Returns the internal volume value. Actual and completed values are displayed as <code>X.XX L</code> with two fractional digits.</p>
 
     <h3>formatVolume(Volume)</h3>
-    <p>Formats volume as <code>X.XX L</code> (e.g., "50.00 L", "0.25 L")</p>
+    <p>Formats actual, transmitted, and completed volumes as <code>X.XX L</code> (e.g., "50.00 L", "0.25 L"). The maximum shown during volume selection and the selected target in the refueling header use whole-liter formatting instead.</p>
 
     <div class="section-break"></div>
     <h2>Display Line Length Considerations</h2>
