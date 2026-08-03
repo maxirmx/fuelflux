@@ -6,6 +6,7 @@
 
 #include "../types.h"
 #include <functional>
+#include <optional>
 
 namespace fuelflux::peripherals {
 
@@ -66,6 +67,12 @@ public:
     virtual Volume getCurrentVolume() const = 0;
     virtual Volume getTotalVolume() const = 0;
     virtual void setFlowCallback(FlowCallback callback) = 0;
+};
+
+// Temperature sensor interface
+class ITemperatureSensor : public IPeripheral {
+public:
+    virtual std::optional<double> getLastTemperatureCelsius() const = 0;
 };
 
 } // namespace fuelflux::peripherals

@@ -80,6 +80,7 @@ class Controller {
     void setCardReader(std::unique_ptr<peripherals::ICardReader> cardReader);
     void setPump(std::unique_ptr<peripherals::IPump> pump);
     void setFlowMeter(std::unique_ptr<peripherals::IFlowMeter> flowMeter);
+    void setTemperatureSensor(std::unique_ptr<peripherals::ITemperatureSensor> temperatureSensor);
     // Allow external threads to post events to the controller's event loop
     void postEvent(Event event);
 
@@ -101,6 +102,7 @@ class Controller {
     Volume getCurrentRefuelVolume() const { return currentRefuelVolume_; }
     double getCalibrationCoefficient() const { return calibrationCoefficient_; }
     const std::string& getLastErrorMessage() const { return lastErrorMessage_; }
+    std::optional<double> getLastTemperatureCelsius() const;
 
     // Input handling
     void handleKeyPress(KeyCode key);
@@ -183,6 +185,7 @@ class Controller {
     std::unique_ptr<peripherals::ICardReader> cardReader_;
     std::unique_ptr<peripherals::IPump> pump_;
     std::unique_ptr<peripherals::IFlowMeter> flowMeter_;
+    std::unique_ptr<peripherals::ITemperatureSensor> temperatureSensor_;
     std::shared_ptr<IBackend> backend_;
     std::shared_ptr<MessageStorage> messageStorage_;
     

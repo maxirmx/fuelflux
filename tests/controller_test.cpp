@@ -240,6 +240,14 @@ public:
     }
 };
 
+class MockTemperatureSensor : public ITemperatureSensor {
+public:
+    MOCK_METHOD(bool, initialize, (), (override));
+    MOCK_METHOD(void, shutdown, (), (override));
+    MOCK_METHOD(bool, isConnected, (), (const, override));
+    MOCK_METHOD(std::optional<double>, getLastTemperatureCelsius, (), (const, override));
+};
+
 class ControllerTest : public ::testing::Test {
 protected:
     std::unique_ptr<Controller> controller;
@@ -597,6 +605,24 @@ TEST_F(ControllerTest, InitializationFailure) {
     
     bool result = controller->initialize();
     EXPECT_FALSE(result);
+}
+
+TEST_F(ControllerTest, OptionalTemperatureSensorFailureDoesNotFailInitialization) {
+    auto temperatureSensor = std::make_unique<NiceMock<MockTemperatureSensor>>();
+    auto* mockTemperatureSensor = temperatureSensor.get();
+    EXPECT_CALL(*mockTemperatureSensor, initialize()).WillOnce(Return(false));
+    ON_CALL(*mockTemperatureSensor, getLastTemperatureCelsius())
+        .WillByDefault(Return(std::optional<double>{-12.5}));
+    controller->setTemperatureSensor(std::move(temperatureSensor));
+
+    EXPECT_TRUE(controller->initialize());
+    EXPECT_TRUE(controller->getLastErrorMessage().empty());
+    ASSERT_TRUE(controller->getLastTemperatureCelsius().has_value());
+    EXPECT_DOUBLE_EQ(*controller->getLastTemperatureCelsius(), -12.5);
+}
+
+TEST_F(ControllerTest, TemperatureGetterIsEmptyWithoutPeripheral) {
+    EXPECT_FALSE(controller->getLastTemperatureCelsius().has_value());
 }
 
 // Test key press handling - digit input

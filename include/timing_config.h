@@ -131,4 +131,10 @@ constexpr std::chrono::milliseconds kFlowMeterSimTickInterval{100};
 // every callback tick regardless of this value.
 constexpr std::chrono::milliseconds kFlowDisplayRefreshInterval{500};
 
+// ─── Temperature sensor ───────────────────────────────────────────────
+
+// Display temperature measurement interval. The worker performs its first
+// measurement immediately before waiting for this interval.
+constexpr std::chrono::minutes kTemperaturePollInterval{1};
+
 } // namespace fuelflux::timing
