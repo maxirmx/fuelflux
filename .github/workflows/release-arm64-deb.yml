@@ -61,7 +61,8 @@ jobs:
                 libc-ares-dev libfreetype6-dev ca-certificates git
 
               cmake -S . -B build-arm64 -G Ninja -DCMAKE_BUILD_TYPE=Release \
-                -DUNIX_FOLDER_CONVENTION=ON -DKEYBOARD_TYPE=VID
+                -DUNIX_FOLDER_CONVENTION=ON -DKEYBOARD_TYPE=VID \
+                -DDISPLAY_TYPE=ST7565
               cmake --build build-arm64 --config Release -j$(nproc)
 
               rm -rf pkgroot dist
