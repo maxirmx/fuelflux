@@ -101,7 +101,8 @@ bool HardwareFlowMeter::isConnected() const {
 }
 
 #ifdef TARGET_REAL_FLOW_METER
-void HardwareFlowMeter::monitorThread() {
+void HardwareFlowMeter::monitorThread(
+    std::chrono::steady_clock::time_point blankingDeadline) {
     // Open GPIO chip for this thread
     errno = 0;
     struct gpiod_chip* chip = gpiod_chip_open(gpioChip_.c_str());
@@ -130,7 +131,8 @@ void HardwareFlowMeter::monitorThread() {
         return;
     }
 
-    LOG_PERIPH_INFO("Flow meter monitoring thread started");
+    LOG_PERIPH_INFO("Flow meter monitoring thread started (startup blanking={} ms)",
+                    timing::kFlowMeterStartupBlankingInterval.count());
 
     // GPIO event wait timeout expressed in nanoseconds for struct timespec.
     // Reuses kFlowMeterSimTickInterval to keep the polling granularity consistent.
@@ -155,12 +157,17 @@ void HardwareFlowMeter::monitorThread() {
         if (rc == 1) {
             struct gpiod_line_event ev;
             uint64_t batchCount = 0;
+            uint64_t blankedBatchCount = 0;
             struct timespec zeroTimeout = {0, 0};
 
             do {
                 errno = 0;
                 if (gpiod_line_event_read(line, &ev) == 0) {
-                    ++batchCount;
+                    if (std::chrono::steady_clock::now() < blankingDeadline) {
+                        ++blankedBatchCount;
+                    } else {
+                        ++batchCount;
+                    }
                 } else {
                     LOG_PERIPH_ERROR("Failed to read flow meter event: {} (errno={})", 
                                    std::strerror(errno), errno);
@@ -170,6 +177,11 @@ void HardwareFlowMeter::monitorThread() {
 
             if (batchCount > 0) {
                 pulseCount_.fetch_add(batchCount, std::memory_order_relaxed);
+            }
+            if (blankedBatchCount > 0) {
+                LOG_PERIPH_DEBUG(
+                    "Ignored {} flow-meter pulse(s) during startup blanking",
+                    blankedBatchCount);
             }
         }
 
@@ -267,7 +279,10 @@ void HardwareFlowMeter::startMeasurement() {
 #ifdef TARGET_REAL_FLOW_METER
         else {
             pulseCount_.store(0, std::memory_order_relaxed);
-            monitorThread_ = std::thread(&HardwareFlowMeter::monitorThread, this);
+            const auto blankingDeadline = std::chrono::steady_clock::now() +
+                timing::kFlowMeterStartupBlankingInterval;
+            monitorThread_ = std::thread(
+                &HardwareFlowMeter::monitorThread, this, blankingDeadline);
         }
 #endif
     }

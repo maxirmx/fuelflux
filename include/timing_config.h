@@ -126,6 +126,17 @@ constexpr std::chrono::milliseconds kConsoleInputPollInterval{10};
 // Simulation thread: tick interval (controls simulation accuracy vs CPU usage).
 constexpr std::chrono::milliseconds kFlowMeterSimTickInterval{100};
 
+// Physical flow meter: discard GPIO pulses for this long after measurement
+// starts. Configured with CMake's FLOW_METER_STARTUP_BLANKING_MS setting; zero
+// disables startup blanking. Simulation modes are intentionally unaffected.
+#ifndef FLOW_METER_STARTUP_BLANKING_MS
+#define FLOW_METER_STARTUP_BLANKING_MS 200
+#endif
+static_assert(FLOW_METER_STARTUP_BLANKING_MS >= 0,
+              "flow-meter startup blanking interval cannot be negative");
+constexpr std::chrono::milliseconds kFlowMeterStartupBlankingInterval{
+    FLOW_METER_STARTUP_BLANKING_MS};
+
 // Controller display-throttle interval: how often Controller::handleFlowUpdate
 // posts an InputUpdated event for display refresh.  The pump-stop check runs on
 // every callback tick regardless of this value.

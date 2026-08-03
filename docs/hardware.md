@@ -327,6 +327,11 @@ Flow meter configuration is defined in `include/hardware/hardware_config.h`:
 | GPIO_PIN | `267` | GPIO line offset for pulse input |
 | TICKS_PER_LITER | `72.0` | Pulse count per liter of fuel |
 
+The physical flow-meter input ignores pulses during an initial startup blanking
+window. The CMake cache setting `FLOW_METER_STARTUP_BLANKING_MS` controls the
+window and defaults to `200` milliseconds. Set it to `0` to disable blanking.
+Simulation modes do not apply this window.
+
 ## Pump (GPIO relay control)
 
 The hardware pump uses GPIO relay control to operate the fuel pump.

@@ -9,6 +9,7 @@
 #include <string>
 #include <thread>
 #include <atomic>
+#include <chrono>
 #include <mutex>
 
 namespace fuelflux::peripherals {
@@ -40,8 +41,10 @@ public:
     bool isSimulationEnabled() const;
 
 private:
-    void monitorThread();
-    
+#ifdef TARGET_REAL_FLOW_METER
+    void monitorThread(std::chrono::steady_clock::time_point blankingDeadline);
+#endif
+
     std::atomic<bool> m_connected;
     std::atomic<bool> m_measuring;
     Volume m_currentVolume;
