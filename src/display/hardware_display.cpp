@@ -23,7 +23,8 @@ HardwareDisplay::HardwareDisplay(int width,
                                  const std::string& gpioChip,
                                  int dcPin,
                                  int rstPin,
-                                 const std::string& fontPath)
+                                 const std::string& fontPath,
+                                 TextRendererBackend rendererBackend)
     : isConnected_(false)
     , width_(width)
     , height_(height)
@@ -38,6 +39,7 @@ HardwareDisplay::HardwareDisplay(int width,
     , dcPin_(dcPin)
     , rstPin_(rstPin)
     , fontPath_(fontPath)
+    , rendererBackend_(rendererBackend)
 {
 }
 
@@ -80,13 +82,18 @@ bool HardwareDisplay::initialize() {
             largeFontSize_,
             leftMargin_,
             rightMargin_,
-            topMargin_);
+            topMargin_,
+            rendererBackend_);
         
         if (!displayImpl_->initialize(fontPath_)) {
             LOG_ERROR("Failed to initialize display rendering with font: {}", fontPath_);
             return false;
         }
-        LOG_INFO("Display rendering initialized with font: {}", fontPath_);
+        if (rendererBackend_ == TextRendererBackend::St7565Bitmap) {
+            LOG_INFO("Display rendering initialized with built-in FuelFlux ST Bitmap");
+        } else {
+            LOG_INFO("Display rendering initialized with font: {}", fontPath_);
+        }
         
         isConnected_ = true;
         

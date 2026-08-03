@@ -28,7 +28,7 @@ public:
      * @param gpioChip GPIO chip path
      * @param dcPin Data/Command GPIO pin
      * @param rstPin Reset GPIO pin
-     * @param fontPath Font file path
+     * @param fontPath Retained for source compatibility; ignored by the built-in bitmap renderer
      */
     St7565Display(const std::string& spiDevice,
                   const std::string& gpioChip,

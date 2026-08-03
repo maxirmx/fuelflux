@@ -72,7 +72,7 @@ Display configuration is defined in `include/display/display_config.h`:
 | GPIO_CHIP | `/dev/gpiochip0` | `/dev/gpiochip0` | GPIO chip path |
 | DC_PIN | `271` | `271` | GPIO line offset for D/C pin |
 | RST_PIN | `256` | `256` | GPIO line offset for RST pin |
-| FONT_PATH | `/usr/share/fonts/...` | `/usr/share/fonts/...` | Path to TTF font |
+| FONT_PATH | Built-in bitmap | `/usr/share/fonts/...` | ST uses compiled 1-bit glyphs; ILI9488 uses a TTF path |
 
 ### Wiring (Orange Pi Zero 2W, SPI1)
 
@@ -116,6 +116,15 @@ extra pins.
 - Do not assume Raspberry Pi BCM numbering on Orange Pi.
 - Use `gpioinfo` to confirm GPIO line offsets.
 - Ensure SPI is enabled and `/dev/spidev*` exists.
+
+### ST7565 text rendering
+
+The 128×64 display uses the compiled-in `FuelFlux ST Bitmap` font rather than
+scaling an outline font at runtime. Normal lines use 6×12 cells and the
+emphasized second line uses 14×28 bold cells. With the configured 2-pixel side
+margins, their exact capacities are 20 and 8 characters respectively. The
+glyph data is derived from Terminus Font 4.49.1 under the SIL Open Font License
+1.1; attribution is installed under `share/doc/fuelflux/fuelflux-st-bitmap`.
 
 ## NFC card reader (PN532 via libnfc)
 
@@ -306,7 +315,7 @@ Pump configuration is defined in `include/hardware/hardware_config.h`:
 
 - Check SPI device permissions (`/dev/spidev*`).
 - Verify GPIO permissions for the configured chip.
-- Confirm the font path exists.
+- For ILI9488, confirm the font path exists. ST7565 does not load a font file.
 
 ### NFC
 

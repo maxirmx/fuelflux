@@ -50,6 +50,7 @@ protected:
      * @param dcPin Data/Command GPIO pin number
      * @param rstPin Reset GPIO pin number
      * @param fontPath Path to TrueType font file
+     * @param rendererBackend Internal text rendering backend
      */
     HardwareDisplay(int width,
                     int height,
@@ -63,7 +64,8 @@ protected:
                     const std::string& gpioChip,
                     int dcPin,
                     int rstPin,
-                    const std::string& fontPath);
+                    const std::string& fontPath,
+                    TextRendererBackend rendererBackend = TextRendererBackend::FreeType);
 
     // FourLineDisplay protected interface
     void setLineInternal(unsigned int line_id, const std::string& text) override;
@@ -101,6 +103,7 @@ private:
     int dcPin_;
     int rstPin_;
     std::string fontPath_;
+    TextRendererBackend rendererBackend_;
     
     // Rendering implementation
     std::unique_ptr<FourLineDisplayImpl> displayImpl_;

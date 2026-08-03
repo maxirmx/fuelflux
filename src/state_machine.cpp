@@ -673,7 +673,7 @@ DisplayMessage StateMachine::getDisplayMessage() const {
             break;
 
         case SystemState::RefuelingComplete:
-            message.line1 = "Заправка выполнена на";
+            message.line1 = "Заправка на";
             message.line2 = controller_->formatVolume(controller_->getCurrentRefuelVolume());
             message.line3 = "Для новой заправки";
             message.line4 = "приложите карту";

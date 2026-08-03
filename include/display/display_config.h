@@ -17,6 +17,7 @@ namespace fuelflux::display {
 namespace hardware {
     constexpr const char* SPI_DEVICE = "/dev/spidev1.0";
     constexpr const char* GPIO_CHIP = "/dev/gpiochip0";
+    // Used by outline-font renderers (ILI9488); ST7565 uses built-in bitmap glyphs.
     constexpr const char* FONT_PATH = "/usr/share/fonts/truetype/ubuntu/UbuntuMono-B.ttf";
 }
 
@@ -29,8 +30,8 @@ namespace st7565 {
     constexpr int LEFT_MARGIN = 2;
     constexpr int RIGHT_MARGIN = 2;
     constexpr int TOP_MARGIN = 0;
-    constexpr int SMALL_FONT_SIZE = 12;
-    constexpr int LARGE_FONT_SIZE = 28;
+    constexpr int SMALL_FONT_SIZE = 12; // 6x12 native bitmap cell
+    constexpr int LARGE_FONT_SIZE = 28; // 14x28 native bitmap cell
     constexpr int SPI_SPEED = 8000000;   // 8 MHz
     // Initialisation timing (datasheet-specified)
     constexpr int RESET_ASSERT_MS = 50;  // Reset assert duration in milliseconds

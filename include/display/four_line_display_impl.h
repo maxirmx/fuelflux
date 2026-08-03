@@ -8,6 +8,11 @@
 #include <vector>
 #include <memory>
 
+enum class TextRendererBackend {
+    FreeType,
+    St7565Bitmap
+};
+
 /**
  * Four Line Display Implementation
  * 
@@ -38,6 +43,7 @@ public:
      *                     both margins are reset to 0.
      * @param top_margin Top margin in pixels (default: 0); vertical offset for all content.
      *                   Negative values are clamped to 0.
+     * @param renderer_backend Text rendering backend. FreeType remains the default.
      * @throws std::invalid_argument if width <= 0, height <= 0, or height is not divisible by 8
      */
     FourLineDisplayImpl(int width = 128,
@@ -46,7 +52,8 @@ public:
                         int large_font_size = 28,
                         int left_margin = 0,
                         int right_margin = 0,
-                        int top_margin = 0);
+                        int top_margin = 0,
+                        TextRendererBackend renderer_backend = TextRendererBackend::FreeType);
     ~FourLineDisplayImpl();
 
     FourLineDisplayImpl(const FourLineDisplayImpl&) = delete;
@@ -136,6 +143,7 @@ private:
     int left_margin_;
     int right_margin_;
     int top_margin_;
+    TextRendererBackend renderer_backend_;
 
     bool initialized_;
     std::string lines_[4];
