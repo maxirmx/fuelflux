@@ -1161,7 +1161,7 @@ TEST_F(ControllerTest, RefuelingCompletionDisplaysFinalVolume) {
         mockBackend->authorized_ = true;
         return true;
         });
-    EXPECT_CALL(*mockBackend, Refuel(1, 10.0)).WillOnce(Return(true));
+    EXPECT_CALL(*mockBackend, Refuel(1, 10.75)).WillOnce(Return(true));
     EXPECT_CALL(*mockBackend, Deauthorize()).WillOnce([this]() {
         mockBackend->authorized_ = false;
         return true;
@@ -1185,26 +1185,34 @@ TEST_F(ControllerTest, RefuelingCompletionDisplaysFinalVolume) {
     controller->handleCardPresented("customer-card");
     ASSERT_TRUE(waitForState(SystemState::VolumeEntry));
 
-    // Enter volume "10" and press Start -> Refueling
-    controller->addDigitToInput('1');
-    controller->addDigitToInput('0');
-    controller->handleKeyPress(KeyCode::KeyStart);
+    // Preserve the fractional target internally while displaying whole liters.
+    controller->enterVolume(10.75);
     ASSERT_TRUE(waitForState(SystemState::Refueling));
+    {
+        const auto message = controller->getStateMachine().getDisplayMessage();
+        EXPECT_EQ(message.line1, "Заправка 11 л");
+        EXPECT_EQ(message.line2, "0.00 л");
+    }
+
+    // A partial measured volume retains two fractional digits on the display.
+    mockFlowMeter->simulateFlow(4.6);
+    EXPECT_DOUBLE_EQ(controller->getCurrentRefuelVolume(), 4.6);
+    EXPECT_EQ(controller->getStateMachine().getDisplayMessage().line2, "4.60 л");
 
     // Simulate flow reaching the target
-    mockFlowMeter->simulateFlow(10.0);
+    mockFlowMeter->simulateFlow(10.75);
 
     // Wait for final state
     ASSERT_TRUE(waitForState(SystemState::RefuelingComplete));
 
     // Verify controller recorded final pumped volume
-    EXPECT_DOUBLE_EQ(controller->getCurrentRefuelVolume(), 10.0);
+    EXPECT_DOUBLE_EQ(controller->getCurrentRefuelVolume(), 10.75);
 
     // Verify display shows final volume in RefuelingComplete
     {
         std::lock_guard<std::mutex> lk(msgMutex);
         EXPECT_EQ(lastMsg.line1, std::string("Заправка выполнена на"));
-        EXPECT_EQ(lastMsg.line2, controller->formatVolume(controller->getCurrentRefuelVolume()));
+        EXPECT_EQ(lastMsg.line2, "10.75 л");
     }
 
     // Trigger timeout to clear session and verify clearing
@@ -1254,9 +1262,11 @@ TEST_F(ControllerTest, RemoveLastDigit) {
 // Test format volume
 TEST_F(ControllerTest, FormatVolume) {
     controller->initialize();
-    
-    std::string formatted = controller->formatVolume(25.50);
-    EXPECT_EQ(formatted, "25.50 л");
+
+    EXPECT_EQ(controller->formatVolume(25.0), "25.00 л");
+    EXPECT_EQ(controller->formatVolume(25.49), "25.49 л");
+    EXPECT_EQ(controller->formatVolume(25.5), "25.50 л");
+    EXPECT_EQ(controller->formatVolume(25.75), "25.75 л");
 }
 
 // Test get device serial number
@@ -2104,7 +2114,7 @@ TEST_F(ControllerTest, DataTransmissionStateShownDuringIntake) {
         mockBackend->authorized_ = true;
         return true;
     });
-    EXPECT_CALL(*mockBackend, Intake(1, 50.0, IntakeDirection::In)).WillOnce(Return(true));
+    EXPECT_CALL(*mockBackend, Intake(1, 50.75, IntakeDirection::In)).WillOnce(Return(true));
 
     controller->initialize();
 
@@ -2133,13 +2143,13 @@ TEST_F(ControllerTest, DataTransmissionStateShownDuringIntake) {
     controller->handleKeyPress(KeyCode::KeyStart);
     ASSERT_TRUE(waitForState(SystemState::IntakeVolumeEntry));
 
-    // Enter volume "50" and press Start -> DataTransmission -> IntakeComplete
-    controller->addDigitToInput('5');
-    controller->addDigitToInput('0');
-    controller->handleKeyPress(KeyCode::KeyStart);
+    // Preserve the fractional intake volume internally while displaying whole liters.
+    controller->enterIntakeVolume(50.75);
     
     // Wait for final IntakeComplete state (backend call in DataTransmission completes quickly)
     ASSERT_TRUE(waitForState(SystemState::IntakeComplete));
+    EXPECT_DOUBLE_EQ(controller->getEnteredVolume(), 50.75);
+    EXPECT_EQ(controller->getStateMachine().getDisplayMessage().line2, "50.75 л");
 
     // Verify that "Передача данных" was displayed
     bool foundDataTransmissionMessage = false;
@@ -2541,9 +2551,9 @@ TEST_F(ControllerTest, GetTankVolumeDirectTest) {
 // =====================================================================
 
 TEST_F(ControllerTest, VolumeEntryDisplayShowsAllowanceWhenLower) {
-    // Setup: Allowance (30L) < Tank capacity (100L)
+    // Setup: Fractional allowance (30.75L) < Tank capacity (100L)
     mockBackend->roleId_ = static_cast<int>(UserRole::Customer);
-    mockBackend->allowance_ = 30.0;
+    mockBackend->allowance_ = 30.75;
     mockBackend->price_ = 1.0;
     
     BackendTankInfo tank1;
@@ -2578,12 +2588,13 @@ TEST_F(ControllerTest, VolumeEntryDisplayShowsAllowanceWhenLower) {
     // Wait for display to update
     std::this_thread::sleep_for(std::chrono::milliseconds(50));
 
-    // Check that display shows allowance (30L) as max since it's lower
+    // Check that the maximum volume is rounded to a whole liter for display.
     {
         std::lock_guard<std::mutex> lk(msgMutex);
         EXPECT_EQ(lastMsg.line1, std::string("Введите объём"));
-        EXPECT_TRUE(lastMsg.line3.find("30") != std::string::npos) 
-            << "Display should show allowance (30L) as max, got: " << lastMsg.line3;
+        EXPECT_EQ(lastMsg.line3,
+                  std::string("31 л ") +
+                      std::string(peripherals::configuredKeyboardUiProfile().maximumLabel));
     }
 
     shutdownControllerAndJoinThread(controllerThread);

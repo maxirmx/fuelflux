@@ -238,6 +238,7 @@ class Controller {
     void validateCalibrationPassword();
     void saveCalibrationCoefficient();
     std::string formatCalibrationCoefficient(double coefficient) const;
+    std::string formatVolumeForSelection(Volume volume) const;
     std::string getCalibrationCoefficientTitle() const;
     Volume parseVolumeFromInput() const;
     TankNumber parseTankFromInput() const;

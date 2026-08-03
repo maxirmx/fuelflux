@@ -94,12 +94,12 @@ User selects which fuel tank to operate with.
 User enters refueling volume.
 - Line 1: "Введите объём и нажмите Старт (A)" (Enter volume and press Start A)
 - Line 2: Current input (volume being entered)
-- Line 3: For customers: "Макс: X.XX L" (Max allowed volume). For operators: empty
+- Line 3: For customers: "Макс: X L" (maximum volume rounded to the nearest whole liter). For operators: empty
 - Line 4: "Нажмите * для макс, # для очистки" (Press * for max, # to clear)
 
 ### Refueling
 Active refueling in progress.
-- Line 1: "Заправка " + target volume (e.g., "Заправка 50.00 L")
+- Line 1: "Заправка " + target volume rounded to a whole liter (e.g., "Заправка 50 L")
 - Line 2: Current refueled volume (format: X.XX L)
 - Line 3: Empty
 - Line 4: Empty
@@ -174,10 +174,10 @@ Common errors:
 - "Ошибка расходомера" (Flow meter error)
 
 ### getCurrentRefuelVolume() / getEnteredVolume()
-Returns volume formatted as `X.XX L` where X.XX is a floating-point number with 2 decimal places.
+Returns the internal volume value. Actual and completed values are displayed as `X.XX L` with two fractional digits.
 
 ### formatVolume(Volume)
-Formats volume as `X.XX L` (e.g., "50.00 L", "0.25 L")
+Formats actual, transmitted, and completed volumes as `X.XX L` (e.g., "50.00 L", "0.25 L"). The maximum shown during volume selection and the selected target in the refueling header use whole-liter formatting instead.
 
 ## Display Line Length Considerations
 
