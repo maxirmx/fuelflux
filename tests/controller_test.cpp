@@ -248,6 +248,14 @@ public:
     MOCK_METHOD(std::optional<double>, getLastTemperatureCelsius, (), (const, override));
 };
 
+class MockGpsReceiver : public IGpsReceiver {
+public:
+    MOCK_METHOD(bool, initialize, (), (override));
+    MOCK_METHOD(void, shutdown, (), (override));
+    MOCK_METHOD(bool, isConnected, (), (const, override));
+    MOCK_METHOD(std::optional<GpsPosition>, getLastPosition, (), (const, override));
+};
+
 class ControllerTest : public ::testing::Test {
 protected:
     std::unique_ptr<Controller> controller;
@@ -623,6 +631,32 @@ TEST_F(ControllerTest, OptionalTemperatureSensorFailureDoesNotFailInitialization
 
 TEST_F(ControllerTest, TemperatureGetterIsEmptyWithoutPeripheral) {
     EXPECT_FALSE(controller->getLastTemperatureCelsius().has_value());
+}
+
+TEST_F(ControllerTest, OptionalGpsReceiverFailureDoesNotFailInitialization) {
+    auto gpsReceiver = std::make_unique<NiceMock<MockGpsReceiver>>();
+    auto* mockGpsReceiver = gpsReceiver.get();
+    const GpsPosition expected{
+        55.7558,
+        37.6173,
+        std::chrono::system_clock::now()
+    };
+    EXPECT_CALL(*mockGpsReceiver, initialize()).WillOnce(Return(false));
+    ON_CALL(*mockGpsReceiver, getLastPosition())
+        .WillByDefault(Return(std::optional<GpsPosition>{expected}));
+    controller->setGpsReceiver(std::move(gpsReceiver));
+
+    EXPECT_TRUE(controller->initialize());
+    EXPECT_TRUE(controller->getLastErrorMessage().empty());
+    const auto actual = controller->getLastGpsPosition();
+    ASSERT_TRUE(actual.has_value());
+    EXPECT_DOUBLE_EQ(actual->latitudeDegrees, expected.latitudeDegrees);
+    EXPECT_DOUBLE_EQ(actual->longitudeDegrees, expected.longitudeDegrees);
+    EXPECT_EQ(actual->receivedAt, expected.receivedAt);
+}
+
+TEST_F(ControllerTest, GpsGetterIsEmptyWithoutPeripheral) {
+    EXPECT_FALSE(controller->getLastGpsPosition().has_value());
 }
 
 // Test key press handling - digit input

@@ -22,12 +22,15 @@ settings, modify the configuration file and rebuild the application.
 - `TARGET_REAL_PUMP` - Use real pump hardware (placeholder, not yet implemented)
 - `TARGET_REAL_FLOW_METER` - Use real flow meter hardware (placeholder, not yet implemented)
 - `TARGET_REAL_TEMPERATURE_SENSOR` - Use the AHT10 display temperature sensor and heater relay
+- `TARGET_REAL_GPS` - Use the NMEA GPS receiver connected over UART
 
 **Platform defaults:**
 - **Windows/MSVC**: `KEYBOARD_TYPE=CONSOLE`
 - **Windows/MSVC**: `TARGET_REAL_TEMPERATURE_SENSOR=OFF`
+- **Windows/MSVC**: `TARGET_REAL_GPS=OFF`
 - **All non-MSVC platforms**: `KEYBOARD_TYPE=VID`
 - **All non-MSVC platforms**: `TARGET_REAL_TEMPERATURE_SENSOR=ON`
+- **All non-MSVC platforms**: `TARGET_REAL_GPS=ON`
 - **Production builds**: VID; legacy must be selected explicitly
 
 Override defaults at configure time:
@@ -36,12 +39,37 @@ Override defaults at configure time:
 cmake -DTARGET_REAL_DISPLAY=ON ..
 cmake -DTARGET_REAL_CARD_READER=ON ..
 cmake -DTARGET_REAL_TEMPERATURE_SENSOR=ON ..
+cmake -DTARGET_REAL_GPS=ON ..
 cmake -DKEYBOARD_TYPE=VID -DKEYBOARD_MCP_PORT=AUTO ..
 ```
 
 `TARGET_REAL_KEYBOARD` has been removed. Supplying it, including through a
 stale CMake cache, is a configuration error. Delete the build directory or
 run CMake with `-U TARGET_REAL_KEYBOARD` before selecting `KEYBOARD_TYPE`.
+
+## GPS receiver (NMEA over UART)
+
+The optional GPS monitor reads NMEA traffic in a background thread and keeps
+the last checksum-valid active RMC fix or nonzero-quality GGA fix in memory.
+Missing, disconnected, or silent GPS hardware does not prevent the controller
+from operating. The monitor logs the outage once and retries after one hour.
+
+Configuration is defined in `include/hardware/hardware_config.h`:
+
+| Setting | Default Value | Description |
+|---|---|---|
+| `SERIAL_DEVICE` | `/dev/ttyS2` | GPS UART device |
+| `BAUD_RATE` | `115200` | NMEA stream baud rate |
+
+The port is configured as raw 8N1 input with hardware and software flow control
+disabled. Checksum-valid NMEA traffic without a position fix still confirms
+that the receiver is connected. A stream is considered silent after ten
+seconds without checksum-valid traffic.
+
+The first reliable position is logged immediately. The latest reliable
+position is then logged at most once per hour while the in-memory value
+continues to update on every accepted fix. Ensure the service user belongs to
+the `dialout` group and that the device tree enables `/dev/ttyS2`.
 
 ## Display (NHD-C12864A1Z-FSW-FBW-HTT)
 

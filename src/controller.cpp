@@ -295,6 +295,18 @@ std::optional<double> Controller::getLastTemperatureCelsius() const {
     return temperatureSensor_->getLastTemperatureCelsius();
 }
 
+void Controller::setGpsReceiver(
+    std::unique_ptr<peripherals::IGpsReceiver> gpsReceiver) {
+    gpsReceiver_ = std::move(gpsReceiver);
+}
+
+std::optional<GpsPosition> Controller::getLastGpsPosition() const {
+    if (!gpsReceiver_) {
+        return std::nullopt;
+    }
+    return gpsReceiver_->getLastPosition();
+}
+
 // Input handling
 void Controller::handleKeyPress(KeyCode key) {
     LOG_CTRL_DEBUG("Key pressed: {}", static_cast<int>(key));
@@ -1174,6 +1186,12 @@ bool Controller::initializePeripherals() {
         LOG_CTRL_ERROR("Failed to initialize optional temperature sensor");
     }
 
+    // GPS is optional. Its worker retries unavailable or silent hardware
+    // without affecting normal controller startup.
+    if (gpsReceiver_ && !gpsReceiver_->initialize()) {
+        LOG_CTRL_ERROR("Failed to initialize optional GPS receiver");
+    }
+
     if (!ok) {
         // Cleanup any peripherals that were successfully initialized
         LOG_CTRL_WARN("Initialization failed, cleaning up partially initialized peripherals");
@@ -1193,6 +1211,7 @@ void Controller::shutdownPeripherals() {
     if (pump_) pump_->shutdown();
     if (flowMeter_) flowMeter_->shutdown();
     if (temperatureSensor_) temperatureSensor_->shutdown();
+    if (gpsReceiver_) gpsReceiver_->shutdown();
 }
 
 void Controller::startNoFlowMonitorThread() {

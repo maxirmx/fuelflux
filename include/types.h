@@ -111,6 +111,13 @@ struct TankInfo {
     TankNumber number;
 };
 
+// Last reliable position reported by the GPS receiver.
+struct GpsPosition {
+    double latitudeDegrees = 0.0;
+    double longitudeDegrees = 0.0;
+    std::chrono::system_clock::time_point receivedAt;
+};
+
 // Refueling transaction
 struct RefuelTransaction {
     UserId userId;

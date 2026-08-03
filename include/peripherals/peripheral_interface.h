@@ -75,4 +75,10 @@ public:
     virtual std::optional<double> getLastTemperatureCelsius() const = 0;
 };
 
+// GPS receiver interface
+class IGpsReceiver : public IPeripheral {
+public:
+    virtual std::optional<GpsPosition> getLastPosition() const = 0;
+};
+
 } // namespace fuelflux::peripherals

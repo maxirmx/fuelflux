@@ -81,6 +81,7 @@ class Controller {
     void setPump(std::unique_ptr<peripherals::IPump> pump);
     void setFlowMeter(std::unique_ptr<peripherals::IFlowMeter> flowMeter);
     void setTemperatureSensor(std::unique_ptr<peripherals::ITemperatureSensor> temperatureSensor);
+    void setGpsReceiver(std::unique_ptr<peripherals::IGpsReceiver> gpsReceiver);
     // Allow external threads to post events to the controller's event loop
     void postEvent(Event event);
 
@@ -103,6 +104,7 @@ class Controller {
     double getCalibrationCoefficient() const { return calibrationCoefficient_; }
     const std::string& getLastErrorMessage() const { return lastErrorMessage_; }
     std::optional<double> getLastTemperatureCelsius() const;
+    std::optional<GpsPosition> getLastGpsPosition() const;
 
     // Input handling
     void handleKeyPress(KeyCode key);
@@ -186,6 +188,7 @@ class Controller {
     std::unique_ptr<peripherals::IPump> pump_;
     std::unique_ptr<peripherals::IFlowMeter> flowMeter_;
     std::unique_ptr<peripherals::ITemperatureSensor> temperatureSensor_;
+    std::unique_ptr<peripherals::IGpsReceiver> gpsReceiver_;
     std::shared_ptr<IBackend> backend_;
     std::shared_ptr<MessageStorage> messageStorage_;
     
