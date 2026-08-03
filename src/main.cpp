@@ -28,6 +28,9 @@
 #ifdef TARGET_REAL_TEMPERATURE_SENSOR
 #include "peripherals/temperature_sensor.h"
 #endif
+#ifdef TARGET_REAL_GPS
+#include "peripherals/gps_receiver.h"
+#endif
 #if defined(KEYBOARD_TYPE_LEGACY) || defined(KEYBOARD_TYPE_VID)
 #include "peripherals/keyboard.h"
 #endif
@@ -248,6 +251,11 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
 #ifdef TARGET_REAL_TEMPERATURE_SENSOR
             controller.setTemperatureSensor(
                 std::make_unique<peripherals::HardwareTemperatureSensor>());
+#endif
+
+#ifdef TARGET_REAL_GPS
+            controller.setGpsReceiver(
+                std::make_unique<peripherals::HardwareGpsReceiver>());
 #endif
             
             // Initialize controller

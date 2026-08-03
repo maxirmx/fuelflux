@@ -137,4 +137,21 @@ constexpr std::chrono::milliseconds kFlowDisplayRefreshInterval{500};
 // measurement immediately before waiting for this interval.
 constexpr std::chrono::minutes kTemperaturePollInterval{1};
 
+// ─── GPS receiver ────────────────────────────────────────────
+
+// How long a successfully opened receiver may produce no checksum-valid NMEA
+// traffic before it is treated as disconnected.
+constexpr std::chrono::seconds kGpsSilenceTimeout{10};
+
+// Delay before reopening an unavailable, disconnected, or silent receiver.
+constexpr std::chrono::hours kGpsRetryInterval{1};
+
+// Routine position logging cadence. The first reliable fix is logged
+// immediately; subsequent fixes are logged no more often than this interval.
+constexpr std::chrono::hours kGpsPositionLogInterval{1};
+
+// Maximum blocking interval while waiting for UART input, keeping shutdown
+// responsive without busy-spinning.
+constexpr std::chrono::milliseconds kGpsSerialPollInterval{100};
+
 } // namespace fuelflux::timing

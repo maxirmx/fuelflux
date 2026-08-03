@@ -41,6 +41,7 @@ if(MSVC)
     option(TARGET_REAL_PUMP "Use real pump hardware" OFF)
     option(TARGET_REAL_FLOW_METER "Use real flow meter hardware" OFF)
     option(TARGET_REAL_TEMPERATURE_SENSOR "Use real AHT10 temperature sensor and display heater relay" OFF)
+    option(TARGET_REAL_GPS "Use real GPS receiver hardware" OFF)
     option(ENABLE_TESTING "Enable testing" ON)
     # This will cause backend integration test to fail
     option(ENABLE_AUTH_DELAY "Enable 3-second authorization delay for testing/simulation" OFF)
@@ -54,6 +55,7 @@ else()
     option(TARGET_REAL_PUMP "Use real pump hardware" ON)
     option(TARGET_REAL_FLOW_METER "Use real flow meter hardware" ON)
     option(TARGET_REAL_TEMPERATURE_SENSOR "Use real AHT10 temperature sensor and display heater relay" ON)
+    option(TARGET_REAL_GPS "Use real GPS receiver hardware" ON)
     option(ENABLE_TESTING "Enable testing" OFF)
     option(ENABLE_AUTH_DELAY "Enable 3-second authorization delay for testing/simulation" OFF)
     option(CODE_COVERAGE "Enable code coverage instrumentation" OFF)
@@ -195,6 +197,16 @@ else()
     message(STATUS "TARGET_REAL_TEMPERATURE_SENSOR disabled - temperature monitoring is not configured")
 endif()
 
+if(TARGET_REAL_GPS)
+    if(MSVC)
+        message(FATAL_ERROR "TARGET_REAL_GPS requires a POSIX termios platform")
+    endif()
+    message(STATUS "TARGET_REAL_GPS enabled - using NMEA receiver on /dev/ttyS2")
+    add_compile_definitions(TARGET_REAL_GPS)
+else()
+    message(STATUS "TARGET_REAL_GPS disabled - GPS monitoring is not configured")
+endif()
+
 if(ENABLE_AUTH_DELAY)
     message(STATUS "ENABLE_AUTH_DELAY enabled - 3-second authorization delay for testing/simulation")
     add_compile_definitions(ENABLE_AUTH_DELAY)
@@ -315,6 +327,7 @@ set(LIB_SOURCES
     src/peripherals/pump.cpp
     src/peripherals/flow_meter.cpp
     src/peripherals/temperature_sensor.cpp
+    src/peripherals/gps_receiver.cpp
     src/hardware/aht10.cpp
     src/console_emulator.cpp
     src/backend.cpp
@@ -395,6 +408,7 @@ set(HEADERS
     include/peripherals/pump.h
     include/peripherals/flow_meter.h
     include/peripherals/temperature_sensor.h
+    include/peripherals/gps_receiver.h
     include/peripherals/peripheral_interface.h
     include/console_emulator.h
     include/backend.h
@@ -567,6 +581,7 @@ if(ENABLE_TESTING)
         tests/four_line_display_test.cpp
         tests/flow_meter_test.cpp
         tests/temperature_sensor_test.cpp
+        tests/gps_receiver_test.cpp
         tests/st_bitmap_text_test.cpp
     )
     

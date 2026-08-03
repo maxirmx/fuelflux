@@ -61,4 +61,10 @@ namespace temperature_sensor {
     constexpr const char* RELAY_CONSUMER = "display-heater";
 }
 
+// GPS receiver configuration (NMEA over UART)
+namespace gps {
+    constexpr const char* SERIAL_DEVICE = "/dev/ttyS2";
+    constexpr int BAUD_RATE = 115200;
+}
+
 } // namespace fuelflux::hardware::config
