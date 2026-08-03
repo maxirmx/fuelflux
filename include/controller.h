@@ -27,12 +27,21 @@ namespace fuelflux {
 class CacheManager;
 class UserCache;
 
+struct ControllerPersistencePaths {
+    std::string cacheDbPath;
+    std::string messageStorageDbPath;
+};
+
 // Main controller class that orchestrates the entire system
 class Controller {
   public:
     Controller(ControllerId controllerId,
                std::shared_ptr<IBackend> backend = nullptr,
                std::chrono::seconds noFlowCancelTimeout = timing::kNoFlowCancelTimeout);
+    Controller(ControllerId controllerId,
+               std::shared_ptr<IBackend> backend,
+               std::chrono::seconds noFlowCancelTimeout,
+               ControllerPersistencePaths persistencePaths);
     ~Controller();
 
     // System lifecycle
