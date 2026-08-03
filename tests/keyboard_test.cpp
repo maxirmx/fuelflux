@@ -346,15 +346,29 @@ TEST(KeyboardUiProfileTest, ClassicAndVidExposeDifferentKeyLegends) {
     const auto& vid = keyboardUiProfile(KeyboardType::Vid);
 
     EXPECT_EQ(console.entryConfirmCancel, "Ввод(A)/Отмена(B)");
+    EXPECT_EQ(console.volumeConfirmCancel, "Старт(A)/Отмена(B)");
+    EXPECT_EQ(console.maximumLabel, "макс(*)");
+    EXPECT_EQ(console.refuelingStop, "Стоп(B)");
+    EXPECT_EQ(console.errorReset, "Сброс(B)");
+    EXPECT_EQ(console.cancelPrompt, "Нажмите ОТМЕНА (B)");
+    EXPECT_EQ(console.calibrationConfirmCancel, "A=Ввод B=Отмена");
+
     EXPECT_EQ(legacy.entryConfirmCancel, console.entryConfirmCancel);
-    EXPECT_EQ(legacy.maximumLabel, "макс(*)");
-    EXPECT_EQ(vid.entryConfirmCancel, "СТАРТ/СТОП");
+    EXPECT_EQ(legacy.volumeConfirmCancel, console.volumeConfirmCancel);
+    EXPECT_EQ(legacy.maximumLabel, console.maximumLabel);
+    EXPECT_EQ(legacy.refuelingStop, console.refuelingStop);
+    EXPECT_EQ(legacy.errorReset, console.errorReset);
+    EXPECT_EQ(legacy.cancelPrompt, console.cancelPrompt);
+    EXPECT_EQ(legacy.calibrationConfirmCancel,
+              console.calibrationConfirmCancel);
+
+    EXPECT_EQ(vid.entryConfirmCancel, "ВВОД/ОТМЕНА");
+    EXPECT_EQ(vid.volumeConfirmCancel, "СТАРТ/ОТМЕНА");
     EXPECT_EQ(vid.maximumLabel, "макс(СТАРТ)");
     EXPECT_EQ(vid.refuelingStop, "СТОП");
-    EXPECT_EQ(vid.errorReset, "Сброс(СТОП)");
-    EXPECT_EQ(console.calibrationConfirmCancel, "A=Ввод B=Отмена");
-    EXPECT_EQ(legacy.calibrationConfirmCancel, console.calibrationConfirmCancel);
-    EXPECT_EQ(vid.calibrationConfirmCancel, "СТАРТ / СТОП");
+    EXPECT_EQ(vid.errorReset, "Сброс(ОТМЕНА)");
+    EXPECT_EQ(vid.cancelPrompt, "Нажмите ОТМЕНА");
+    EXPECT_EQ(vid.calibrationConfirmCancel, "ВВОД/ОТМЕНА");
 }
 
 } // namespace
