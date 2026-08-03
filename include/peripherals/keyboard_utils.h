@@ -147,13 +147,13 @@ inline constexpr KeyboardUiProfile kClassicKeyboardUiProfile{
 };
 
 inline constexpr KeyboardUiProfile kVidKeyboardUiProfile{
-    "СТАРТ/СТОП",
-    "СТАРТ/СТОП",
+    "ВВОД/ОТМЕНА",
+    "СТАРТ/ОТМЕНА",
     "макс(СТАРТ)",
     "СТОП",
-    "Сброс(СТОП)",
-    "Нажмите СТОП",
-    "СТАРТ / СТОП"
+    "Сброс(ОТМЕНА)",
+    "Нажмите ОТМЕНА",
+    "ВВОД/ОТМЕНА"
 };
 
 inline constexpr const KeyboardUiProfile& keyboardUiProfile(

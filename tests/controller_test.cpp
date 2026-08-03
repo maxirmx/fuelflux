@@ -859,10 +859,17 @@ TEST_F(ControllerTest, UpdateDisplay) {
 // Test show error
 TEST_F(ControllerTest, ShowError) {
     controller->initialize();
-    
-    EXPECT_CALL(*mockDisplay, showMessage(_)).Times(1);
+
+    DisplayMessage message;
+    EXPECT_CALL(*mockDisplay, showMessage(_))
+        .WillOnce(testing::SaveArg<0>(&message));
     
     controller->showError("Test error message");
+
+    EXPECT_EQ(message.line1, "ОШИБКА");
+    EXPECT_EQ(message.line2, "Test error message");
+    EXPECT_EQ(message.line3,
+              peripherals::configuredKeyboardUiProfile().cancelPrompt);
 }
 
 // Test show message

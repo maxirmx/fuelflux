@@ -19,7 +19,7 @@ namespace fuelflux::hardware::config {
 
 // Keyboard configuration (MCP23017 I2C GPIO expander with 4x4 matrix keypad)
 namespace keyboard {
-    constexpr const char* I2C_DEVICE = "/dev/i2c-3";
+    constexpr const char* I2C_DEVICE = "/dev/i2c-2";
     constexpr uint8_t I2C_ADDRESS = 0x20;
     constexpr int POLL_MS = 5;          // Polling interval in milliseconds
     constexpr int DEBOUNCE_MS = 20;     // Debounce delay in milliseconds
@@ -29,7 +29,7 @@ namespace keyboard {
 
 // NFC Card Reader configuration (PN532 via libnfc)
 namespace card_reader {
-    constexpr const char* I2C_DEVICE = "/dev/i2c-3";
+    constexpr const char* I2C_DEVICE = "/dev/i2c-2";
     // Connection string format: "pn532_i2c:<device>"
     // If empty, will be auto-generated from I2C_DEVICE
     constexpr int POLL_DELAY_MS = 150;    // Delay between NFC target polls in milliseconds

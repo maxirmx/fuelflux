@@ -8,13 +8,13 @@ The physical legends shown to the operator depend on `KEYBOARD_TYPE`:
 
 | Context | Console / legacy | VID |
 |---|---|---|
-| PIN, tank, and intake entry | `Ввод(A)/Отмена(B)` | `СТАРТ/СТОП` |
-| Volume confirmation | `Старт(A)/Отмена(B)` | `СТАРТ/СТОП` |
+| PIN, tank, and intake entry | `Ввод(A)/Отмена(B)` | `ВВОД/ОТМЕНА` |
+| Volume confirmation | `Старт(A)/Отмена(B)` | `СТАРТ/ОТМЕНА` |
 | Customer maximum suffix | `макс(*)` | `макс(СТАРТ)` |
 | Refueling stop | `Стоп(B)` | `СТОП` |
-| Error reset | `Сброс(B)` | `Сброс(СТОП)` |
-| Immediate error cancellation | `Нажмите ОТМЕНА (B)` | `Нажмите СТОП` |
-| Calibration entry | `A=Ввод B=Отмена` | `СТАРТ / СТОП` |
+| Error reset | `Сброс(B)` | `Сброс(ОТМЕНА)` |
+| Immediate error cancellation | `Нажмите ОТМЕНА (B)` | `Нажмите ОТМЕНА` |
+| Calibration entry | `A=Ввод B=Отмена` | `ВВОД/ОТМЕНА` |
 
 VID is the non-MSVC and production default. Therefore production display
 examples should use the VID column unless the build explicitly selects
