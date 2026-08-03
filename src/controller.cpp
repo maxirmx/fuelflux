@@ -40,6 +40,17 @@ std::shared_ptr<IBackend> Controller::CreateDefaultBackendShared(const std::stri
 Controller::Controller(ControllerId controllerId,
                        std::shared_ptr<IBackend> backend,
                        std::chrono::seconds noFlowCancelTimeout)
+    : Controller(std::move(controllerId),
+                 std::move(backend),
+                 noFlowCancelTimeout,
+                 ControllerPersistencePaths{CACHE_DB_PATH, STORAGE_DB_PATH})
+{
+}
+
+Controller::Controller(ControllerId controllerId,
+                       std::shared_ptr<IBackend> backend,
+                       std::chrono::seconds noFlowCancelTimeout,
+                       ControllerPersistencePaths persistencePaths)
     : controllerId_(std::move(controllerId))
     , stateMachine_(this)
     , backend_(backend ? std::move(backend) : CreateDefaultBackend())
@@ -55,21 +66,21 @@ Controller::Controller(ControllerId controllerId,
     
     // Initialize user cache and cache manager
     try {
-        userCache_ = std::make_shared<UserCache>(CACHE_DB_PATH);
+        userCache_ = std::make_shared<UserCache>(persistencePaths.cacheDbPath);
         // Create a separate backend instance for cache manager synchronization to avoid JWT token conflicts
         // The cache manager needs its own backend with independent session state so that synchronization
         // operations don't interfere with concurrent user authorization sessions in the main backend
         auto syncBackend = CreateDefaultBackendShared(backend_->GetControllerUid(), nullptr);
         cacheManager_ = std::make_shared<CacheManager>(userCache_, syncBackend);
-        LOG_CTRL_INFO("User cache initialized at: {}", CACHE_DB_PATH);
+        LOG_CTRL_INFO("User cache initialized at: {}", persistencePaths.cacheDbPath);
     } catch (const std::exception& e) {
         LOG_CTRL_ERROR("Failed to initialize user cache: {}", e.what());
         // Continue without cache - non-blocking
     }
 
     try {
-        messageStorage_ = std::make_shared<MessageStorage>(STORAGE_DB_PATH);
-        LOG_CTRL_INFO("Message storage initialized at: {}", STORAGE_DB_PATH);
+        messageStorage_ = std::make_shared<MessageStorage>(persistencePaths.messageStorageDbPath);
+        LOG_CTRL_INFO("Message storage initialized at: {}", persistencePaths.messageStorageDbPath);
         const auto storedCoefficient = messageStorage_->GetCalibrationCoefficient();
         if (storedCoefficient.has_value()) {
             calibrationCoefficient_ = *storedCoefficient;

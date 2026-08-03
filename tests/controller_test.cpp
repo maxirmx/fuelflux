@@ -5,7 +5,12 @@
 #include <gtest/gtest.h>
 #include <gmock/gmock.h>
 #include <array>
+#include <condition_variable>
 #include <filesystem>
+#include <random>
+#include <sstream>
+#include <stdexcept>
+#include <system_error>
 #include <nlohmann/json.hpp>
 #include <sqlite3.h>
 #include "backend.h"
@@ -43,6 +48,34 @@ void ExpectCompactCalibrationMessage(const DisplayMessage& message) {
     EXPECT_LE(Utf8CodePointCount(message.line2), 7u);
     EXPECT_LE(Utf8CodePointCount(message.line3), 17u);
     EXPECT_LE(Utf8CodePointCount(message.line4), 17u);
+}
+
+std::filesystem::path MakeControllerTestTempDirectory() {
+    std::random_device rd;
+    std::mt19937 generator(rd());
+    std::uniform_int_distribution<unsigned int> distribution;
+    std::error_code lastError;
+
+    for (int attempt = 0; attempt < 16; ++attempt) {
+        std::ostringstream name;
+        name << "fuelflux_controller_test-" << std::hex
+             << distribution(generator) << '-' << distribution(generator);
+
+        const auto path = std::filesystem::temp_directory_path() / name.str();
+        lastError.clear();
+        if (std::filesystem::create_directory(path, lastError)) {
+            return path;
+        }
+
+        if (lastError) {
+            break;
+        }
+    }
+
+    const std::string reason = lastError
+        ? lastError.message()
+        : "unique name attempts exhausted";
+    throw std::runtime_error("Failed to create controller test directory: " + reason);
 }
 } // namespace
 using ::testing::NiceMock;
@@ -216,12 +249,19 @@ protected:
     MockCardReader* mockCardReader;
     MockPump* mockPump;
     MockFlowMeter* mockFlowMeter;
+    std::filesystem::path tempDirectory;
+    std::filesystem::path cacheDbPath;
+    std::filesystem::path messageStorageDbPath;
 
     void createController(std::chrono::seconds noFlowCancelTimeout = std::chrono::seconds(30)) {
         auto backend = std::make_shared<NiceMock<MockBackend>>();
         mockBackend = backend.get();
         ON_CALL(*mockBackend, GetControllerUid()).WillByDefault(ReturnRef(CONTROLLER_UID));
-        controller = std::make_unique<Controller>(CONTROLLER_UID, backend, noFlowCancelTimeout);
+        controller = std::make_unique<Controller>(
+            CONTROLLER_UID,
+            backend,
+            noFlowCancelTimeout,
+            ControllerPersistencePaths{cacheDbPath.string(), messageStorageDbPath.string()});
 
         // Create mocks (use raw pointers as Controller takes ownership)
         auto display = std::make_unique<NiceMock<MockDisplay>>();
@@ -287,14 +327,23 @@ protected:
     }
 
     void SetUp() override {
-        std::filesystem::remove(STORAGE_DB_PATH);
-        std::filesystem::remove(CACHE_DB_PATH);
+        tempDirectory = MakeControllerTestTempDirectory();
+        cacheDbPath = tempDirectory / "cache.db";
+        messageStorageDbPath = tempDirectory / "storage.db";
         createController();
     }
 
     void TearDown() override {
         if (controller) {
             controller->shutdown();
+        }
+        controller.reset();
+
+        if (!tempDirectory.empty()) {
+            std::error_code error;
+            std::filesystem::remove_all(tempDirectory, error);
+            EXPECT_FALSE(static_cast<bool>(error))
+                << "Failed to remove controller test directory: " << error.message();
         }
     }
 
@@ -341,7 +390,7 @@ protected:
     void recreateControllerWithCalibration(double coefficient) {
         controller.reset();
         {
-            MessageStorage storage(STORAGE_DB_PATH);
+            MessageStorage storage(messageStorageDbPath.string());
             ASSERT_TRUE(storage.SetCalibrationCoefficient(coefficient));
         }
         createController();
@@ -354,6 +403,51 @@ TEST_F(ControllerTest, Construction) {
     EXPECT_EQ(controller->getSelectedTank(), 0);
     EXPECT_EQ(controller->getEnteredVolume(), 0.0);
     EXPECT_TRUE(controller->getCurrentInput().empty());
+}
+
+TEST_F(ControllerTest, PersistencePathsIsolateControllerState) {
+    controller.reset();
+
+    const auto secondDirectory = tempDirectory / "second";
+    ASSERT_TRUE(std::filesystem::create_directory(secondDirectory));
+    const auto secondCacheDbPath = secondDirectory / "cache.db";
+    const auto secondMessageStorageDbPath = secondDirectory / "storage.db";
+
+    {
+        MessageStorage firstStorage(messageStorageDbPath.string());
+        MessageStorage secondStorage(secondMessageStorageDbPath.string());
+        ASSERT_TRUE(firstStorage.SetCalibrationCoefficient(0.5));
+        ASSERT_TRUE(secondStorage.SetCalibrationCoefficient(1.5));
+    }
+
+    createController();
+
+    auto secondBackend = std::make_shared<NiceMock<MockBackend>>();
+    ON_CALL(*secondBackend, GetControllerUid()).WillByDefault(ReturnRef(CONTROLLER_UID));
+    auto secondController = std::make_unique<Controller>(
+        CONTROLLER_UID,
+        secondBackend,
+        std::chrono::seconds(30),
+        ControllerPersistencePaths{
+            secondCacheDbPath.string(), secondMessageStorageDbPath.string()});
+
+    EXPECT_DOUBLE_EQ(controller->getCalibrationCoefficient(), 0.5);
+    EXPECT_DOUBLE_EQ(secondController->getCalibrationCoefficient(), 1.5);
+
+    ASSERT_NE(controller->getUserCache(), nullptr);
+    ASSERT_NE(secondController->getUserCache(), nullptr);
+    ASSERT_TRUE(controller->getUserCache()->UpdateEntry("first-user", 10.0, 1));
+    ASSERT_TRUE(secondController->getUserCache()->UpdateEntry("second-user", 20.0, 2));
+
+    EXPECT_TRUE(controller->getUserCache()->GetEntry("first-user").has_value());
+    EXPECT_FALSE(controller->getUserCache()->GetEntry("second-user").has_value());
+    EXPECT_FALSE(secondController->getUserCache()->GetEntry("first-user").has_value());
+    EXPECT_TRUE(secondController->getUserCache()->GetEntry("second-user").has_value());
+
+    EXPECT_TRUE(std::filesystem::exists(cacheDbPath));
+    EXPECT_TRUE(std::filesystem::exists(messageStorageDbPath));
+    EXPECT_TRUE(std::filesystem::exists(secondCacheDbPath));
+    EXPECT_TRUE(std::filesystem::exists(secondMessageStorageDbPath));
 }
 
 TEST_F(ControllerTest, AuthorizationFallsBackToCacheOnNetworkError) {
@@ -441,7 +535,7 @@ TEST_F(ControllerTest, CachedAuthorizationRefuelGoesToBacklogAndSkipsDeauthorize
     controller->completeRefueling();
     controller->endCurrentSession();
 
-    MessageStorage storage(STORAGE_DB_PATH);
+    MessageStorage storage(messageStorageDbPath.string());
     EXPECT_EQ(storage.BacklogCount(), 1);
     auto message = storage.GetNextBacklog();
     ASSERT_TRUE(message.has_value());
@@ -476,7 +570,7 @@ TEST_F(ControllerTest, CachedAuthorizationIntakeGoesToBacklog) {
     controller->enterIntakeVolume(12.5);
     controller->completeIntakeOperation();
 
-    MessageStorage storage(STORAGE_DB_PATH);
+    MessageStorage storage(messageStorageDbPath.string());
     EXPECT_EQ(storage.BacklogCount(), 1);
     auto message = storage.GetNextBacklog();
     ASSERT_TRUE(message.has_value());
@@ -751,7 +845,7 @@ TEST_F(ControllerTest, CalibrationSaveFailureRetainsActiveCoefficient) {
     enterCalibrationPassword();
 
     sqlite3* db = nullptr;
-    ASSERT_EQ(sqlite3_open(STORAGE_DB_PATH.c_str(), &db), SQLITE_OK);
+    ASSERT_EQ(sqlite3_open(messageStorageDbPath.string().c_str(), &db), SQLITE_OK);
     char* error = nullptr;
     const int dropResult = sqlite3_exec(
         db, "DROP TABLE device_settings;", nullptr, nullptr, &error);
@@ -1172,22 +1266,48 @@ TEST_F(ControllerTest, RefuelingCompletionDisplaysFinalVolume) {
     // Capture last displayed message
     DisplayMessage lastMsg;
     std::mutex msgMutex;
+    std::condition_variable msgCv;
+    std::size_t displaySequence = 0;
     EXPECT_CALL(*mockDisplay, showMessage(_)).WillRepeatedly([&](const DisplayMessage& m) {
-        std::lock_guard<std::mutex> lk(msgMutex);
-        lastMsg = m;
+        {
+            std::lock_guard<std::mutex> lk(msgMutex);
+            lastMsg = m;
+            ++displaySequence;
+        }
+        msgCv.notify_all();
         });
+
+    const auto captureDisplaySequence = [&]() {
+        std::lock_guard<std::mutex> lk(msgMutex);
+        return displaySequence;
+    };
+    const auto waitForDisplayAfter = [&](std::size_t previousSequence,
+                                         const std::string& expectedLine1) {
+        std::unique_lock<std::mutex> lk(msgMutex);
+        return msgCv.wait_for(
+            lk,
+            std::chrono::seconds(2),
+            [&]() {
+                return displaySequence > previousSequence &&
+                       lastMsg.line1 == expectedLine1;
+            });
+    };
 
     // Start controller loop
     std::thread controllerThread([this]() { controller->run(); });
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
 
     // Present card -> Authorization -> TankSelection
+    auto previousDisplaySequence = captureDisplaySequence();
     controller->handleCardPresented("customer-card");
-    ASSERT_TRUE(waitForState(SystemState::VolumeEntry));
+    ASSERT_TRUE(waitForDisplayAfter(previousDisplaySequence, "Введите объём"));
+    EXPECT_EQ(controller->getStateMachine().getCurrentState(), SystemState::VolumeEntry);
 
     // Preserve the fractional target internally while displaying whole liters.
+    previousDisplaySequence = captureDisplaySequence();
     controller->enterVolume(10.75);
-    ASSERT_TRUE(waitForState(SystemState::Refueling));
+    ASSERT_TRUE(waitForDisplayAfter(previousDisplaySequence, "Заправка 11 л"));
+    EXPECT_EQ(controller->getStateMachine().getCurrentState(), SystemState::Refueling);
     {
         const auto message = controller->getStateMachine().getDisplayMessage();
         EXPECT_EQ(message.line1, "Заправка 11 л");
@@ -1200,10 +1320,12 @@ TEST_F(ControllerTest, RefuelingCompletionDisplaysFinalVolume) {
     EXPECT_EQ(controller->getStateMachine().getDisplayMessage().line2, "4.60 л");
 
     // Simulate flow reaching the target
+    previousDisplaySequence = captureDisplaySequence();
     mockFlowMeter->simulateFlow(10.75);
 
-    // Wait for final state
-    ASSERT_TRUE(waitForState(SystemState::RefuelingComplete));
+    // Wait for the transition action and final display refresh to complete.
+    ASSERT_TRUE(waitForDisplayAfter(previousDisplaySequence, "Заправка на"));
+    EXPECT_EQ(controller->getStateMachine().getCurrentState(), SystemState::RefuelingComplete);
 
     // Verify controller recorded final pumped volume
     EXPECT_DOUBLE_EQ(controller->getCurrentRefuelVolume(), 10.75);
@@ -1216,8 +1338,10 @@ TEST_F(ControllerTest, RefuelingCompletionDisplaysFinalVolume) {
     }
 
     // Trigger timeout to clear session and verify clearing
+    previousDisplaySequence = captureDisplaySequence();
     controller->postEvent(Event::Timeout);
-    ASSERT_TRUE(waitForState(SystemState::Waiting));
+    ASSERT_TRUE(waitForDisplayAfter(previousDisplaySequence, "Добро пожаловать"));
+    EXPECT_EQ(controller->getStateMachine().getCurrentState(), SystemState::Waiting);
     EXPECT_DOUBLE_EQ(controller->getCurrentRefuelVolume(), 0.0);
 
     shutdownControllerAndJoinThread(controllerThread);

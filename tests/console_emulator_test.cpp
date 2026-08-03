@@ -9,6 +9,7 @@
 #include <thread>
 #include <chrono>
 #include <condition_variable>
+#include <future>
 
 using namespace fuelflux;
 using namespace fuelflux::peripherals;
@@ -226,6 +227,45 @@ TEST_F(ConsoleKeyboardTest, LInjectsLongStopSequence) {
     keyboard->enableInput(true);
 
     keyboard->injectKey('L');
+
+    std::lock_guard<std::mutex> lock(callbackMutex);
+    ASSERT_EQ(receivedKeys.size(), 2u);
+    EXPECT_EQ(receivedKeys[0], KeyCode::KeyStopPressed);
+    EXPECT_EQ(receivedKeys[1], KeyCode::KeyStopLong);
+}
+
+TEST_F(ConsoleKeyboardTest, DoesNotHoldCallbackMutexDuringLongStopDispatch) {
+    ASSERT_TRUE(keyboard->initialize());
+
+    std::promise<void> replacementStarted;
+    std::promise<void> replacementFinished;
+    auto replacementStartedFuture = replacementStarted.get_future();
+    auto replacementFinishedFuture = replacementFinished.get_future();
+    std::thread replacementThread;
+
+    keyboard->setKeyPressCallback([&](KeyCode key) {
+        keyCallback(key);
+        if (key != KeyCode::KeyStopPressed) return;
+
+        replacementThread = std::thread([&] {
+            replacementStarted.set_value();
+            keyboard->setKeyPressCallback([](KeyCode) {});
+            replacementFinished.set_value();
+        });
+
+        ASSERT_EQ(
+            replacementStartedFuture.wait_for(std::chrono::seconds(1)),
+            std::future_status::ready);
+        EXPECT_EQ(
+            replacementFinishedFuture.wait_for(std::chrono::seconds(1)),
+            std::future_status::ready);
+    });
+    keyboard->enableInput(true);
+
+    keyboard->injectKey('L');
+
+    ASSERT_TRUE(replacementThread.joinable());
+    replacementThread.join();
 
     std::lock_guard<std::mutex> lock(callbackMutex);
     ASSERT_EQ(receivedKeys.size(), 2u);
