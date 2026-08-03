@@ -106,7 +106,8 @@ TEST_F(FourLineDisplayImplTest, CompactCalibrationMessagesFitBothHardwareLayouts
         "A=Ввод B=Отмена"
     }};
 
-    FourLineDisplayImpl st7565(128, 64, 12, 28, 2, 2, 0);
+    FourLineDisplayImpl st7565(
+        128, 64, 12, 28, 2, 2, 0, TextRendererBackend::St7565Bitmap);
     FourLineDisplayImpl ili9488(480, 320, 40, 80, 5, 5, 10);
 
     for (FourLineDisplayImpl* display : {&st7565, &ili9488}) {
@@ -621,4 +622,71 @@ TEST_F(FourLineDisplayImplTest, NegativeTopMarginClampedToZero) {
     
     EXPECT_EQ(display->get_width(), 128);
     EXPECT_EQ(display->get_height(), 64);
+}
+
+TEST_F(FourLineDisplayImplTest, StBitmapBackendUsesExactCapacitiesWithoutFontFile) {
+    FourLineDisplayImpl display(
+        128, 64, 12, 28, 2, 2, 0, TextRendererBackend::St7565Bitmap);
+
+    ASSERT_TRUE(display.initialize("/font/file/is/not/used.ttf"));
+    EXPECT_EQ(display.length(0), 20u);
+    EXPECT_EQ(display.length(1), 8u);
+    EXPECT_EQ(display.length(2), 20u);
+    EXPECT_EQ(display.length(3), 20u);
+}
+
+TEST_F(FourLineDisplayImplTest, StBitmapBackendKeepsGlyphsInsideLineBandsAndMargins) {
+    constexpr int kWidth = 128;
+    constexpr int kHeight = 64;
+    constexpr int kLeftMargin = 2;
+    constexpr int kRightMargin = 2;
+    const std::array<std::pair<int, int>, 4> lineBands{{
+        {0, 12}, {12, 40}, {40, 52}, {52, 64}
+    }};
+
+    FourLineDisplayImpl display(
+        kWidth, kHeight, 12, 28, kLeftMargin, kRightMargin, 0,
+        TextRendererBackend::St7565Bitmap);
+    ASSERT_TRUE(display.initialize(""));
+
+    const std::array<std::string, 4> samples{{
+        "Добро пожаловать", "12345 л", "Для новой заправки", "ВВОД/ОТМЕНА"
+    }};
+    for (unsigned int line = 0; line < samples.size(); ++line) {
+        display.clear_all();
+        display.puts(line, samples[line]);
+        const auto& framebuffer = display.render();
+
+        bool foundPixel = false;
+        for (int y = 0; y < kHeight; ++y) {
+            for (int x = 0; x < kWidth; ++x) {
+                if (!GetPixel(framebuffer, kWidth, kHeight, x, y)) {
+                    continue;
+                }
+                foundPixel = true;
+                EXPECT_GE(x, kLeftMargin);
+                EXPECT_LT(x, kWidth - kRightMargin);
+                EXPECT_GE(y, lineBands[line].first);
+                EXPECT_LT(y, lineBands[line].second);
+            }
+        }
+        EXPECT_TRUE(foundPixel);
+    }
+}
+
+TEST_F(FourLineDisplayImplTest, StBitmapBackendTruncatesBeforeCentering) {
+    FourLineDisplayImpl display(
+        128, 64, 12, 28, 2, 2, 0, TextRendererBackend::St7565Bitmap);
+    ASSERT_TRUE(display.initialize(""));
+
+    std::string twentyGlyphs;
+    for (int i = 0; i < 20; ++i) {
+        twentyGlyphs += "Ж";
+    }
+    display.puts(0, twentyGlyphs);
+    const auto exact = display.render();
+
+    display.puts(0, twentyGlyphs + "Я");
+    const auto truncated = display.render();
+    EXPECT_EQ(truncated, exact);
 }

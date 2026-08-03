@@ -22,7 +22,8 @@ St7565Display::St7565Display()
         hardware::GPIO_CHIP,
         st7565::DC_PIN,
         st7565::RST_PIN,
-        hardware::FONT_PATH)
+        hardware::FONT_PATH,
+        TextRendererBackend::St7565Bitmap)
 {
     LOG_INFO("St7565Display created with default configuration");
 }
@@ -45,7 +46,8 @@ St7565Display::St7565Display(const std::string& spiDevice,
         gpioChip,
         dcPin,
         rstPin,
-        fontPath)
+        fontPath,
+        TextRendererBackend::St7565Bitmap)
 {
     LOG_INFO("St7565Display created with custom configuration");
 }

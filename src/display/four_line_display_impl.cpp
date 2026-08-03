@@ -5,6 +5,7 @@
 #include "display/four_line_display_impl.h"
 #include "display/ft_text.h"
 #include "display/graphics.h"
+#include "display/st_bitmap_text.h"
 #include <stdexcept>
 #include <algorithm>
 
@@ -47,6 +48,8 @@ void set_pixel(std::vector<unsigned char>& fb, int width, int height, int x, int
 struct FourLineDisplayImpl::Impl {
     std::unique_ptr<FtText> small_ft;
     std::unique_ptr<FtText> large_ft;
+    std::unique_ptr<fuelflux::display::StBitmapText> small_bitmap;
+    std::unique_ptr<fuelflux::display::StBitmapText> large_bitmap;
     std::unique_ptr<MonoGfx> gfx;
     std::vector<unsigned char> line_buffer;  // Reusable buffer for line rendering
 };
@@ -57,7 +60,8 @@ FourLineDisplayImpl::FourLineDisplayImpl(int width,
                                  int large_font_size,
                                  int left_margin,
                                  int right_margin,
-                                 int top_margin)
+                                 int top_margin,
+                                 TextRendererBackend renderer_backend)
     : impl_(std::make_unique<Impl>())
     , width_(width)
     , height_(height)
@@ -66,6 +70,7 @@ FourLineDisplayImpl::FourLineDisplayImpl(int width,
     , left_margin_(std::max(0, left_margin))
     , right_margin_(std::max(0, right_margin))
     , top_margin_(std::max(0, top_margin))
+    , renderer_backend_(renderer_backend)
     , initialized_(false)
 {
     if (width <= 0) {
@@ -93,16 +98,27 @@ bool FourLineDisplayImpl::initialize(const std::string& font_path) {
     try {
         // Create graphics context
         impl_->gfx = std::make_unique<MonoGfx>(width_, height_);
-        
-        // Create and configure small font renderer
-        impl_->small_ft = std::make_unique<FtText>();
-        impl_->small_ft->load_font(font_path);
-        impl_->small_ft->set_pixel_size(small_font_size_);
-        
-        // Create and configure large font renderer
-        impl_->large_ft = std::make_unique<FtText>();
-        impl_->large_ft->load_font(font_path);
-        impl_->large_ft->set_pixel_size(large_font_size_);
+
+        if (renderer_backend_ == TextRendererBackend::St7565Bitmap) {
+            if (small_font_size_ != 12 || large_font_size_ != 28) {
+                throw std::invalid_argument(
+                    "ST7565 bitmap renderer requires 12px small and 28px large font cells");
+            }
+            impl_->small_bitmap = std::make_unique<fuelflux::display::StBitmapText>(
+                fuelflux::display::StBitmapFontSize::Small6x12);
+            impl_->large_bitmap = std::make_unique<fuelflux::display::StBitmapText>(
+                fuelflux::display::StBitmapFontSize::Large14x28);
+        } else {
+            // Create and configure small font renderer
+            impl_->small_ft = std::make_unique<FtText>();
+            impl_->small_ft->load_font(font_path);
+            impl_->small_ft->set_pixel_size(small_font_size_);
+
+            // Create and configure large font renderer
+            impl_->large_ft = std::make_unique<FtText>();
+            impl_->large_ft->load_font(font_path);
+            impl_->large_ft->set_pixel_size(large_font_size_);
+        }
         
         initialized_ = true;
         
@@ -121,6 +137,8 @@ bool FourLineDisplayImpl::initialize(const std::string& font_path) {
 void FourLineDisplayImpl::uninitialize() {
     impl_->small_ft.reset();
     impl_->large_ft.reset();
+    impl_->small_bitmap.reset();
+    impl_->large_bitmap.reset();
     impl_->gfx.reset();
     initialized_ = false;
 }
@@ -159,8 +177,12 @@ unsigned int FourLineDisplayImpl::length(unsigned int line_id) const {
         return 0;
     }
     
-    int font_size = get_line_font_size(line_id);
-    int char_width = estimate_char_width(font_size);
+    int char_width = 0;
+    if (renderer_backend_ == TextRendererBackend::St7565Bitmap) {
+        char_width = (line_id == 1) ? 14 : 6;
+    } else {
+        char_width = estimate_char_width(get_line_font_size(line_id));
+    }
     
     // Avoid division by zero
     if (char_width <= 0) {
@@ -223,6 +245,33 @@ const std::vector<unsigned char>& FourLineDisplayImpl::render() {
         const int line_height = get_line_font_size(i);
         const int line_bottom = std::min(height_, y_pos + line_height);
         if (y_pos >= height_ || y_pos < 0 || line_bottom <= y_pos) {
+            continue;
+        }
+
+        if (renderer_backend_ == TextRendererBackend::St7565Bitmap) {
+            const auto* bitmap = (i == 1)
+                ? impl_->large_bitmap.get()
+                : impl_->small_bitmap.get();
+            if (!bitmap) {
+                continue;
+            }
+            const std::size_t glyph_count =
+                bitmap->fittedGlyphCount(lines_[i], available_width);
+            if (glyph_count == 0) {
+                continue;
+            }
+            const int rendered_width =
+                static_cast<int>(glyph_count) * bitmap->cellWidth();
+            const int start_x =
+                left_margin_ + (available_width - rendered_width) / 2;
+            bitmap->drawUtf8(impl_->gfx->fb(),
+                             width_,
+                             height_,
+                             start_x,
+                             y_pos,
+                             lines_[i],
+                             true,
+                             glyph_count);
             continue;
         }
         

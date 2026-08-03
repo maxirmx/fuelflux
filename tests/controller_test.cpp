@@ -1211,7 +1211,7 @@ TEST_F(ControllerTest, RefuelingCompletionDisplaysFinalVolume) {
     // Verify display shows final volume in RefuelingComplete
     {
         std::lock_guard<std::mutex> lk(msgMutex);
-        EXPECT_EQ(lastMsg.line1, std::string("Заправка выполнена на"));
+        EXPECT_EQ(lastMsg.line1, std::string("Заправка на"));
         EXPECT_EQ(lastMsg.line2, "10.75 л");
     }
 

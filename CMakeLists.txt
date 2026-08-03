@@ -338,6 +338,7 @@ if(TARGET_REAL_DISPLAY)
         src/display/ft_text.cpp
         src/display/graphics.cpp
         src/display/spi_linux.cpp
+        src/display/st_bitmap_text.cpp
     )
     
     # Add display-specific driver
@@ -352,6 +353,11 @@ if(TARGET_REAL_DISPLAY)
             src/display/ili9488_display.cpp
         )
     endif()
+endif()
+
+# Compile the standalone ST bitmap renderer in non-hardware test builds too.
+if(ENABLE_TESTING AND NOT TARGET_REAL_DISPLAY)
+    list(APPEND LIB_SOURCES src/display/st_bitmap_text.cpp)
 endif()
 
 # Console display is always compiled (used for non-hardware builds and potentially for testing)
@@ -400,6 +406,7 @@ if(TARGET_REAL_DISPLAY)
         include/display/graphics.h
         include/display/ft_text.h
         include/display/spi_linux.h
+        include/display/st_bitmap_text.h
     )
     
     # Add display-specific driver headers
@@ -408,6 +415,10 @@ if(TARGET_REAL_DISPLAY)
     elseif(DISPLAY_TYPE STREQUAL "ILI9488")
         list(APPEND HEADERS include/display/ili9488.h)
     endif()
+endif()
+
+if(ENABLE_TESTING AND NOT TARGET_REAL_DISPLAY)
+    list(APPEND HEADERS include/display/st_bitmap_text.h)
 endif()
 
 # Create static library from library sources
@@ -486,6 +497,13 @@ configure_file(
 # At runtime, the application looks for config/logging.json relative to working directory
 install(FILES ${CMAKE_BINARY_DIR}/config/logging.json DESTINATION config)
 
+if(TARGET_REAL_DISPLAY)
+    install(FILES
+        ${CMAKE_SOURCE_DIR}/third_party/fuelflux-st-bitmap/OFL.txt
+        ${CMAKE_SOURCE_DIR}/third_party/fuelflux-st-bitmap/NOTICE.md
+        DESTINATION share/doc/fuelflux/fuelflux-st-bitmap)
+endif()
+
 # Ensure the config directory is copied next to the built executable for each build
 add_custom_command(TARGET fuelflux POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:fuelflux>/config"
@@ -535,6 +553,7 @@ if(ENABLE_TESTING)
         tests/keyboard_test.cpp
         tests/four_line_display_test.cpp
         tests/flow_meter_test.cpp
+        tests/st_bitmap_text_test.cpp
     )
     
     # Add four_line_display_impl tests only for real display builds

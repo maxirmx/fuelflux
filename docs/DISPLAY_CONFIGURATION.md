@@ -13,7 +13,7 @@ Console-based display emulation for development and testing without hardware.
 ### 2. ST7565
 128x64 monochrome LCD display (NHD-C12864A1Z-FSW-FBW-HTT)
 - Resolution: 128×64 pixels
-- Font sizes: Small (12pt), Large (28pt)
+- Native bitmap cells: Small (6×12), Large (14×28 bold)
 - 4-line text display layout
 - SPI interface with GPIO control
 
@@ -79,8 +79,9 @@ Both ST7565 and ILI9488 use the same default GPIO pins:
 ### ST7565 Specific Settings
 - **SPI Speed**: 8 MHz
 - **Display Resolution**: 128×64
-- **Small Font**: 12pt
-- **Large Font**: 28pt
+- **Small Font**: Built-in FuelFlux ST Bitmap, 6×12 cell
+- **Large Font**: Built-in FuelFlux ST Bitmap, 14×28 bold cell
+- **Line Capacity**: 20 characters on lines 1, 3, and 4; 8 characters on line 2
 
 ### ILI9488 Specific Settings
 - **SPI Speed**: 32 MHz
@@ -122,14 +123,14 @@ Display hardware configuration is centralized in `include/display/display_config
 **Common Settings:**
 - SPI Device: `/dev/spidev1.0`
 - GPIO Chip: `/dev/gpiochip0`
-- Font Path: `/usr/share/fonts/truetype/ubuntu/UbuntuMono-B.ttf`
 
 **ST7565 Settings:**
 - DC Pin: 271, RST Pin: 256
 - Resolution: 128×64
 - SPI Speed: 8 MHz
-- Font Sizes: 12pt (small), 28pt (large)
+- Font Cells: built-in 6×12 (small), 14×28 bold (large)
 - Margins: 2px left/right
+- No external font file is loaded at runtime
 
 **ILI9488 Settings:**
 - DC Pin: 271, RST Pin: 256
@@ -137,6 +138,7 @@ Display hardware configuration is centralized in `include/display/display_config
 - SPI Speed: 8 MHz
 - Font Sizes: 40pt (small), 80pt (large)
 - Margins: 5px left/right
+- Font Path: `/usr/share/fonts/truetype/ubuntu/UbuntuMono-B.ttf`
 
 Configuration is now hardcoded (no environment variables) for simplified deployment.
 
@@ -175,8 +177,10 @@ sudo apt-get install libgpiod-dev libfreetype6-dev
 sudo apt-get install libgpiod2 libfreetype6
 ```
 
-### Optional Font Configuration
-Default font: `/usr/share/fonts/truetype/ubuntu/UbuntuMono-B.ttf`
+### ILI9488 Font Configuration
+The ILI9488 renderer uses `/usr/share/fonts/truetype/ubuntu/UbuntuMono-B.ttf`.
+The ST7565 renderer uses compiled-in bitmap glyphs and does not require this
+file at runtime.
 
 Install Ubuntu fonts if not present:
 ```bash
@@ -222,6 +226,8 @@ sudo apt-get install libgpiod-dev
 **Wrong font size/display layout**
 - Verify DISPLAY_TYPE matches your actual hardware
 - Rebuild after changing DISPLAY_TYPE
+- For ST7565, verify the built-in 6×12 and 14×28 renderer is selected; changing
+  `FONT_PATH` has no effect on that display
 
 **SPI communication errors**
 - Check SPI speed (ST7565: 8MHz, ILI9488: 32MHz)
