@@ -96,6 +96,17 @@ if(KEYBOARD_LONG_PRESS_MS GREATER 2147483647)
         "KEYBOARD_LONG_PRESS_MS must not exceed 2147483647")
 endif()
 
+set(FLOW_METER_STARTUP_BLANKING_MS "200" CACHE STRING
+    "Milliseconds of physical flow-meter pulses to ignore after measurement starts (0 disables)")
+if(NOT FLOW_METER_STARTUP_BLANKING_MS MATCHES "^[0-9]+$")
+    message(FATAL_ERROR
+        "FLOW_METER_STARTUP_BLANKING_MS must be a non-negative integer")
+endif()
+if(FLOW_METER_STARTUP_BLANKING_MS GREATER 2147483647)
+    message(FATAL_ERROR
+        "FLOW_METER_STARTUP_BLANKING_MS must not exceed 2147483647")
+endif()
+
 if(KEYBOARD_TYPE STREQUAL "CONSOLE")
     set(KEYBOARD_IS_HARDWARE OFF)
     set(KEYBOARD_RESOLVED_MCP_PORT "NONE")
@@ -141,6 +152,10 @@ add_compile_definitions(KEYBOARD_LONG_PRESS_MS=${KEYBOARD_LONG_PRESS_MS})
 if(KEYBOARD_TYPE STREQUAL "VID")
     message(STATUS "VID keyboard long-press threshold: ${KEYBOARD_LONG_PRESS_MS} ms")
 endif()
+add_compile_definitions(
+    FLOW_METER_STARTUP_BLANKING_MS=${FLOW_METER_STARTUP_BLANKING_MS})
+message(STATUS
+    "Flow-meter startup blanking interval: ${FLOW_METER_STARTUP_BLANKING_MS} ms")
 
 # Validate DISPLAY_TYPE
 set_property(CACHE DISPLAY_TYPE PROPERTY STRINGS "ST7565" "ILI9488" "CONSOLE")

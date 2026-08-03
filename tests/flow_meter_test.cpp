@@ -7,9 +7,15 @@
 #include <chrono>
 #include <thread>
 #include "peripherals/flow_meter.h"
+#include "timing_config.h"
 
 using namespace fuelflux;
 using namespace fuelflux::peripherals;
+
+TEST(FlowMeterTimingConfigTest, StartupBlankingMatchesBuildConfiguration) {
+    EXPECT_EQ(timing::kFlowMeterStartupBlankingInterval,
+              std::chrono::milliseconds(FLOW_METER_STARTUP_BLANKING_MS));
+}
 
 // Test fixture for HardwareFlowMeter simulation features
 class FlowMeterSimulationTest : public ::testing::Test {
