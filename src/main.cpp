@@ -25,6 +25,9 @@
 #ifdef TARGET_REAL_FLOW_METER
 #include "peripherals/flow_meter.h"
 #endif
+#ifdef TARGET_REAL_TEMPERATURE_SENSOR
+#include "peripherals/temperature_sensor.h"
+#endif
 #if defined(KEYBOARD_TYPE_LEGACY) || defined(KEYBOARD_TYPE_VID)
 #include "peripherals/keyboard.h"
 #endif
@@ -240,6 +243,11 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
             controller.setFlowMeter(std::make_unique<peripherals::HardwareFlowMeter>());
 #else
             controller.setFlowMeter(emulator.createFlowMeter());
+#endif
+
+#ifdef TARGET_REAL_TEMPERATURE_SENSOR
+            controller.setTemperatureSensor(
+                std::make_unique<peripherals::HardwareTemperatureSensor>());
 #endif
             
             // Initialize controller

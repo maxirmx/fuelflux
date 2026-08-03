@@ -283,6 +283,18 @@ void Controller::setFlowMeter(std::unique_ptr<peripherals::IFlowMeter> flowMeter
     flowMeter_ = std::move(flowMeter);
 }
 
+void Controller::setTemperatureSensor(
+    std::unique_ptr<peripherals::ITemperatureSensor> temperatureSensor) {
+    temperatureSensor_ = std::move(temperatureSensor);
+}
+
+std::optional<double> Controller::getLastTemperatureCelsius() const {
+    if (!temperatureSensor_) {
+        return std::nullopt;
+    }
+    return temperatureSensor_->getLastTemperatureCelsius();
+}
+
 // Input handling
 void Controller::handleKeyPress(KeyCode key) {
     LOG_CTRL_DEBUG("Key pressed: {}", static_cast<int>(key));
@@ -1156,6 +1168,12 @@ bool Controller::initializePeripherals() {
         ok = false;
     }
 
+    // The display temperature monitor is optional. Its worker continues to
+    // retry unavailable hardware without affecting normal controller startup.
+    if (temperatureSensor_ && !temperatureSensor_->initialize()) {
+        LOG_CTRL_ERROR("Failed to initialize optional temperature sensor");
+    }
+
     if (!ok) {
         // Cleanup any peripherals that were successfully initialized
         LOG_CTRL_WARN("Initialization failed, cleaning up partially initialized peripherals");
@@ -1174,6 +1192,7 @@ void Controller::shutdownPeripherals() {
     if (cardReader_) cardReader_->shutdown();
     if (pump_) pump_->shutdown();
     if (flowMeter_) flowMeter_->shutdown();
+    if (temperatureSensor_) temperatureSensor_->shutdown();
 }
 
 void Controller::startNoFlowMonitorThread() {

@@ -21,10 +21,13 @@ settings, modify the configuration file and rebuild the application.
 - `TARGET_REAL_CARD_READER` - Use real NFC card reader hardware (PN532 via libnfc)
 - `TARGET_REAL_PUMP` - Use real pump hardware (placeholder, not yet implemented)
 - `TARGET_REAL_FLOW_METER` - Use real flow meter hardware (placeholder, not yet implemented)
+- `TARGET_REAL_TEMPERATURE_SENSOR` - Use the AHT10 display temperature sensor and heater relay
 
 **Platform defaults:**
 - **Windows/MSVC**: `KEYBOARD_TYPE=CONSOLE`
+- **Windows/MSVC**: `TARGET_REAL_TEMPERATURE_SENSOR=OFF`
 - **All non-MSVC platforms**: `KEYBOARD_TYPE=VID`
+- **All non-MSVC platforms**: `TARGET_REAL_TEMPERATURE_SENSOR=ON`
 - **Production builds**: VID; legacy must be selected explicitly
 
 Override defaults at configure time:
@@ -32,6 +35,7 @@ Override defaults at configure time:
 ```bash
 cmake -DTARGET_REAL_DISPLAY=ON ..
 cmake -DTARGET_REAL_CARD_READER=ON ..
+cmake -DTARGET_REAL_TEMPERATURE_SENSOR=ON ..
 cmake -DKEYBOARD_TYPE=VID -DKEYBOARD_MCP_PORT=AUTO ..
 ```
 
@@ -309,6 +313,45 @@ Pump configuration is defined in `include/hardware/hardware_config.h`:
 | RELAY_PIN | `272` | GPIO line offset for relay control |
 | ACTIVE_LOW | `true` | Relay is active-low |
 
+## Display temperature sensor and heater relay
+
+The optional display temperature monitor uses an AHT10 on I2C bus 2 and
+relay channel 2 to control the display heater. Its worker attempts a reading
+as soon as it starts and then once per minute. Temperature monitoring failures
+are logged but do not prevent the controller from operating.
+
+The last successful temperature remains available through the Controller as
+`std::optional<double>`. It is empty until the first successful measurement
+and is not cleared by later communication failures.
+
+### Configuration
+
+Temperature and heater configuration is defined in
+`include/hardware/hardware_config.h`:
+
+| Setting | Default Value | Description |
+|---------|---------------|-------------|
+| I2C_DEVICE | `/dev/i2c-2` | AHT10 I2C device path |
+| I2C_ADDRESS | `0x38` | AHT10 I2C address |
+| GPIO_CHIP | `/dev/gpiochip0` | Heater relay GPIO chip |
+| RELAY_PIN | `260` | PI4, physical pin 38, relay channel 2 |
+| ACTIVE_LOW | `true` | Heater relay is active-low |
+| RELAY_THRESHOLD_CELSIUS | `-20.0` | Heater activation threshold |
+| RELAY_CONSUMER | `display-heater` | libgpiod consumer name |
+
+Relay channel mapping on Orange Pi Zero 2W:
+
+| Relay channel | Physical pin | GPIO line |
+|----------------|--------------|-----------|
+| CH1 | 37 | 272 (PI16) |
+| CH2 | 38 | 260 (PI4) |
+| CH3 | 40 | 259 (PI3) |
+
+Channel 2 is turned on below `-20.0 C` and off at or above `-20.0 C`.
+There is no hysteresis. A failed measurement preserves both the previous
+temperature value and the previous relay state. Shutdown makes a best-effort
+attempt to turn the relay off.
+
 ## Troubleshooting
 
 ### Display
@@ -323,6 +366,12 @@ Pump configuration is defined in `include/hardware/hardware_config.h`:
 - Check the libnfc connection string and I2C bus path.
 - Inspect logs for libnfc initialization errors.
 
+### Temperature sensor
+
+- Confirm the AHT10 appears at address `0x38` on `/dev/i2c-2`.
+- Verify GPIO line 260 is not requested by another process.
+- Inspect the peripheral log for I2C initialization, measurement, or relay errors.
+
 ## References
 
 - [NHD Display Demo Project](https://github.com/maxirmx/fuelflux.nhd)
@@ -330,3 +379,5 @@ Pump configuration is defined in `include/hardware/hardware_config.h`:
 - [libgpiod Documentation](https://git.kernel.org/pub/scm/libs/libgpiod/libgpiod.git/about/)
 - [FreeType Documentation](https://www.freetype.org/freetype2/docs/documentation.html)
 - [libnfc Documentation](https://github.com/nfc-tools/libnfc)
+- [AHT10 Technical Manual](https://altronics.cl/uploads/AHT10.pdf)
+- [Orange Pi Zero 2W GPIO pinout](https://www.orangepi.org/orangepiwiki/index.php/Orange_Pi_Zero_2W)
