@@ -96,6 +96,39 @@ TEST(TemperatureSensorTest, InitializeDoesNotWaitForFirstMeasurement) {
     sensor.shutdown();
 }
 
+TEST(TemperatureSensorTest, ReinitializeClearsLastTemperatureUntilNewMeasurement) {
+    std::atomic<bool> readerAvailable{true};
+    std::atomic<double> temperature{5.0};
+    HardwareTemperatureSensor sensor(
+        [&]() {
+            if (!readerAvailable.load()) {
+                throw std::runtime_error("sensor unavailable");
+            }
+            return temperature.load();
+        },
+        [](bool) {},
+        20ms);
+
+    ASSERT_TRUE(sensor.initialize());
+    ASSERT_TRUE(waitUntil([&]() {
+        return sensor.getLastTemperatureCelsius().has_value();
+    }));
+    sensor.shutdown();
+    ASSERT_TRUE(sensor.getLastTemperatureCelsius().has_value());
+
+    readerAvailable.store(false);
+    ASSERT_TRUE(sensor.initialize());
+    EXPECT_FALSE(sensor.getLastTemperatureCelsius().has_value());
+
+    temperature.store(-10.0);
+    readerAvailable.store(true);
+    ASSERT_TRUE(waitUntil([&]() {
+        const auto value = sensor.getLastTemperatureCelsius();
+        return value && *value == -10.0;
+    }));
+    sensor.shutdown();
+}
+
 TEST(TemperatureSensorTest, MeasuresImmediatelyThenAtConfiguredInterval) {
     std::atomic<int> reads{0};
     HardwareTemperatureSensor sensor(

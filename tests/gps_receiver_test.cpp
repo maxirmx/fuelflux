@@ -88,6 +88,17 @@ HardwareGpsReceiver makeReceiver(
 
 } // namespace
 
+TEST(GpsReceiverTest, InjectedConstructorRejectsEmptyChunkReader) {
+    EXPECT_THROW(
+        HardwareGpsReceiver(
+            HardwareGpsReceiver::ChunkReader{},
+            100ms,
+            100ms,
+            1h,
+            [](const GpsPosition&) {}),
+        std::invalid_argument);
+}
+
 TEST(GpsReceiverTest, ChecksumValidNoFixTrafficConnectsWithoutPosition) {
     ChunkQueue chunks;
     chunks.push("$GNRMC,,V,,,,,,,,,,N,V*37\r\n");
@@ -98,6 +109,29 @@ TEST(GpsReceiverTest, ChecksumValidNoFixTrafficConnectsWithoutPosition) {
     ASSERT_TRUE(receiver.initialize());
     ASSERT_TRUE(waitUntil([&]() { return receiver.isConnected(); }));
     EXPECT_FALSE(receiver.getLastPosition().has_value());
+    receiver.shutdown();
+}
+
+TEST(GpsReceiverTest, ReinitializeClearsLastPositionUntilNewFix) {
+    ChunkQueue chunks;
+    chunks.push(withChecksum(
+        "GPRMC,123519,A,4807.038,N,01131.000,E,0.0,0.0,230394,,,A"));
+    auto receiver = makeReceiver(chunks);
+
+    ASSERT_TRUE(receiver.initialize());
+    ASSERT_TRUE(waitUntil([&]() { return receiver.getLastPosition().has_value(); }));
+    receiver.shutdown();
+    ASSERT_TRUE(receiver.getLastPosition().has_value());
+
+    ASSERT_TRUE(receiver.initialize());
+    EXPECT_FALSE(receiver.getLastPosition().has_value());
+
+    chunks.push(withChecksum(
+        "GPRMC,123520,A,4900.000,N,01200.000,E,0.0,0.0,230394,,,A"));
+    ASSERT_TRUE(waitUntil([&]() {
+        const auto position = receiver.getLastPosition();
+        return position && position->latitudeDegrees > 48.9;
+    }));
     receiver.shutdown();
 }
 
