@@ -57,7 +57,8 @@ namespace temperature_sensor {
     constexpr const char* GPIO_CHIP = "/dev/gpiochip0";
     constexpr int RELAY_PIN = 260; // PI4, physical pin 38, relay channel 2
     constexpr bool ACTIVE_LOW = true;
-    constexpr double RELAY_THRESHOLD_CELSIUS = -20.0;
+    constexpr double RELAY_ON_THRESHOLD_CELSIUS = -20.0;
+    constexpr double RELAY_OFF_THRESHOLD_CELSIUS = -17.0;
     constexpr const char* RELAY_CONSUMER = "display-heater";
 }
 

@@ -39,11 +39,13 @@ public:
                               int relayPin,
                               bool activeLow,
                               std::chrono::milliseconds pollInterval,
-                              double relayThresholdCelsius);
+                              double relayOnThresholdCelsius,
+                              double relayOffThresholdCelsius);
     HardwareTemperatureSensor(TemperatureReader temperatureReader,
                               RelayController relayController,
                               std::chrono::milliseconds pollInterval,
-                              double relayThresholdCelsius = -20.0);
+                              double relayOnThresholdCelsius = -20.0,
+                              double relayOffThresholdCelsius = -17.0);
     ~HardwareTemperatureSensor() override;
 
     bool initialize() override;
@@ -67,7 +69,8 @@ private:
     int relayPin_{};
     bool activeLow_{true};
     std::chrono::milliseconds pollInterval_;
-    double relayThresholdCelsius_;
+    double relayOnThresholdCelsius_;
+    double relayOffThresholdCelsius_;
 
     TemperatureReader temperatureReader_;
     RelayController relayController_;

@@ -369,7 +369,8 @@ Temperature and heater configuration is defined in
 | GPIO_CHIP | `/dev/gpiochip0` | Heater relay GPIO chip |
 | RELAY_PIN | `260` | PI4, physical pin 38, relay channel 2 |
 | ACTIVE_LOW | `true` | Heater relay is active-low |
-| RELAY_THRESHOLD_CELSIUS | `-20.0` | Heater activation threshold |
+| RELAY_ON_THRESHOLD_CELSIUS | `-20.0` | Heater activation threshold |
+| RELAY_OFF_THRESHOLD_CELSIUS | `-17.0` | Heater deactivation threshold |
 | RELAY_CONSUMER | `display-heater` | libgpiod consumer name |
 
 Relay channel mapping on Orange Pi Zero 2W:
@@ -380,10 +381,12 @@ Relay channel mapping on Orange Pi Zero 2W:
 | CH2 | 38 | 260 (PI4) |
 | CH3 | 40 | 259 (PI3) |
 
-Channel 2 is turned on below `-20.0 C` and off at or above `-20.0 C`.
-There is no hysteresis. A failed measurement preserves both the previous
-temperature value and the previous relay state. Shutdown makes a best-effort
-attempt to turn the relay off.
+Channel 2 is turned on below `-20.0 C` and remains on until the temperature
+reaches `-17.0 C`, providing 3 C of hysteresis. While the heater is off,
+temperatures within that band leave it off; while it is on, they leave it on.
+A failed measurement preserves both the previous temperature value and the
+previous relay state. Shutdown makes a best-effort attempt to turn the relay
+off.
 
 ## Troubleshooting
 

@@ -146,8 +146,9 @@ TEST(TemperatureSensorTest, MeasuresImmediatelyThenAtConfiguredInterval) {
     sensor.shutdown();
 }
 
-TEST(TemperatureSensorTest, ControlsRelayAtThresholdWithoutHysteresis) {
-    const std::array<double, 3> temperatures{-21.0, -20.0, -19.0};
+TEST(TemperatureSensorTest, AppliesHysteresisAcrossOnAndOffThresholds) {
+    const std::array<double, 7> temperatures{-21.0, -19.0, -21.0, -19.0,
+                                              -17.0, -18.0, -21.0};
     std::atomic<std::size_t> readIndex{0};
     std::mutex relayMutex;
     std::vector<bool> relayStates;
@@ -166,17 +167,29 @@ TEST(TemperatureSensorTest, ControlsRelayAtThresholdWithoutHysteresis) {
     ASSERT_TRUE(sensor.initialize());
     ASSERT_TRUE(waitUntil([&]() {
         std::lock_guard<std::mutex> lock(relayMutex);
-        return readIndex.load() >= temperatures.size() && relayStates.size() >= 3;
+        return readIndex.load() >= temperatures.size() && relayStates.size() >= 4;
     }));
 
     {
         std::lock_guard<std::mutex> lock(relayMutex);
-        ASSERT_GE(relayStates.size(), 3u);
+        ASSERT_EQ(relayStates.size(), 4u);
         EXPECT_FALSE(relayStates[0]); // Safe initialization state.
         EXPECT_TRUE(relayStates[1]);  // Below -20 C.
-        EXPECT_FALSE(relayStates[2]); // Exactly -20 C.
+        EXPECT_FALSE(relayStates[2]); // At the -17 C off threshold.
+        EXPECT_TRUE(relayStates[3]);  // Below -20 C again.
     }
     sensor.shutdown();
+}
+
+TEST(TemperatureSensorTest, RejectsInvalidHysteresisThresholds) {
+    EXPECT_THROW(
+        HardwareTemperatureSensor(
+            []() { return -20.0; },
+            [](bool) {},
+            1min,
+            -20.0,
+            -20.0),
+        std::invalid_argument);
 }
 
 TEST(TemperatureSensorTest, RetainsLastValueAndRelayStateAfterReadFailure) {
