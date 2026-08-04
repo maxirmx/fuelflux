@@ -293,6 +293,13 @@ endif()
 find_package(CURL REQUIRED)
 find_package(SQLite3 REQUIRED)
 
+# CMake versions before SQLite3::SQLite3 was introduced expose only the
+# legacy SQLite::SQLite3 target. Keep those versions supported while using
+# the current target name everywhere in this project.
+if(NOT TARGET SQLite3::SQLite3 AND TARGET SQLite::SQLite3)
+    add_library(SQLite3::SQLite3 ALIAS SQLite::SQLite3)
+endif()
+
 # c-ares for DNS resolution (only on non-Windows with TARGET_SIM800C)
 if(TARGET_SIM800C AND NOT MSVC)
     find_package(PkgConfig REQUIRED)
@@ -485,7 +492,7 @@ target_link_libraries(fuelflux_lib
     nlohmann_json::nlohmann_json 
     spdlog::spdlog
     CURL::libcurl
-    SQLite::SQLite3
+    SQLite3::SQLite3
 )
 
 # Link real hardware libraries if needed
