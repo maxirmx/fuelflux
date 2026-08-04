@@ -29,7 +29,8 @@ HardwareTemperatureSensor::HardwareTemperatureSensor()
         hardware::config::temperature_sensor::ACTIVE_LOW,
         std::chrono::duration_cast<std::chrono::milliseconds>(
             timing::kTemperaturePollInterval),
-        hardware::config::temperature_sensor::RELAY_THRESHOLD_CELSIUS) {
+        hardware::config::temperature_sensor::RELAY_ON_THRESHOLD_CELSIUS,
+        hardware::config::temperature_sensor::RELAY_OFF_THRESHOLD_CELSIUS) {
 }
 
 HardwareTemperatureSensor::HardwareTemperatureSensor(
@@ -39,16 +40,24 @@ HardwareTemperatureSensor::HardwareTemperatureSensor(
     int relayPin,
     bool activeLow,
     std::chrono::milliseconds pollInterval,
-    double relayThresholdCelsius)
+    double relayOnThresholdCelsius,
+    double relayOffThresholdCelsius)
     : i2cDevice_(std::move(i2cDevice))
     , i2cAddress_(i2cAddress)
     , gpioChip_(std::move(gpioChip))
     , relayPin_(relayPin)
     , activeLow_(activeLow)
     , pollInterval_(pollInterval)
-    , relayThresholdCelsius_(relayThresholdCelsius) {
+    , relayOnThresholdCelsius_(relayOnThresholdCelsius)
+    , relayOffThresholdCelsius_(relayOffThresholdCelsius) {
     if (pollInterval_ <= std::chrono::milliseconds::zero()) {
         throw std::invalid_argument("Temperature polling interval must be positive");
+    }
+    if (!std::isfinite(relayOnThresholdCelsius_) ||
+        !std::isfinite(relayOffThresholdCelsius_) ||
+        relayOffThresholdCelsius_ <= relayOnThresholdCelsius_) {
+        throw std::invalid_argument(
+            "Heater relay off threshold must be finite and above its on threshold");
     }
 }
 
@@ -56,9 +65,11 @@ HardwareTemperatureSensor::HardwareTemperatureSensor(
     TemperatureReader temperatureReader,
     RelayController relayController,
     std::chrono::milliseconds pollInterval,
-    double relayThresholdCelsius)
+    double relayOnThresholdCelsius,
+    double relayOffThresholdCelsius)
     : pollInterval_(pollInterval)
-    , relayThresholdCelsius_(relayThresholdCelsius)
+    , relayOnThresholdCelsius_(relayOnThresholdCelsius)
+    , relayOffThresholdCelsius_(relayOffThresholdCelsius)
     , temperatureReader_(std::move(temperatureReader))
     , relayController_(std::move(relayController)) {
     if (!temperatureReader_) {
@@ -69,6 +80,12 @@ HardwareTemperatureSensor::HardwareTemperatureSensor(
     }
     if (pollInterval_ <= std::chrono::milliseconds::zero()) {
         throw std::invalid_argument("Temperature polling interval must be positive");
+    }
+    if (!std::isfinite(relayOnThresholdCelsius_) ||
+        !std::isfinite(relayOffThresholdCelsius_) ||
+        relayOffThresholdCelsius_ <= relayOnThresholdCelsius_) {
+        throw std::invalid_argument(
+            "Heater relay off threshold must be finite and above its on threshold");
     }
 }
 
@@ -82,8 +99,9 @@ bool HardwareTemperatureSensor::initialize() {
     }
 
     LOG_PERIPH_INFO(
-        "Initializing temperature monitor (I2C={}, address=0x{:02X}, relay={} line {}, active_low={})",
-        i2cDevice_, i2cAddress_, gpioChip_, relayPin_, activeLow_);
+        "Initializing temperature monitor (I2C={}, address=0x{:02X}, relay={} line {}, active_low={}, on_below={} C, off_at={} C)",
+        i2cDevice_, i2cAddress_, gpioChip_, relayPin_, activeLow_,
+        relayOnThresholdCelsius_, relayOffThresholdCelsius_);
 
     stopRequested_.store(false, std::memory_order_release);
     connected_.store(false, std::memory_order_release);
@@ -196,7 +214,14 @@ void HardwareTemperatureSensor::measureAndControl() {
         connected_.store(true, std::memory_order_release);
         LOG_PERIPH_INFO("Display temperature: {:.2f} C", temperature);
 
-        const bool relayEnabled = temperature < relayThresholdCelsius_;
+        bool relayEnabled = relayState_.value_or(false);
+        if (relayEnabled) {
+            if (temperature >= relayOffThresholdCelsius_) {
+                relayEnabled = false;
+            }
+        } else if (temperature < relayOnThresholdCelsius_) {
+            relayEnabled = true;
+        }
         if (!relayState_.has_value() || *relayState_ != relayEnabled) {
             try {
                 setRelayEnabled(relayEnabled);
