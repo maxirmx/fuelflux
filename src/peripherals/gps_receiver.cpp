@@ -320,6 +320,9 @@ HardwareGpsReceiver::HardwareGpsReceiver(
         positionLogInterval,
         std::chrono::milliseconds{1},
         std::move(positionLogger)) {
+    if (!chunkReader_) {
+        throw std::invalid_argument("GPS chunk reader callback is required");
+    }
 }
 
 HardwareGpsReceiver::HardwareGpsReceiver(
@@ -370,6 +373,10 @@ bool HardwareGpsReceiver::initialize() {
                     serialDevice_, baudRate_);
     stopRequested_.store(false, std::memory_order_release);
     connected_.store(false, std::memory_order_release);
+    {
+        std::lock_guard<std::mutex> lock(positionMutex_);
+        lastPosition_.reset();
+    }
     hasLoggedPosition_ = false;
     lastPositionLogAt_ = {};
 

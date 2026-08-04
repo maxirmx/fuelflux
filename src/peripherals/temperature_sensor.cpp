@@ -87,6 +87,10 @@ bool HardwareTemperatureSensor::initialize() {
 
     stopRequested_.store(false, std::memory_order_release);
     connected_.store(false, std::memory_order_release);
+    {
+        std::lock_guard<std::mutex> lock(temperatureMutex_);
+        lastTemperatureCelsius_.reset();
+    }
 
 #ifdef TARGET_REAL_TEMPERATURE_SENSOR
     if (!temperatureReader_) {
