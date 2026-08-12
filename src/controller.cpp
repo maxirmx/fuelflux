@@ -24,13 +24,17 @@
 namespace fuelflux {
 
 namespace {
-constexpr const char* kCalibrationPassword = "4004714746";
-constexpr std::size_t kCalibrationPasswordLength = 10;
+constexpr char kCalibrationPassword[] = "714746";
+constexpr std::size_t kCalibrationPasswordLength = sizeof(kCalibrationPassword) - 1;
 constexpr std::size_t kCalibrationInputLength = 4;
 }
 
 std::shared_ptr<IBackend> Controller::CreateDefaultBackend(std::shared_ptr<MessageStorage> storage) {
     return std::make_shared<Backend>(BACKEND_API_URL, CONTROLLER_UID, storage);
+}
+
+std::size_t Controller::getCalibrationPasswordLength() const {
+    return kCalibrationPasswordLength;
 }
 
 std::shared_ptr<IBackend> Controller::CreateDefaultBackendShared(const std::string& controllerUid, 

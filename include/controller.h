@@ -102,6 +102,7 @@ class Controller {
     IntakeDirection getSelectedIntakeDirection() const { return selectedIntakeDirection_; }
     Volume getCurrentRefuelVolume() const { return currentRefuelVolume_; }
     double getCalibrationCoefficient() const { return calibrationCoefficient_; }
+    std::size_t getCalibrationPasswordLength() const;
     const std::string& getLastErrorMessage() const { return lastErrorMessage_; }
     std::optional<double> getLastTemperatureCelsius() const;
     std::optional<GpsPosition> getLastGpsPosition() const;

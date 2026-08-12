@@ -60,7 +60,7 @@ The FuelFlux controller uses a Mealy state machine to manage the fuel dispensing
 ## Calibration Workflow
 
 1. Hold `СТОП` in `Waiting` for `KEYBOARD_LONG_PRESS_MS`.
-2. Enter the 10-digit password and press `СТАРТ`. An incorrect password is
+2. Enter the 6-digit password and press `СТАРТ`. An incorrect password is
    cleared and may be retried.
 3. Enter exactly four digits from `0500` through `1500` and press `СТАРТ`.
    The value is interpreted as thousandths (`0500` = `0.500`) and the large

@@ -394,7 +394,7 @@ protected:
 
     void enterCalibrationPassword() {
         startCalibration();
-        pressDigits("4004714746");
+        pressDigits("714746");
         controller->handleKeyPress(KeyCode::KeyStart);
         ASSERT_TRUE(waitForState(SystemState::CalibrationCoefficientEntry));
         // Let the password-accepted action clear the password before coefficient input.
@@ -738,7 +738,7 @@ TEST_F(ControllerTest, CalibrationPasswordUsesCompactMaskedDisplayAndRetries) {
     auto message = controller->getStateMachine().getDisplayMessage();
     EXPECT_EQ(message.line1, "Введите пароль");
     EXPECT_TRUE(message.line2.empty());
-    EXPECT_EQ(message.line3, "00 из 10");
+    EXPECT_EQ(message.line3, "00 из 6");
     EXPECT_EQ(message.line4,
               peripherals::configuredKeyboardUiProfile().calibrationConfirmCancel);
     ExpectCompactCalibrationMessage(message);
@@ -749,11 +749,11 @@ TEST_F(ControllerTest, CalibrationPasswordUsesCompactMaskedDisplayAndRetries) {
     controller->handleKeyPress(KeyCode::KeyClear);
     EXPECT_TRUE(controller->getCurrentInput().empty());
 
-    pressDigits("1111111111");
+    pressDigits("111111");
     message = controller->getStateMachine().getDisplayMessage();
     EXPECT_EQ(message.line1, "Введите пароль");
-    EXPECT_EQ(message.line2, "*******");
-    EXPECT_EQ(message.line3, "10 из 10");
+    EXPECT_EQ(message.line2, "******");
+    EXPECT_EQ(message.line3, "06 из 6");
     ExpectCompactCalibrationMessage(message);
 
     controller->handleKeyPress(KeyCode::KeyStart);
@@ -764,10 +764,10 @@ TEST_F(ControllerTest, CalibrationPasswordUsesCompactMaskedDisplayAndRetries) {
     message = controller->getStateMachine().getDisplayMessage();
     EXPECT_EQ(message.line1, "Пароль неверен");
     EXPECT_TRUE(message.line2.empty());
-    EXPECT_EQ(message.line3, "00 из 10");
+    EXPECT_EQ(message.line3, "00 из 6");
     ExpectCompactCalibrationMessage(message);
 
-    pressDigits("4004714746");
+    pressDigits("714746");
     controller->handleKeyPress(KeyCode::KeyStart);
     ASSERT_TRUE(waitForState(SystemState::CalibrationCoefficientEntry));
 
