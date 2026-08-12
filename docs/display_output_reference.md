@@ -26,7 +26,7 @@ examples should use the VID column unless the build explicitly selects
 |-------|--------|-----|---------|-----|---------|-----|----------|-----|
 | **No Controller** | "ОШИБКА" | 6 | "Контроллер недоступен" | 21 | "" | 0 | "" | 0 |
 | **Waiting** | "Поднесите карту или введите PIN" | 31 | `getCurrentTimeString()` | 16 | "" | 0 | `getDeviceSerialNumber()` | 15 |
-| **CalibrationPasswordEntry** | `Введите пароль` or `Пароль неверен` | 14 | Up to 6 `*` | 0-6 | `NN из 6` | 7 | Compact calibration hint | 12-15 |
+| **CalibrationPasswordEntry** | `Введите пароль` or `Пароль неверен` | 14 | Up to 6 `*` | 0-6 | `NN из 06` | 8 | Compact calibration hint | 12-15 |
 | **CalibrationCoefficientEntry** | `Коэф. 0.500-1.500`, `Нужно 0.500-1.500`, or `Ошибка записи` | 13-17 | Decimal-formatted input (`0500` → `0.500`) | 0-5 | `Сейчас: ` + coefficient | 13 | Compact calibration hint | 12-15 |
 | **CalibrationSaved** | `Коэф. сохранён` | 14 | Saved coefficient | 5 | "" | 0 | "" | 0 |
 | **PinEntry** | "Введите PIN и нажмите Старт (A)" | 33 | Asterisks (*) matching PIN length | var | "" | 0 | `getCurrentTimeString()` | 16 |

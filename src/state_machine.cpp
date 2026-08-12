@@ -569,7 +569,7 @@ DisplayMessage StateMachine::getDisplayMessage() const {
                 const auto inputLength = controller_->getCurrentInput().length();
                 std::ostringstream count;
                 count << std::setw(2) << std::setfill('0')
-                      << inputLength << " из "
+                      << inputLength << " из " << std::setw(2)
                       << controller_->getCalibrationPasswordLength();
                 message.line1 = controller_->calibrationPasswordInvalid_
                     ? "Пароль неверен"
