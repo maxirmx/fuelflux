@@ -39,7 +39,7 @@ namespace card_reader {
 // Flow Meter configuration (GPIO pulse counting)
 namespace flow_meter {
     constexpr const char* GPIO_CHIP = "/dev/gpiochip0";
-    constexpr int GPIO_PIN = 76;
+    constexpr int GPIO_PIN = 267;
     constexpr double TICKS_PER_LITER = 72.0;
 }
 
