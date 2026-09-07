@@ -1512,6 +1512,7 @@ TEST_F(ControllerTest, RefuelingCompletionDisplaysFinalVolume) {
         std::lock_guard<std::mutex> lk(msgMutex);
         EXPECT_EQ(lastMsg.line1, std::string("Заправка на"));
         EXPECT_EQ(lastMsg.line2, "10.75 л");
+        EXPECT_EQ(lastMsg.line4, "поднесите карту");
     }
 
     // Trigger timeout to clear session and verify clearing
@@ -2088,7 +2089,7 @@ TEST_F(ControllerTest, DisplayMessageWaitingState) {
     EXPECT_EQ(msg.line1, "Добро пожаловать");
     EXPECT_EQ(msg.line2, "");         // Empty line
     EXPECT_EQ(msg.line3, "Для заправки");         
-    EXPECT_EQ(msg.line4, "приложите карту");
+    EXPECT_EQ(msg.line4, "поднесите карту");
 }
 
 // Test display message structure for PinEntry state
@@ -2450,7 +2451,9 @@ TEST_F(ControllerTest, DataTransmissionStateShownDuringIntake) {
     // Wait for final IntakeComplete state (backend call in DataTransmission completes quickly)
     ASSERT_TRUE(waitForState(SystemState::IntakeComplete));
     EXPECT_DOUBLE_EQ(controller->getEnteredVolume(), 50.75);
-    EXPECT_EQ(controller->getStateMachine().getDisplayMessage().line2, "50.75 л");
+    const auto message = controller->getStateMachine().getDisplayMessage();
+    EXPECT_EQ(message.line2, "50.75 л");
+    EXPECT_EQ(message.line4, "поднесите карту");
 
     // Verify that "Передача данных" was displayed
     bool foundDataTransmissionMessage = false;
@@ -3293,7 +3296,7 @@ TEST_F(ControllerTest, AuthorizationDeniedTransitionsToNotAuthorized) {
     DisplayMessage msg = controller->getStateMachine().getDisplayMessage();
     EXPECT_EQ(msg.line1, "Доступ запрещён");
     EXPECT_EQ(msg.line3, "Для новой заправки");
-    EXPECT_EQ(msg.line4, "приложите карту");
+    EXPECT_EQ(msg.line4, "поднесите карту");
 
     shutdownControllerAndJoinThread(controllerThread);
 }
@@ -3316,7 +3319,7 @@ TEST_F(ControllerTest, AuthorizationFailedTransitionsToCannotAuthorize) {
     DisplayMessage msg = controller->getStateMachine().getDisplayMessage();
     EXPECT_EQ(msg.line1, "Ошибка связи");
     EXPECT_EQ(msg.line3, "Для новой заправки");
-    EXPECT_EQ(msg.line4, "приложите карту");
+    EXPECT_EQ(msg.line4, "поднесите карту");
 
     shutdownControllerAndJoinThread(controllerThread);
 }

@@ -40,7 +40,7 @@ namespace card_reader {
 namespace flow_meter {
     constexpr const char* GPIO_CHIP = "/dev/gpiochip0";
     constexpr int GPIO_PIN = 267;
-    constexpr double TICKS_PER_LITER = 72.0;
+    constexpr double TICKS_PER_LITER = 36.0;
 }
 
 // Pump configuration (GPIO relay control)
