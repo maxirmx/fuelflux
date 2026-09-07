@@ -1512,6 +1512,7 @@ TEST_F(ControllerTest, RefuelingCompletionDisplaysFinalVolume) {
         std::lock_guard<std::mutex> lk(msgMutex);
         EXPECT_EQ(lastMsg.line1, std::string("Заправка на"));
         EXPECT_EQ(lastMsg.line2, "10.75 л");
+        EXPECT_EQ(lastMsg.line4, "поднесите карту");
     }
 
     // Trigger timeout to clear session and verify clearing
@@ -2450,7 +2451,9 @@ TEST_F(ControllerTest, DataTransmissionStateShownDuringIntake) {
     // Wait for final IntakeComplete state (backend call in DataTransmission completes quickly)
     ASSERT_TRUE(waitForState(SystemState::IntakeComplete));
     EXPECT_DOUBLE_EQ(controller->getEnteredVolume(), 50.75);
-    EXPECT_EQ(controller->getStateMachine().getDisplayMessage().line2, "50.75 л");
+    const auto message = controller->getStateMachine().getDisplayMessage();
+    EXPECT_EQ(message.line2, "50.75 л");
+    EXPECT_EQ(message.line4, "поднесите карту");
 
     // Verify that "Передача данных" was displayed
     bool foundDataTransmissionMessage = false;
