@@ -2088,7 +2088,7 @@ TEST_F(ControllerTest, DisplayMessageWaitingState) {
     EXPECT_EQ(msg.line1, "Добро пожаловать");
     EXPECT_EQ(msg.line2, "");         // Empty line
     EXPECT_EQ(msg.line3, "Для заправки");         
-    EXPECT_EQ(msg.line4, "приложите карту");
+    EXPECT_EQ(msg.line4, "поднесите карту");
 }
 
 // Test display message structure for PinEntry state
@@ -3293,7 +3293,7 @@ TEST_F(ControllerTest, AuthorizationDeniedTransitionsToNotAuthorized) {
     DisplayMessage msg = controller->getStateMachine().getDisplayMessage();
     EXPECT_EQ(msg.line1, "Доступ запрещён");
     EXPECT_EQ(msg.line3, "Для новой заправки");
-    EXPECT_EQ(msg.line4, "приложите карту");
+    EXPECT_EQ(msg.line4, "поднесите карту");
 
     shutdownControllerAndJoinThread(controllerThread);
 }
@@ -3316,7 +3316,7 @@ TEST_F(ControllerTest, AuthorizationFailedTransitionsToCannotAuthorize) {
     DisplayMessage msg = controller->getStateMachine().getDisplayMessage();
     EXPECT_EQ(msg.line1, "Ошибка связи");
     EXPECT_EQ(msg.line3, "Для новой заправки");
-    EXPECT_EQ(msg.line4, "приложите карту");
+    EXPECT_EQ(msg.line4, "поднесите карту");
 
     shutdownControllerAndJoinThread(controllerThread);
 }

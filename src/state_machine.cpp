@@ -561,7 +561,7 @@ DisplayMessage StateMachine::getDisplayMessage() const {
             message.line1 = "Добро пожаловать";
             message.line2 = ""; 
             message.line3 = "Для заправки";
-            message.line4 = "приложите карту"; 
+            message.line4 = "поднесите карту"; 
             break;
 
         case SystemState::CalibrationPasswordEntry:
@@ -619,14 +619,14 @@ DisplayMessage StateMachine::getDisplayMessage() const {
             message.line1 = "Доступ запрещён";
             message.line2 = "";
             message.line3 = "Для новой заправки";
-            message.line4 = "приложите карту";
+            message.line4 = "поднесите карту";
             break;
 
         case SystemState::CannotAuthorize:
             message.line1 = "Ошибка связи";
             message.line2 = "";
             message.line3 = "Для новой заправки";
-            message.line4 = "приложите карту";
+            message.line4 = "поднесите карту";
             break;
 
         case SystemState::TankSelection:
@@ -677,7 +677,7 @@ DisplayMessage StateMachine::getDisplayMessage() const {
             message.line1 = "Заправка на";
             message.line2 = controller_->formatVolume(controller_->getCurrentRefuelVolume());
             message.line3 = "Для новой заправки";
-            message.line4 = "приложите карту";
+            message.line4 = "поднесите карту";
             break;
 
         case SystemState::IntakeDirectionSelection:
@@ -707,7 +707,7 @@ DisplayMessage StateMachine::getDisplayMessage() const {
                             ((controller_->getSelectedIntakeDirection() == IntakeDirection::In) ? " приём на" : " cлив на");
             message.line2 = controller_->formatVolume(controller_->getEnteredVolume());
             message.line3 = "Для новой операции";
-            message.line4 = "приложите карту";
+            message.line4 = "поднесите карту";
             break;
 
         case SystemState::Error:
