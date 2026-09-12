@@ -98,13 +98,26 @@ bool ParseFuelTank(const nlohmann::json& tank,
 
 } // namespace
 
-// Meyer's singleton for bounded executor - thread-safe lazy initialization
-// Initialized on first use, avoiding static initialization order issues
-// and allowing exception handling at runtime instead of during startup
-BoundedExecutor& BackendBase::GetDeauthorizeExecutor() {
-    static BoundedExecutor executor(1, 100);
-    return executor;
+namespace {
+struct DeauthorizeWorker {
+    std::atomic<bool> cancelled{false};
+    BoundedExecutor executor{1, 100};
+    void Stop() { cancelled.store(true); executor.Shutdown(); }
+    ~DeauthorizeWorker() { Stop(); }
+};
+
+DeauthorizeWorker& deauthorizeWorker() {
+    static DeauthorizeWorker worker;
+    return worker;
 }
+} // namespace
+
+BoundedExecutor& BackendBase::GetDeauthorizeExecutor() {
+    return deauthorizeWorker().executor;
+}
+
+std::atomic<bool>& BackendBase::DeauthorizeCancellation() { return deauthorizeWorker().cancelled; }
+void BackendBase::ShutdownAsyncRequests() { deauthorizeWorker().Stop(); }
 
 BackendBase::BackendBase(std::string controllerUid, std::shared_ptr<MessageStorage> storage)
     : controllerUid_(std::move(controllerUid))
@@ -236,16 +249,16 @@ bool BackendBase::Deauthorize() {
         // Try to submit async HTTP request to bounded executor if backend is managed by shared_ptr
         // Uses a dedicated async method that doesn't hold requestMutex_ or modify networkError_
         try {
-            std::weak_ptr<BackendBase> weakSelf = shared_from_this();
-            bool submitted = GetDeauthorizeExecutor().Submit([weakSelf, token]() {
-                // Check if backend still exists
-                if (auto self = weakSelf.lock()) {
-                    try {
-                        // Call virtual method that sends request without mutex
-                        self->SendAsyncDeauthorizeRequest(token);
-                    } catch (const std::exception& e) {
-                        LOG_BCK_WARN("Async deauthorization failed (ignored): {}", e.what());
-                    }
+            auto self = shared_from_this();
+            // Keep the independent session alive until token cleanup completes.
+            // The executor's fixed queue bounds this lifetime extension.
+            bool submitted = GetDeauthorizeExecutor().Submit([self, token]() {
+                if (DeauthorizeCancellation().load()) return;
+                try {
+                    // Call virtual method that sends request without mutex
+                    self->SendAsyncDeauthorizeRequest(token);
+                } catch (const std::exception& e) {
+                    LOG_BCK_WARN("Async deauthorization failed (ignored): {}", e.what());
                 }
             });
             
@@ -492,6 +505,17 @@ bool BackendBase::RefuelPayload(const std::string& payload) {
         }
         return false;
     }
+}
+
+bool BackendBase::SendReportPayload(const std::string& payload, bool intake, bool canonicalTankId) {
+    if (!canonicalTankId) return intake ? IntakePayload(payload) : RefuelPayload(payload);
+    if (!session_.IsAuthorized()) { lastError_ = StdControllerError; return false; }
+    const auto body = nlohmann::json::parse(payload, nullptr, false);
+    if (body.is_discarded()) { lastError_ = StdControllerError; return false; }
+    const auto response = HttpRequestWrapper(intake ? "/api/pump/fuel-intake" : "/api/pump/refuel", "POST", body, true);
+    if (IsErrorResponse(response, &lastError_)) return false;
+    lastError_.clear();
+    return true;
 }
 
 bool BackendBase::IntakePayload(const std::string& payload) {

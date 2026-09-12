@@ -73,6 +73,10 @@ bool StateMachine::processEvent(Event event) {
     if (event == Event::CancelNoFuel) {
         event = Event::CancelPressed;
     }
+    if (event == Event::CancelPressed && getCurrentState() == SystemState::Authorization) {
+        controller_->cancelSlowAuthorization();
+        return true;
+    }
 
     // Coalesce consecutive InputUpdated events to avoid redundant processing/display refreshes.
     if (event == Event::InputUpdated) {
@@ -254,6 +258,7 @@ void StateMachine::setupTransitions() {
     transitions_[{SystemState::PinEntry, Event::ErrorRecovery}]       = {SystemState::PinEntry,          noOp};
 
     // From Authorization state
+    transitions_[{SystemState::Authorization, Event::AuthorizationCancelled}] = {SystemState::Waiting, [this]() { onCancelPressed(); }};
     transitions_[{SystemState::Authorization, Event::CardPresented}]       = {SystemState::Authorization,     noOp};
     transitions_[{SystemState::Authorization, Event::PinEntered}]          = {SystemState::Authorization,     noOp};
     transitions_[{SystemState::Authorization, Event::InputUpdated}]        = {SystemState::Authorization,     noOp};
@@ -609,10 +614,10 @@ DisplayMessage StateMachine::getDisplayMessage() const {
             break;
 
         case SystemState::Authorization:
-            message.line1 = "Проверка...";
+            message.line1 = controller_->isAuthorizationSlow() ? "Медленное соединение" : "Проверка...";
             message.line2 = "";
-            message.line3 = "";
-            message.line4 = "Ожидайте";
+            message.line3 = controller_->isAuthorizationSlow() ? "Ожидайте или" : "";
+            message.line4 = controller_->isAuthorizationSlow() ? std::string(keyboardUi.cancelPrompt) : "Ожидайте";
             break;
 
         case SystemState::NotAuthorized:
@@ -733,10 +738,10 @@ DisplayMessage StateMachine::getDisplayMessage() const {
 
 void StateMachine::doAuthorization() {
     std::string inputCopy = controller_->getCurrentInput();
-    controller_->requestAuthorization(inputCopy);
+    controller_->beginAuthorization(inputCopy);
     // Clear sensitive input (PIN/card UID) silently 
     controller_->clearInputSilent();
-    // requestAuthorization will post AuthorizationSuccess or AuthorizationFailed event
+    // The controller accepts this attempt's result on its event loop.
 }
 
 void StateMachine::onAuthorizationSuccess() {
@@ -764,7 +769,6 @@ void StateMachine::doRefuelingDataTransmission() {
     // The session is cleaned up on timeout or other user interactions.
     if (controller_) {
         controller_->completeRefueling();
-        controller_->postEvent(Event::DataTransmissionComplete);
     }
 }
 
@@ -814,7 +818,6 @@ void StateMachine::onIntakeVolumeEntered() {
         // Do not clear session data here - keep the intake values visible.
         // The session is cleaned up on timeout or other user interactions.
         controller_->completeIntakeOperation();
-        controller_->postEvent(Event::DataTransmissionComplete);
     }
 }
 

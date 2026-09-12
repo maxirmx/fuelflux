@@ -27,6 +27,9 @@ bool CacheManager::Start() {
         return false;
     }
     
+    if (backend_) {
+        if (auto session = backend_->CreateIndependentSession()) backend_ = std::move(session);
+    }
     running_ = true;
     workerThread_ = std::thread(&CacheManager::WorkerThread, this);
     
@@ -38,6 +41,7 @@ bool CacheManager::Start() {
 }
 
 void CacheManager::Stop() {
+    if (backend_) backend_->CancelPendingRequests();
     if (!running_) {
         return;
     }
@@ -174,6 +178,8 @@ void CacheManager::WorkerThread() {
 }
 
 bool CacheManager::PopulateCache() {
+    const auto resolvedVersions = reportStorage_ ? reportStorage_->ResolvedSnapshotVersions()
+        : std::vector<std::pair<std::string, long long>>{};
     if (!cache_ || !backend_) {
         LOG_ERROR("Cache or backend not available");
         return false;
@@ -302,6 +308,7 @@ bool CacheManager::PopulateCache() {
         
         // Close synchronization session - this is critical for cleanup
         // If deauthorization fails, we still return true because the data was successfully loaded
+        if (reportStorage_) reportStorage_->ReleaseResolvedSnapshots(resolvedVersions);
         // The backend will clean up the session automatically after timeout
         if (!backend_->Deauthorize()) {
             LOG_WARN("Failed to deauthorize synchronization session (data was still loaded successfully, backend will clean up on timeout)");

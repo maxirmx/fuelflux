@@ -39,7 +39,7 @@ std::condition_variable g_cares_init_cv;
 // RAII wrapper for ares_channel
 class AresChannel {
 public:
-    AresChannel(const std::string& interface) : channel_(nullptr), initialized_(false) {
+    AresChannel(const std::string& interface, const std::string& dnsServers) : channel_(nullptr), initialized_(false) {
         // Check if library is initialized
         if (g_cares_init_state.load(std::memory_order_acquire) != InitState::Initialized) {
             LOG_BCK_ERROR("c-ares library not initialized. Call InitializeCaresLibrary() first.");
@@ -57,9 +57,9 @@ public:
             return;
         }
         
-        // Set Yandex DNS servers
-        std::string dnsServers = std::string(kYandexDns1) + "," + kYandexDns2;
-        status = ares_set_servers_csv(channel_, dnsServers.c_str());
+        // Defaults to Yandex DNS. An explicit server list also permits local
+        // resolver tests without relying on public DNS timing.
+        status = ares_set_servers_ports_csv(channel_, dnsServers.c_str());
         if (status != ARES_SUCCESS) {
             LOG_BCK_ERROR("Failed to set DNS servers '{}': {} (error code: {})", 
                           dnsServers, ares_strerror(status), status);
@@ -210,20 +210,22 @@ void CleanupCaresLibrary() {
 CaresResolver::CaresResolver()
     : CaresResolver(ExtractHostFromUrl(BACKEND_API_URL), Clock::now) {}
 
-CaresResolver::CaresResolver(const std::string& cachedHostname, TimeProvider timeProvider)
+CaresResolver::CaresResolver(const std::string& cachedHostname, TimeProvider timeProvider,
+                             const std::string& dnsServers)
     : cached_hostname_(cachedHostname),
-      time_provider_(std::move(timeProvider)) {}
+      time_provider_(std::move(timeProvider)),
+      dns_servers_(dnsServers.empty() ? std::string(kYandexDns1) + "," + kYandexDns2 : dnsServers) {}
 
 CaresResolver::~CaresResolver() {
 }
 
 bool CaresResolver::HasValidTargetedCacheForTesting() const {
-    std::lock_guard<std::mutex> lock(resolve_mutex_);
+    std::lock_guard<std::timed_mutex> lock(resolve_mutex_);
     return HasValidBackendCacheEntry();
 }
 
 std::string CaresResolver::GetTargetedCachedIpForTesting() const {
-    std::lock_guard<std::mutex> lock(resolve_mutex_);
+    std::lock_guard<std::timed_mutex> lock(resolve_mutex_);
     if (!backend_api_cache_entry_.has_value()) {
         return "";
     }
@@ -238,9 +240,14 @@ bool CaresResolver::HasValidBackendCacheEntry() const {
     return backend_api_cache_entry_.has_value() && time_provider_() < backend_api_cache_entry_->expiresAt;
 }
 
-std::string CaresResolver::Resolve(const std::string& hostname, const std::string& interface) {
+std::string CaresResolver::Resolve(const std::string& hostname, const std::string& interface,
+                                  const std::atomic<bool>* cancelled) {
     // Serialize concurrent calls to prevent issues with channel operations
-    std::lock_guard<std::mutex> lock(resolve_mutex_);
+    std::unique_lock<std::timed_mutex> lock(resolve_mutex_, std::defer_lock);
+    while (!lock.try_lock_for(std::chrono::milliseconds(100))) {
+        if (cancelled && cancelled->load()) return "";
+    }
+    if (cancelled && cancelled->load()) return "";
     
     // Check if library is initialized
     // NOTE: This check is for detecting programming errors (using resolver before init).
@@ -270,14 +277,16 @@ std::string CaresResolver::Resolve(const std::string& hostname, const std::strin
         return backend_api_cache_entry_->ip;
     }
     
-    AresChannel channel(interface);
+    // ares_destroy invokes pending callbacks, so their context must outlive
+    // the channel even when cancellation exits this function early.
+    ResolveContext ctx;
+    AresChannel channel(interface, dns_servers_);
     if (!channel.isInitialized()) {
         LOG_BCK_ERROR("Failed to initialize c-ares channel");
         return "";
     }
     
     // Perform DNS resolution
-    ResolveContext ctx;
     ares_gethostbyname(channel.get(), hostname.c_str(), AF_INET, HostCallback, &ctx);
     
     // Wait for resolution to complete with overall timeout protection
@@ -292,6 +301,7 @@ std::string CaresResolver::Resolve(const std::string& hostname, const std::strin
     int loopCount = 0;
     
     while (!ctx.done) {
+        if (cancelled && cancelled->load()) return "";
         // Check overall timeout to prevent infinite hangs
         auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(
             std::chrono::steady_clock::now() - startTime);
@@ -313,7 +323,8 @@ std::string CaresResolver::Resolve(const std::string& hostname, const std::strin
         
         // Set select timeout (max kDnsSelectTimeoutSec seconds per iteration)
         max_tv.tv_sec = timing::kDnsSelectTimeoutSec;
-        max_tv.tv_usec = 0;
+        if (cancelled) max_tv.tv_sec = 0;
+        max_tv.tv_usec = cancelled ? 100000 : 0;
         struct timeval* tvp = ares_timeout(channel.get(), &max_tv, &tv);
         
         int result = select(nfds, &read_fds, &write_fds, nullptr, tvp);

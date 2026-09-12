@@ -8,6 +8,7 @@
 #include <mutex>
 #include <string>
 #include <vector>
+#include "authorization_snapshot.h"
 
 struct sqlite3;
 
@@ -40,6 +41,7 @@ public:
 
     // Cache operations
     std::optional<UserCacheEntry> GetEntry(const std::string& uid) const;
+    std::optional<AuthorizationSnapshot> GetAuthorizationSnapshot(const std::string& uid) const;
     bool UpdateEntry(const std::string& uid, double allowance, int roleId);
     bool DeductAllowance(const std::string& uid, double amount);
     int GetCount() const;
@@ -60,7 +62,7 @@ private:
 
     sqlite3* db_;
     std::string dbPath_;
-    mutable std::mutex dbMutex_;
+    mutable std::recursive_mutex dbMutex_;
     bool activeTableIsA_; // true = table A is active, false = table B is active
     bool populationInProgress_;
 };

@@ -33,6 +33,14 @@ using ::testing::ReturnPointee;
 using ::testing::ReturnRef;
 
 namespace {
+::testing::Matcher<const std::string&> ReportPayload(int tank, double volume, bool intake) {
+    return ::testing::Truly([=](const std::string& text) {
+        const auto payload = nlohmann::json::parse(text, nullptr, false);
+        return payload.is_object() && payload.value("TankNumber", -1) == tank &&
+            payload.value(intake ? "IntakeVolume" : "FuelVolume", -1.0) == volume &&
+            (!intake || payload.value("Direction", 0) == 1) && payload.contains("TimeAt");
+    });
+}
 std::size_t Utf8CodePointCount(const std::string& text) {
     std::size_t count = 0;
     for (unsigned char byte : text) {
@@ -83,6 +91,8 @@ using ::testing::NiceMock;
 // Mock Backend
 class MockBackend : public IBackend {
 public:
+    MOCK_METHOD(std::shared_ptr<IBackend>, CreateIndependentSession, (), (const, override));
+    MOCK_METHOD(bool, SendReportPayload, (const std::string&, bool, bool), (override));
     MOCK_METHOD(bool, Authorize, (const std::string& uid), (override));
     MOCK_METHOD(bool, Deauthorize, (), (override));
     MOCK_METHOD(bool, Refuel, (TankNumber tankNumber, Volume volume), (override));
@@ -272,6 +282,7 @@ protected:
     void createController(std::chrono::seconds noFlowCancelTimeout = std::chrono::seconds(30)) {
         auto backend = std::make_shared<NiceMock<MockBackend>>();
         mockBackend = backend.get();
+        ON_CALL(*mockBackend, CreateIndependentSession()).WillByDefault([weak = std::weak_ptr<IBackend>(backend)] { return weak.lock(); });
         ON_CALL(*mockBackend, GetControllerUid()).WillByDefault(ReturnRef(CONTROLLER_UID));
         controller = std::make_unique<Controller>(
             CONTROLLER_UID,
@@ -304,6 +315,7 @@ protected:
             return true;
             });
         ON_CALL(*mockBackend, Refuel(_, _)).WillByDefault(Return(true));
+        ON_CALL(*mockBackend, SendReportPayload(_, _, _)).WillByDefault(Return(true));
         ON_CALL(*mockBackend, Intake(_, _, _)).WillByDefault(Return(true));
         ON_CALL(*mockBackend, IsAuthorized()).WillByDefault(ReturnPointee(&mockBackend->authorized_));
         ON_CALL(*mockBackend, Deauthorize()).WillByDefault([&]() {
@@ -364,7 +376,7 @@ protected:
     }
 
     bool waitForState(SystemState expected,
-                      std::chrono::milliseconds timeout = std::chrono::milliseconds(500)) {
+                      std::chrono::milliseconds timeout = std::chrono::milliseconds(2000)) {
         const auto deadline = std::chrono::steady_clock::now() + timeout;
         while (std::chrono::steady_clock::now() < deadline) {
             if (controller->getStateMachine().getCurrentState() == expected) {
@@ -473,7 +485,7 @@ TEST_F(ControllerTest, AuthorizationFallsBackToCacheOnNetworkError) {
     ASSERT_TRUE(controller->getUserCache()->AddPopulationTank(10, 7, "Tank-7", 700.0));
     ASSERT_TRUE(controller->getUserCache()->CommitPopulation());
 
-    EXPECT_CALL(*mockBackend, Authorize("offline-user")).WillOnce(Return(false));
+    EXPECT_CALL(*mockBackend, Authorize("offline-user")).WillRepeatedly(Return(false));
     ON_CALL(*mockBackend, IsNetworkError()).WillByDefault(Return(true));
     ON_CALL(*mockBackend, FetchUserCards(_, _)).WillByDefault(Return(std::vector<UserCard>{{"offline-user", static_cast<int>(UserRole::Customer), 123.0}}));
     ON_CALL(*mockBackend, FetchFuelTanks(_, _)).WillByDefault(Return(std::vector<FuelTank>{{10, 7, "Tank-7", 700.0}}));
@@ -534,7 +546,7 @@ TEST_F(ControllerTest, CachedAuthorizationRefuelGoesToBacklogAndSkipsDeauthorize
     ASSERT_TRUE(controller->getUserCache()->AddPopulationTank(10, 7, "Tank-7", 700.0));
     ASSERT_TRUE(controller->getUserCache()->CommitPopulation());
 
-    EXPECT_CALL(*mockBackend, Authorize("offline-user")).WillOnce(Return(false));
+    EXPECT_CALL(*mockBackend, Authorize("offline-user")).WillRepeatedly(Return(false));
     ON_CALL(*mockBackend, IsNetworkError()).WillByDefault(Return(true));
     ON_CALL(*mockBackend, FetchUserCards(_, _)).WillByDefault(Return(std::vector<UserCard>{{"offline-user", static_cast<int>(UserRole::Customer), 123.0}}));
     ON_CALL(*mockBackend, FetchFuelTanks(_, _)).WillByDefault(Return(std::vector<FuelTank>{{10, 7, "Tank-7", 700.0}}));
@@ -572,7 +584,7 @@ TEST_F(ControllerTest, CachedAuthorizationIntakeGoesToBacklog) {
     ASSERT_TRUE(controller->getUserCache()->AddPopulationTank(20, 11, "Tank-11", 1100.0));
     ASSERT_TRUE(controller->getUserCache()->CommitPopulation());
 
-    EXPECT_CALL(*mockBackend, Authorize("offline-operator")).WillOnce(Return(false));
+    EXPECT_CALL(*mockBackend, Authorize("offline-operator")).WillRepeatedly(Return(false));
     ON_CALL(*mockBackend, IsNetworkError()).WillByDefault(Return(true));
     ON_CALL(*mockBackend, FetchUserCards(_, _)).WillByDefault(Return(std::vector<UserCard>{{"offline-operator", static_cast<int>(UserRole::Operator), 0.0}}));
     ON_CALL(*mockBackend, FetchFuelTanks(_, _)).WillByDefault(Return(std::vector<FuelTank>{{20, 11, "Tank-11", 1100.0}}));
@@ -1432,7 +1444,7 @@ TEST_F(ControllerTest, RefuelingCompletionDisplaysFinalVolume) {
         mockBackend->authorized_ = true;
         return true;
         });
-    EXPECT_CALL(*mockBackend, Refuel(1, 10.75)).WillOnce(Return(true));
+    EXPECT_CALL(*mockBackend, SendReportPayload(ReportPayload(1, 10.75, false), false, true)).WillOnce(Return(true));
     EXPECT_CALL(*mockBackend, Deauthorize()).WillOnce([this]() {
         mockBackend->authorized_ = false;
         return true;
@@ -1598,7 +1610,7 @@ TEST_F(ControllerTest, HandleFlowUpdate) {
     // This test just verifies the method doesn't crash
 }
 
-TEST_F(ControllerTest, CalibrationScalesLiveVolumeCutoffAndBackendReportOnce) {
+TEST_F(ControllerTest, CalibrationScalesLiveVolumeCutoffAndPersistedReportOnce) {
     recreateControllerWithCalibration(0.5);
     mockBackend->roleId_ = static_cast<int>(UserRole::Customer);
     mockBackend->allowance_ = 100.0;
@@ -1616,8 +1628,13 @@ TEST_F(ControllerTest, CalibrationScalesLiveVolumeCutoffAndBackendReportOnce) {
     EXPECT_DOUBLE_EQ(controller->getCurrentRefuelVolume(), 10.0);
     EXPECT_FALSE(mockPump->running_);
 
-    EXPECT_CALL(*mockBackend, Refuel(1, 10.0)).WillOnce(Return(true));
     controller->completeRefueling();
+    MessageStorage storage(messageStorageDbPath.string());
+    ASSERT_EQ(storage.BacklogCount(), 1);
+    const auto report = storage.GetNextBacklog();
+    ASSERT_TRUE(report);
+    EXPECT_EQ(nlohmann::json::parse(report->data).at("FuelVolume"), 10.0);
+    EXPECT_TRUE(report->canonicalTankId);
 }
 
 // Test that rapid handleFlowUpdate calls post InputUpdated at most once per
@@ -1935,7 +1952,7 @@ TEST_F(ControllerTest, OperatorIntakeWorkflow) {
 
     EXPECT_CALL(*mockBackend, Authorize("operator-card"))
         .WillOnce(Return(true));
-    EXPECT_CALL(*mockBackend, Intake(1, 100.0, IntakeDirection::In))
+    EXPECT_CALL(*mockBackend, SendReportPayload(ReportPayload(1, 100.0, true), true, true))
         .WillOnce(Return(true));
 
     controller->initialize();
@@ -1973,7 +1990,7 @@ TEST_F(ControllerTest, OperatorIntakeWorkflowSingleTankSkipsSelection) {
 
     EXPECT_CALL(*mockBackend, Authorize("operator-card"))
         .WillOnce(Return(true));
-    EXPECT_CALL(*mockBackend, Intake(1, 100.0, IntakeDirection::In))
+    EXPECT_CALL(*mockBackend, SendReportPayload(ReportPayload(1, 100.0, true), true, true))
         .WillOnce(Return(true));
 
     controller->initialize();
@@ -2008,7 +2025,7 @@ TEST_F(ControllerTest, CustomerRefuelWorkflow) {
 
     EXPECT_CALL(*mockBackend, Authorize("customer-card"))
         .WillOnce(Return(true));
-    EXPECT_CALL(*mockBackend, Refuel(1, 50.0))
+    EXPECT_CALL(*mockBackend, SendReportPayload(ReportPayload(1, 50.0, false), false, true))
         .WillOnce(Return(true));
     EXPECT_CALL(*mockBackend, IsAuthorized())
         .WillRepeatedly(Return(true));
@@ -2047,7 +2064,7 @@ TEST_F(ControllerTest, CustomerRefuelWorkflowSingleTankSkipsSelection) {
 
     EXPECT_CALL(*mockBackend, Authorize("customer-card"))
         .WillOnce(Return(true));
-    EXPECT_CALL(*mockBackend, Refuel(1, 50.0))
+    EXPECT_CALL(*mockBackend, SendReportPayload(ReportPayload(1, 50.0, false), false, true))
         .WillOnce(Return(true));
     EXPECT_CALL(*mockBackend, IsAuthorized())
         .WillRepeatedly(Return(true));
@@ -2291,7 +2308,7 @@ TEST_F(ControllerTest, CardReadingDisabledDuringRefueling) {
     mockBackend->tanksStorage_ = {BackendTankInfo{1, 1, "Tank A"}, BackendTankInfo{2, 2, "Tank B"}};
     
     EXPECT_CALL(*mockBackend, Authorize("test-card")).WillOnce(Return(true));
-    EXPECT_CALL(*mockBackend, Refuel(1, 10.0)).WillOnce(Return(true));
+    EXPECT_CALL(*mockBackend, SendReportPayload(ReportPayload(1, 10.0, false), false, true)).WillOnce(Return(true));
     
     controller->initialize();
     
@@ -2351,7 +2368,7 @@ TEST_F(ControllerTest, DataTransmissionStateShownDuringRefuel) {
         mockBackend->authorized_ = true;
         return true;
     });
-    EXPECT_CALL(*mockBackend, Refuel(1, 10.0)).WillOnce(Return(true));
+    EXPECT_CALL(*mockBackend, SendReportPayload(ReportPayload(1, 10.0, false), false, true)).WillOnce(Return(true));
 
     controller->initialize();
 
@@ -2416,7 +2433,7 @@ TEST_F(ControllerTest, DataTransmissionStateShownDuringIntake) {
         mockBackend->authorized_ = true;
         return true;
     });
-    EXPECT_CALL(*mockBackend, Intake(1, 50.75, IntakeDirection::In)).WillOnce(Return(true));
+    EXPECT_CALL(*mockBackend, SendReportPayload(ReportPayload(1, 50.75, true), true, true)).WillOnce(Return(true));
 
     controller->initialize();
 

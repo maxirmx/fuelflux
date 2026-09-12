@@ -434,6 +434,7 @@ set(HEADERS
     include/peripherals/peripheral_interface.h
     include/console_emulator.h
     include/backend.h
+    include/authorization_snapshot.h
     include/types.h
     include/url_utils.h
     include/hardware/aht10.h
@@ -593,6 +594,8 @@ if(ENABLE_TESTING)
         tests/cache_manager_test.cpp
         tests/controller_test.cpp
         tests/message_storage_test.cpp
+        tests/report_delivery_test.cpp
+        tests/foreground_backend_test.cpp
         tests/user_cache_test.cpp
         tests/backlog_worker_test.cpp
         tests/bounded_executor_test.cpp

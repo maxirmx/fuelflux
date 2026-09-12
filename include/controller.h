@@ -17,6 +17,7 @@
 
 #include "backend.h"
 #include "message_storage.h"
+#include "backlog_worker.h"
 #include "state_machine.h"
 #include "timing_config.h"
 #include "types.h"
@@ -42,7 +43,8 @@ class Controller {
     Controller(ControllerId controllerId,
                std::shared_ptr<IBackend> backend,
                std::chrono::seconds noFlowCancelTimeout,
-               ControllerPersistencePaths persistencePaths);
+               ControllerPersistencePaths persistencePaths,
+               std::chrono::milliseconds foregroundWait = timing::kForegroundBackendWaitTimeout);
     ~Controller();
 
     // System lifecycle
@@ -132,7 +134,11 @@ class Controller {
     void setMaxValue();
 
     // Authorization
+    // Synchronous compatibility helper; foreground state transitions use beginAuthorization.
     void requestAuthorization(const UserId& userId);
+    void beginAuthorization(const UserId& userId);
+    bool isAuthorizationSlow() const { return authorizationSlow_.load(); }
+    void cancelSlowAuthorization();
 
     // Tank operations
     void selectTank(TankNumber tankNumber);
@@ -191,7 +197,30 @@ class Controller {
     std::unique_ptr<peripherals::ITemperatureSensor> temperatureSensor_;
     std::unique_ptr<peripherals::IGpsReceiver> gpsReceiver_;
     std::shared_ptr<IBackend> backend_;
+    std::shared_ptr<IBackend> backendPrototype_;
     std::shared_ptr<MessageStorage> messageStorage_;
+    std::unique_ptr<BacklogWorker> reportWorker_;
+    std::chrono::milliseconds foregroundWait_;
+    BoundedExecutor authorizationExecutor_{1, 1};
+    struct AuthorizationAttempt {
+        unsigned long long id = 0;
+        std::string uid;
+        std::shared_ptr<IBackend> backend;
+        std::optional<AuthorizationSnapshot> saved;
+        AuthorizationSnapshot online;
+        std::chrono::steady_clock::time_point started;
+        std::atomic<bool> done{false};
+        bool success = false;
+        bool networkError = false;
+        bool adopted = false;
+        ~AuthorizationAttempt();
+    };
+    std::shared_ptr<AuthorizationAttempt> authorizationAttempt_;
+    unsigned long long nextAuthorizationId_ = 0;
+    std::atomic<bool> authorizationSlow_{false};
+    std::atomic<unsigned long long> activeAuthorizationId_{0};
+    std::optional<long long> foregroundReport_;
+    std::chrono::steady_clock::time_point reportStarted_;
     
     // Cache components
     std::shared_ptr<UserCache> userCache_;
@@ -225,13 +254,19 @@ class Controller {
     bool stopPressBeganInWaiting_ = false;
     
     // System state
-    bool isRunning_;
-    std::atomic<bool> threadExited_{false};
+    std::atomic<bool> isRunning_;
+    std::atomic<bool> threadExited_{true};
     std::string lastErrorMessage_;
     bool sessionAuthorizedFromCache_ = false;
 
     // Event queue for cross-thread event posting
-    std::queue<Event> eventQueue_;
+    struct QueuedEvent {
+        Event event;
+        unsigned long long authorizationId = 0;
+        bool authorizationCancel = false;
+        bool cancelEnabled = false;
+    };
+    std::queue<QueuedEvent> eventQueue_;
     std::mutex eventQueueMutex_;
     std::condition_variable eventCv_;
 
@@ -262,6 +297,13 @@ class Controller {
     Volume parseVolumeFromInput() const;
     TankNumber parseTankFromInput() const;
     void resetSessionData();
+    SavedAuthorizationState savedAuthorization(const std::string& uid) const;
+    void applyAuthorization(const AuthorizationSnapshot& snapshot, bool fromCache);
+    void pollBackendOperations();
+    void abandonAuthorization();
+    bool submitReport(MessageMethod method, const std::string& uid, TankNumber tank,
+                      Volume volume, std::chrono::system_clock::time_point timestamp,
+                      IntakeDirection direction = IntakeDirection::In);
     void selectIntakeDirection(IntakeDirection direction);
     /**
      * Initializes all configured peripherals (display, keyboard, card reader, pump, flow meter, backend).

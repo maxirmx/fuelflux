@@ -38,6 +38,7 @@ TEST(BacklogWorkerTest, ProcessesBacklogSuccessfully) {
     ASSERT_TRUE(storage->AddBacklog("uid-1", MessageMethod::Refuel, "{\"TankNumber\":1}"));
 
     auto backend = std::make_shared<StrictMock<MockBackendForBacklog>>();
+    EXPECT_CALL(*backend, IsAuthorized()).WillRepeatedly(Return(false));
     EXPECT_CALL(*backend, Authorize("uid-1")).WillOnce(Return(true));
     EXPECT_CALL(*backend, RefuelPayload("{\"TankNumber\":1}")).WillOnce(Return(true));
     EXPECT_CALL(*backend, Deauthorize()).WillOnce(Return(true));
@@ -53,6 +54,7 @@ TEST(BacklogWorkerTest, KeepsBacklogOnNetworkError) {
     ASSERT_TRUE(storage->AddBacklog("uid-2", MessageMethod::Refuel, "{\"TankNumber\":2}"));
 
     auto backend = std::make_shared<StrictMock<MockBackendForBacklog>>();
+    EXPECT_CALL(*backend, IsAuthorized()).WillRepeatedly(Return(false));
     EXPECT_CALL(*backend, Authorize("uid-2")).WillOnce(Return(false));
     EXPECT_CALL(*backend, IsNetworkError()).WillOnce(Return(true));
 
@@ -67,6 +69,7 @@ TEST(BacklogWorkerTest, MovesToDeadOnNonNetworkError) {
     ASSERT_TRUE(storage->AddBacklog("uid-3", MessageMethod::Refuel, "{\"TankNumber\":3}"));
 
     auto backend = std::make_shared<StrictMock<MockBackendForBacklog>>();
+    EXPECT_CALL(*backend, IsAuthorized()).WillRepeatedly(Return(false));
     EXPECT_CALL(*backend, Authorize("uid-3")).WillOnce(Return(true));
     EXPECT_CALL(*backend, RefuelPayload("{\"TankNumber\":3}")).WillOnce(Return(false));
     EXPECT_CALL(*backend, Deauthorize()).WillOnce(Return(true));

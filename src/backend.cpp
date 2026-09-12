@@ -286,8 +286,10 @@ CaresResolver& GetCaresResolver() {
 //   logPrefix - prefix for log messages (e.g., "" or "Async deauthorize: ")
 void SetupDnsResolution(CURL* curl, CurlSlist& resolveList, 
                         const std::string& host, const std::string& url,
-                        const std::string& logPrefix = "") {
-    std::string resolvedIp  = GetCaresResolver().Resolve(host, kPppInterface);
+                        const std::string& logPrefix = "",
+                        const std::atomic<bool>* cancelled = nullptr) {
+    std::string resolvedIp  = GetCaresResolver().Resolve(host, kPppInterface, cancelled);
+    if (cancelled && cancelled->load()) return;
     if (resolvedIp.empty()) {
         // c-ares failed; fall back to letting libcurl do DNS, but force it to use
         // the PPP interface so that queries do not go via the default route.
@@ -325,6 +327,11 @@ Backend::~Backend() {
     // Cleanup should happen at process shutdown, not per Backend instance
 }
 
+std::shared_ptr<IBackend> Backend::CreateIndependentSession() const {
+    // Delivery persistence belongs to the coordinator, not the transport.
+    return std::make_shared<Backend>(baseAPI_, controllerUid_, nullptr);
+}
+
 nlohmann::json Backend::HttpRequestWrapper(const std::string& endpoint,
                                            const std::string& method,
                                            const nlohmann::json& requestBody,
@@ -332,6 +339,11 @@ nlohmann::json Backend::HttpRequestWrapper(const std::string& endpoint,
     std::lock_guard<std::recursive_mutex> lock(requestMutex_);
 
     networkError_ = false;
+
+    if (cancelled_.load()) {
+        networkError_ = true;
+        return BuildWrapperErrorResponse();
+    }
 
     // Use RAII wrapper for CURL handle
     CurlHandle curl;
@@ -358,6 +370,12 @@ nlohmann::json Backend::HttpRequestWrapper(const std::string& endpoint,
         // Set callback for response
         curl_easy_setopt(curl.get(), CURLOPT_WRITEFUNCTION, WriteCallback);
         curl_easy_setopt(curl.get(), CURLOPT_WRITEDATA, &responseBody);
+        curl_easy_setopt(curl.get(), CURLOPT_NOPROGRESS, 0L);
+        curl_easy_setopt(curl.get(), CURLOPT_XFERINFODATA, &cancelled_);
+        curl_easy_setopt(curl.get(), CURLOPT_XFERINFOFUNCTION,
+            +[](void* context, curl_off_t, curl_off_t, curl_off_t, curl_off_t) -> int {
+                return static_cast<std::atomic<bool>*>(context)->load() ? 1 : 0;
+            });
         
         // Set timeouts
 #ifdef TARGET_SIM800C
@@ -389,7 +407,7 @@ nlohmann::json Backend::HttpRequestWrapper(const std::string& endpoint,
             // Bind DNS queries to ppp0 interface via ares_set_local_dev()
             // Then use CURLOPT_RESOLVE to provide the resolved IP to curl
             // This preserves the hostname in the URL for Host header and SNI
-            SetupDnsResolution(curl.get(), resolveList, host, url);
+            SetupDnsResolution(curl.get(), resolveList, host, url, "", &cancelled_);
 #endif
         } else {
             if (IsLocalhost(host)) {
@@ -429,6 +447,10 @@ nlohmann::json Backend::HttpRequestWrapper(const std::string& endpoint,
         }
 
         // Perform request
+        if (cancelled_.load()) {
+            networkError_ = true;
+            return BuildWrapperErrorResponse();
+        }
         CURLcode res = curl_easy_perform(curl.get());
 
         if (res != CURLE_OK) {
@@ -641,6 +663,8 @@ nlohmann::json Backend::HttpRequestWrapper(const std::string& endpoint,
 
 // Static helper for async deauthorize - doesn't use mutex or modify state
 void Backend::SendAsyncDeauthorize(const std::string& baseAPI, const std::string& token) {
+    auto& cancelled = DeauthorizeCancellation();
+    if (cancelled.load()) return;
     // Use RAII wrapper for CURL handle
     CurlHandle curl;
     if (!curl) {
@@ -654,6 +678,13 @@ void Backend::SendAsyncDeauthorize(const std::string& baseAPI, const std::string
         std::string bodyStr = "{}";
         
         LOG_BCK_DEBUG("Async deauthorize: POST /api/pump/deauthorize");
+
+        curl_easy_setopt(curl.get(), CURLOPT_NOPROGRESS, 0L);
+        curl_easy_setopt(curl.get(), CURLOPT_XFERINFODATA, &cancelled);
+        curl_easy_setopt(curl.get(), CURLOPT_XFERINFOFUNCTION,
+            +[](void* context, curl_off_t, curl_off_t, curl_off_t, curl_off_t) -> int {
+                return static_cast<std::atomic<bool>*>(context)->load() ? 1 : 0;
+            });
 
         // Set URL
         curl_easy_setopt(curl.get(), CURLOPT_URL, url.c_str());
@@ -690,7 +721,7 @@ void Backend::SendAsyncDeauthorize(const std::string& baseAPI, const std::string
             
 #ifdef USE_CARES
             // Use c-ares with Yandex DNS for hostname resolution via ppp0
-            SetupDnsResolution(curl.get(), resolveList, host, url, "Async deauthorize: ");
+            SetupDnsResolution(curl.get(), resolveList, host, url, "Async deauthorize: ", &cancelled);
 #endif
         }
 #endif
@@ -713,6 +744,7 @@ void Backend::SendAsyncDeauthorize(const std::string& baseAPI, const std::string
         curl_easy_setopt(curl.get(), CURLOPT_POSTFIELDSIZE, static_cast<long>(bodyStr.size()));
 
         // Perform request
+        if (cancelled.load()) return;
         CURLcode res = curl_easy_perform(curl.get());
 
         if (res != CURLE_OK) {

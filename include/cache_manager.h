@@ -7,6 +7,7 @@
 #include "user_cache.h"
 #include "backend.h"
 #include "timing_config.h"
+#include "message_storage.h"
 #include <memory>
 #include <thread>
 #include <atomic>
@@ -52,6 +53,9 @@ public:
     
     // Deduct allowance from cache (called after refuel for RoleId==1)
     bool DeductAllowance(const std::string& uid, double amount);
+    // Configure before Start(). Only a fresh, complete population may release
+    // resolved local snapshots; requests begun before delivery must not do so.
+    void SetReportStorage(std::shared_ptr<MessageStorage> storage) { reportStorage_ = std::move(storage); }
 
 private:
     void WorkerThread();
@@ -60,6 +64,7 @@ private:
     
     std::shared_ptr<UserCache> cache_;
     std::shared_ptr<IBackend> backend_;
+    std::shared_ptr<MessageStorage> reportStorage_;
     
     std::thread workerThread_;
     std::atomic<bool> running_;

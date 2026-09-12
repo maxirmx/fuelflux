@@ -1,4 +1,4 @@
-﻿// Copyright (C) 2025, 2026 Maxim [maxirmx] Samsonov (www.sw.consulting)
+// Copyright (C) 2025, 2026 Maxim [maxirmx] Samsonov (www.sw.consulting)
 // All rights reserved.
 // This file is a part of fuelflux application
 
@@ -198,11 +198,7 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
             msg.line3 = "Очередь";
             display->showMessage(msg);
 
-            auto storage = std::make_shared<MessageStorage>(STORAGE_DB_PATH);
-            auto backend = Controller::CreateDefaultBackend(storage);
-            auto backlogBackend = Controller::CreateDefaultBackendShared(controllerId, nullptr);
-            BacklogWorker backlogWorker(storage, backlogBackend, timing::kBacklogWorkerInterval);
-            backlogWorker.Start();
+            auto backend = Controller::CreateDefaultBackend();
 
 
             // ----- Контроллер -----
@@ -313,11 +309,9 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
                 
                 // Shutdown controller
                 controller.shutdown();
-                backlogWorker.Stop();
             } catch (...) {
                 // Ensure controller is stopped even if exception occurs
                 controller.shutdown();
-                backlogWorker.Stop();
                 throw; // Re-throw to be caught by outer handler
             }
             
@@ -391,6 +385,7 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
         }
     }
     
+    BackendBase::ShutdownAsyncRequests();
 #ifdef USE_CARES
     if (caresInitialized) {
         CleanupCaresLibrary();

@@ -6,6 +6,7 @@
 #include <gmock/gmock.h>
 #include "backend.h"
 #include <httplib.h>
+#include <future>
 
 using namespace fuelflux;
 using ::testing::_;
@@ -462,6 +463,28 @@ TEST_F(BackendTest, ConnectionErrorHandling) {
     EXPECT_FALSE(backend.IsAuthorized());
     // Verify error message is set
     EXPECT_FALSE(backend.GetLastError().empty());
+}
+
+TEST_F(BackendTest, CancellationAbortsAnAlreadySentAuthorization) {
+    std::atomic<bool> received{false}, release{false};
+    mockServer->handleAuthorize = [&](const httplib::Request&, httplib::Response& response) {
+        received = true;
+        while (!release) std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        response.set_content(R"({"Token":"late","RoleId":1,"Allowance":100})", "application/json");
+    };
+    auto backend = std::make_shared<Backend>(baseAPI, controllerUid);
+    auto result = std::async(std::launch::async, [backend] { return backend->Authorize("card"); });
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    while (!received && std::chrono::steady_clock::now() < deadline)
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    EXPECT_TRUE(received);
+    backend->CancelPendingRequests();
+    const auto status = result.wait_for(std::chrono::seconds(2));
+    release = true;
+    EXPECT_EQ(status, std::future_status::ready);
+    EXPECT_FALSE(result.get());
+    EXPECT_FALSE(backend->IsAuthorized());
+    EXPECT_TRUE(backend->IsNetworkError());
 }
 
 // Test timeout error handling

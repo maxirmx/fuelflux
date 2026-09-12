@@ -42,7 +42,7 @@ UserCache::UserCache(const std::string& dbPath)
     Execute("CREATE TABLE IF NOT EXISTS user_cache_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);");
     
     // Initialize metadata if it doesn't exist
-    std::lock_guard<std::mutex> lock(dbMutex_);
+    std::lock_guard<std::recursive_mutex> lock(dbMutex_);
     sqlite3_stmt* stmt = nullptr;
     const char* sql = "SELECT value FROM user_cache_meta WHERE key = 'active_table';";
     if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) == SQLITE_OK) {
@@ -63,7 +63,7 @@ UserCache::UserCache(const std::string& dbPath)
 }
 
 UserCache::~UserCache() {
-    std::lock_guard<std::mutex> lock(dbMutex_);
+    std::lock_guard<std::recursive_mutex> lock(dbMutex_);
     if (db_) {
         sqlite3_close(db_);
         db_ = nullptr;
@@ -71,12 +71,12 @@ UserCache::~UserCache() {
 }
 
 bool UserCache::IsOpen() const {
-    std::lock_guard<std::mutex> lock(dbMutex_);
+    std::lock_guard<std::recursive_mutex> lock(dbMutex_);
     return db_ != nullptr;
 }
 
 bool UserCache::Execute(const std::string& sql) const {
-    std::lock_guard<std::mutex> lock(dbMutex_);
+    std::lock_guard<std::recursive_mutex> lock(dbMutex_);
     if (!db_) {
         return false;
     }
@@ -89,6 +89,21 @@ bool UserCache::Execute(const std::string& sql) const {
     return true;
 }
 
+std::optional<AuthorizationSnapshot> UserCache::GetAuthorizationSnapshot(const std::string& uid) const {
+    // Both reads use the same active generation, even during a population flip.
+    std::lock_guard<std::recursive_mutex> lock(dbMutex_);
+    const auto user = GetEntry(uid);
+    if (!user) return std::nullopt;
+    AuthorizationSnapshot result;
+    result.user.uid = user->uid;
+    result.user.role = static_cast<UserRole>(user->roleId);
+    result.user.allowance = user->allowance;
+    for (const auto& tank : GetTanks())
+        result.tanks.push_back({tank.idTank, tank.visualNumberTank, tank.nameTank, tank.volume});
+    if (result.tanks.empty()) return std::nullopt;
+    return result;
+}
+
 std::string UserCache::GetActiveTableName() const {
     return activeTableIsA_ ? "user_cache_a" : "user_cache_b";
 }
@@ -98,7 +113,7 @@ std::string UserCache::GetStandbyTableName() const {
 }
 
 std::optional<UserCacheEntry> UserCache::GetEntry(const std::string& uid) const {
-    std::lock_guard<std::mutex> lock(dbMutex_);
+    std::lock_guard<std::recursive_mutex> lock(dbMutex_);
     if (!db_) {
         return std::nullopt;
     }
@@ -124,7 +139,7 @@ std::optional<UserCacheEntry> UserCache::GetEntry(const std::string& uid) const 
 }
 
 bool UserCache::UpdateEntry(const std::string& uid, double allowance, int roleId) {
-    std::lock_guard<std::mutex> lock(dbMutex_);
+    std::lock_guard<std::recursive_mutex> lock(dbMutex_);
     if (!db_) {
         return false;
     }
@@ -164,7 +179,7 @@ bool UserCache::UpdateEntry(const std::string& uid, double allowance, int roleId
 }
 
 bool UserCache::DeductAllowance(const std::string& uid, double amount) {
-    std::lock_guard<std::mutex> lock(dbMutex_);
+    std::lock_guard<std::recursive_mutex> lock(dbMutex_);
     if (!db_) {
         return false;
     }
@@ -245,7 +260,7 @@ bool UserCache::DeductAllowance(const std::string& uid, double amount) {
 }
 
 int UserCache::GetCount() const {
-    std::lock_guard<std::mutex> lock(dbMutex_);
+    std::lock_guard<std::recursive_mutex> lock(dbMutex_);
     if (!db_) {
         return 0;
     }
@@ -265,7 +280,7 @@ int UserCache::GetCount() const {
 }
 
 std::vector<TankCacheEntry> UserCache::GetTanks() const {
-    std::lock_guard<std::mutex> lock(dbMutex_);
+    std::lock_guard<std::recursive_mutex> lock(dbMutex_);
     std::vector<TankCacheEntry> result;
     if (!db_) {
         return result;
@@ -293,7 +308,7 @@ std::vector<TankCacheEntry> UserCache::GetTanks() const {
 }
 
 int UserCache::GetTankCount() const {
-    std::lock_guard<std::mutex> lock(dbMutex_);
+    std::lock_guard<std::recursive_mutex> lock(dbMutex_);
     if (!db_) {
         return 0;
     }
@@ -314,7 +329,7 @@ int UserCache::GetTankCount() const {
 }
 
 bool UserCache::BeginPopulation() {
-    std::lock_guard<std::mutex> lock(dbMutex_);
+    std::lock_guard<std::recursive_mutex> lock(dbMutex_);
     if (!db_ || populationInProgress_) {
         return false;
     }
@@ -341,7 +356,7 @@ bool UserCache::BeginPopulation() {
 }
 
 bool UserCache::AddPopulationEntry(const std::string& uid, double allowance, int roleId) {
-    std::lock_guard<std::mutex> lock(dbMutex_);
+    std::lock_guard<std::recursive_mutex> lock(dbMutex_);
     if (!db_ || !populationInProgress_) {
         return false;
     }
@@ -362,7 +377,7 @@ bool UserCache::AddPopulationEntry(const std::string& uid, double allowance, int
 }
 
 bool UserCache::AddPopulationTank(int idTank, int visualNumberTank, const std::string& nameTank, double volume) {
-    std::lock_guard<std::mutex> lock(dbMutex_);
+    std::lock_guard<std::recursive_mutex> lock(dbMutex_);
     if (!db_ || !populationInProgress_) {
         return false;
     }
@@ -386,7 +401,7 @@ bool UserCache::AddPopulationTank(int idTank, int visualNumberTank, const std::s
 }
 
 bool UserCache::CommitPopulation() {
-    std::lock_guard<std::mutex> lock(dbMutex_);
+    std::lock_guard<std::recursive_mutex> lock(dbMutex_);
     if (!db_ || !populationInProgress_) {
         return false;
     }
@@ -419,7 +434,7 @@ bool UserCache::CommitPopulation() {
 }
 
 void UserCache::AbortPopulation() {
-    std::lock_guard<std::mutex> lock(dbMutex_);
+    std::lock_guard<std::recursive_mutex> lock(dbMutex_);
     populationInProgress_ = false;
 }
 

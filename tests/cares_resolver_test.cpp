@@ -4,9 +4,17 @@
 
 #include <gtest/gtest.h>
 #include "cares_resolver.h"
+#include "backend.h"
 #include <chrono>
+#include <future>
+#include <thread>
 
 #ifdef USE_CARES
+
+#include <netinet/in.h>
+#include <sys/socket.h>
+#include <unistd.h>
+#include <poll.h>
 
 namespace fuelflux {
 namespace {
@@ -21,6 +29,7 @@ public:
     }
     
     void TearDown() override {
+        BackendBase::ShutdownAsyncRequests();
         CleanupCaresLibrary();
     }
 };
@@ -36,6 +45,65 @@ class CaresResolverTest : public ::testing::Test {
 protected:
     CaresResolver resolver;
 };
+
+TEST_F(CaresResolverTest, PreCancelledResolutionDoesNotStart) {
+    std::atomic<bool> cancelled{true};
+    const auto start = std::chrono::steady_clock::now();
+    EXPECT_TRUE(resolver.Resolve("example.invalid", "", &cancelled).empty());
+    EXPECT_LT(std::chrono::steady_clock::now() - start, std::chrono::milliseconds(250));
+}
+
+TEST_F(CaresResolverTest, CancellationInterruptsResolverLockWait) {
+    std::atomic<bool> hold{false}, entered{false}, release{false}, cancelled{false};
+    CaresResolver local("localhost", [&] {
+        if (hold) {
+            entered = true;
+            while (!release) std::this_thread::sleep_for(std::chrono::milliseconds(2));
+        }
+        return CaresResolver::Clock::now();
+    });
+    ASSERT_FALSE(local.Resolve("localhost").empty());
+    hold = true;
+    auto owner = std::async(std::launch::async, [&] { return local.Resolve("localhost"); });
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    while (!entered && std::chrono::steady_clock::now() < deadline)
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    auto waiter = std::async(std::launch::async, [&] { return local.Resolve("localhost", "", &cancelled); });
+    cancelled = true;
+    const auto status = waiter.wait_for(std::chrono::milliseconds(500));
+    release = true;
+    EXPECT_TRUE(entered);
+    EXPECT_EQ(status, std::future_status::ready);
+    EXPECT_TRUE(waiter.get().empty());
+    owner.get();
+}
+
+TEST_F(CaresResolverTest, CancellationInterruptsPendingDnsResponse) {
+    // Receive a real DNS query locally, then deliberately withhold the reply.
+    const int socketFd = socket(AF_INET, SOCK_DGRAM, 0);
+    ASSERT_GE(socketFd, 0);
+    struct SocketOwner { int fd; ~SocketOwner() { close(fd); } } owner{socketFd};
+    sockaddr_in address{};
+    address.sin_family = AF_INET;
+    address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    ASSERT_EQ(bind(socketFd, reinterpret_cast<sockaddr*>(&address), sizeof(address)), 0);
+    socklen_t length = sizeof(address);
+    ASSERT_EQ(getsockname(socketFd, reinterpret_cast<sockaddr*>(&address), &length), 0);
+    CaresResolver local("", CaresResolver::Clock::now,
+        "127.0.0.1:" + std::to_string(ntohs(address.sin_port)));
+    std::atomic<bool> cancelled{false};
+    auto request = std::async(std::launch::async, [&] {
+        return local.Resolve("foreground-cancellation.invalid", "", &cancelled);
+    });
+    pollfd descriptor{socketFd, POLLIN, 0};
+    const int received = poll(&descriptor, 1, 1000);
+    const auto beforeCancel = request.wait_for(std::chrono::milliseconds(0));
+    cancelled = true;
+    EXPECT_EQ(received, 1);
+    EXPECT_EQ(beforeCancel, std::future_status::timeout);
+    EXPECT_EQ(request.wait_for(std::chrono::milliseconds(500)), std::future_status::ready);
+    EXPECT_TRUE(request.get().empty());
+}
 
 // Test resolving localhost
 TEST_F(CaresResolverTest, ResolvesLocalhost) {
