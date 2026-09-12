@@ -63,6 +63,18 @@ other queued reports obtain an independent session when selected. Controller
 state and display transitions remain on the controller loop. Shutdown cancels
 active network work and joins the owned workers. At process exit the shared
 token-cleanup worker is also cancelled and joined before DNS/logging teardown.
+The same cleanup order applies when the application enters permanent failure.
+
+Controller startup and shutdown synchronize event-loop ownership, including a
+thread that has been launched but has not entered `run()` yet. Exceptions release
+that ownership too. `shutdown()` returns `false` if an active controller action
+does not exit within `kShutdownDeadline`; it leaves live state and peripherals
+intact so the caller can retry after the action exits. Destruction while the loop
+is still live terminates the process. The application also exits with failure on
+a shutdown timeout, allowing the service supervisor to restart it instead of
+freeing state under a hung peripheral call. Independent/cancellable backend
+sessions are required by `Controller` and checked at construction; synchronous
+backend adapters may still be used directly by synchronization/delivery callers.
 
 ## Persistence and compatibility
 
@@ -77,6 +89,15 @@ remap tanks or replace timestamps.
 from cache generations. Report acknowledgements and retries never deduct again.
 Interrupted deliveries are recovered for retry at coordinator startup. Protected
 card data and pending-card restrictions therefore survive restart.
+If startup recovery cannot write to SQLite, the worker retries recovery before
+sending any report. Recovery clears the in-flight marker; only the next delivery
+claim increments the attempt ID. Old completions are rejected both before that
+claim and after it.
+
+Canonical delivery checks the method's user role and payload shape. It does not
+compare an already-recorded transaction with a later server allowance or remap
+its tank: those values may have changed since dispensing, and doing so would
+incorrectly suppress or alter a retry.
 
 Synchronization records resolved snapshot revisions before fetching server
 data and may release protection only if those revisions remain unchanged and

@@ -24,7 +24,6 @@ void BacklogWorker::Start() {
     if (running_.exchange(true)) {
         return;
     }
-    storage_->RecoverInFlight();
     workerThread_ = std::thread(&BacklogWorker::RunLoop, this);
 }
 
@@ -58,8 +57,12 @@ void BacklogWorker::SetInterval(std::chrono::milliseconds interval) {
 }
 
 void BacklogWorker::RunLoop() {
+    bool recovered = false;
     while (running_.load()) {
-        const bool processed = ProcessOnce();
+        // No normal delivery until interrupted claims have been recovered.
+        // A transient SQLite error must not strand them until the next restart.
+        if (!recovered) recovered = storage_ && storage_->RecoverInFlight();
+        const bool processed = recovered && running_.load() && ProcessOnce();
         std::unique_lock<std::mutex> lock(mutex_);
         if (!running_.load()) {
             break;

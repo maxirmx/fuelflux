@@ -6,6 +6,7 @@
 #include <random>
 #include <map>
 #include <fstream>
+#include <future>
 #include <sqlite3.h>
 #include "display/st_bitmap_text.h"
 #include "peripherals/keyboard_utils.h"
@@ -75,6 +76,18 @@ public:
     std::atomic<int> starts{0};
 };
 
+class TestDisplay : public peripherals::IDisplay {
+public:
+    bool initialize() override { return true; }
+    void shutdown() override { ++shutdownCalls; }
+    bool isConnected() const override { return true; }
+    void showMessage(const DisplayMessage&) override { if (onShow) onShow(); }
+    void clear() override {}
+    void setBacklight(bool) override {}
+    std::function<void()> onShow;
+    std::atomic<int> shutdownCalls{0};
+};
+
 class ForegroundBackendTest : public ::testing::Test {
 protected:
     std::shared_ptr<Network> network = std::make_shared<Network>();
@@ -88,7 +101,7 @@ protected:
             ("fuelflux-foreground-" + std::to_string(std::random_device{}()));
         std::filesystem::create_directory(directory);
     }
-    void Start(std::chrono::milliseconds threshold = 50ms, bool saved = false) {
+    void Start(std::chrono::milliseconds threshold = 50ms, bool saved = false, bool startLoop = true) {
         // A deliberately unavailable general cache keeps these tests entirely
         // local. Protected snapshots exercise the same production fallback path.
         std::ofstream(directory / "no-cache") << "not a directory";
@@ -101,7 +114,7 @@ protected:
         controller->setPump(std::move(testPump));
         if (saved) Save();
         ASSERT_TRUE(controller->initialize());
-        thread = std::thread([this] { controller->run(); });
+        if (startLoop) thread = std::thread([this] { controller->run(); });
     }
     void TearDown() override {
         network->holdAuth = false;
@@ -227,7 +240,7 @@ TEST_F(ForegroundBackendTest, ShutdownCancelsBlockedAuthorization) {
     Start(); network->holdAuth = true; Scan("card");
     ASSERT_TRUE(Wait([&] { return network->AuthCount("card") == 1; }));
     const auto started = std::chrono::steady_clock::now();
-    controller->shutdown();
+    EXPECT_TRUE(controller->shutdown());
     thread.join();
     EXPECT_LT(std::chrono::steady_clock::now() - started, 1500ms);
     EXPECT_FALSE(controller->isSessionAuthorizedFromCache());
@@ -238,13 +251,79 @@ TEST_F(ForegroundBackendTest, ShutdownDuringReportingRestoresPendingCardAllowanc
     network->holdReports = true;
     Refuel(); ASSERT_TRUE(State(SystemState::RefuelingComplete));
     ASSERT_EQ(network->reportCalls.load(), 1);
-    controller->shutdown();
+    EXPECT_TRUE(controller->shutdown());
     thread.join();
     controller.reset(); storage.reset();
     Start(); Scan("card"); ASSERT_TRUE(State(SystemState::VolumeEntry));
     EXPECT_TRUE(controller->isSessionAuthorizedFromCache());
     EXPECT_DOUBLE_EQ(controller->getCurrentUser().allowance, 90);
     EXPECT_TRUE(storage->HasPendingReports("card"));
+}
+
+TEST_F(ForegroundBackendTest, ShutdownBeforeRunPreventsQueuedPeripheralActions) {
+    Start(50ms, false, false);
+    auto display = std::make_unique<TestDisplay>();
+    std::atomic<int> calls{0};
+    display->onShow = [&] { ++calls; };
+    controller->setDisplay(std::move(display));
+    controller->postEvent(Event::FlowDisplayRefresh);
+    std::promise<void> launch;
+    auto ready = launch.get_future();
+    thread = std::thread([&, ready = std::move(ready)]() mutable { ready.wait(); controller->run(); });
+    EXPECT_TRUE(controller->shutdown());
+    launch.set_value();
+    thread.join();
+    EXPECT_EQ(calls.load(), 0);
+}
+
+TEST_F(ForegroundBackendTest, UnexpectedLoopExitStillAllowsShutdown) {
+    Start(50ms, false, false);
+    auto display = std::make_unique<TestDisplay>();
+    auto* displayPtr = display.get();
+    display->onShow = [] { throw std::runtime_error("display failure"); };
+    controller->setDisplay(std::move(display));
+    std::atomic<bool> exited{false};
+    thread = std::thread([&] {
+        try { controller->run(); } catch (const std::runtime_error&) { exited = true; }
+    });
+    controller->postEvent(Event::FlowDisplayRefresh);
+    EXPECT_TRUE(Wait([&] { return exited.load(); }));
+    EXPECT_TRUE(controller->shutdown());
+    thread.join();
+    EXPECT_EQ(displayPtr->shutdownCalls.load(), 1);
+}
+
+TEST_F(ForegroundBackendTest, ShutdownDeadlinePreservesLiveStateAndAllowsRetry) {
+    Start(50ms, false, false);
+    auto display = std::make_unique<TestDisplay>();
+    auto* displayPtr = display.get();
+    std::promise<void> release;
+    auto released = release.get_future().share();
+    std::atomic<bool> entered{false};
+    display->onShow = [&, released] { entered = true; released.wait(); };
+    controller->setDisplay(std::move(display));
+    thread = std::thread([this] { controller->run(); });
+    controller->postEvent(Event::FlowDisplayRefresh);
+    EXPECT_TRUE(Wait([&] { return entered.load(); }));
+    const auto started = std::chrono::steady_clock::now();
+    EXPECT_FALSE(controller->shutdown());
+    EXPECT_LT(std::chrono::steady_clock::now() - started, timing::kShutdownDeadline + 1s);
+    EXPECT_EQ(displayPtr->shutdownCalls.load(), 0);
+    release.set_value();
+    thread.join();
+    EXPECT_TRUE(controller->shutdown());
+    EXPECT_EQ(displayPtr->shutdownCalls.load(), 1);
+}
+
+TEST_F(ForegroundBackendTest, SynchronousOnlyBackendIsRejectedBeforeControllerUse) {
+    class SynchronousBackend : public TestBackend {
+    public:
+        using TestBackend::TestBackend;
+        std::shared_ptr<IBackend> CreateIndependentSession() const override { return {}; }
+    };
+    EXPECT_THROW(Controller("controller", std::make_shared<SynchronousBackend>(network), 30s,
+        ControllerPersistencePaths{(directory / "cache.db").string(), (directory / "reports.db").string()}),
+        std::invalid_argument);
 }
 
 TEST_F(ForegroundBackendTest, PendingReportsAccumulateDeductionsAndLateRepliesDoNotRestoreThem) {

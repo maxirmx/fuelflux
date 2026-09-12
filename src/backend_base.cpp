@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <stdexcept>
 #include <thread>
 
@@ -509,9 +510,26 @@ bool BackendBase::RefuelPayload(const std::string& payload) {
 
 bool BackendBase::SendReportPayload(const std::string& payload, bool intake, bool canonicalTankId) {
     if (!canonicalTankId) return intake ? IntakePayload(payload) : RefuelPayload(payload);
-    if (!session_.IsAuthorized()) { lastError_ = StdControllerError; return false; }
+    networkError_ = false;
+    const auto requiredRole = intake ? UserRole::Operator : UserRole::Customer;
+    if (!session_.IsAuthorized() || roleId_ != static_cast<int>(requiredRole)) {
+        lastError_ = StdControllerError;
+        return false;
+    }
     const auto body = nlohmann::json::parse(payload, nullptr, false);
-    if (body.is_discarded()) { lastError_ = StdControllerError; return false; }
+    const char* volumeKey = intake ? "IntakeVolume" : "FuelVolume";
+    if (!body.is_object() || !body.contains(volumeKey) || !body[volumeKey].is_number() ||
+        !std::isfinite(body[volumeKey].get<double>()) || body[volumeKey].get<double>() < 0 ||
+        !body.contains("TankNumber") || !body["TankNumber"].is_number_integer() ||
+        !body.contains("TimeAt") || !body["TimeAt"].is_number_integer() ||
+        (intake && (!body.contains("Direction") || !body["Direction"].is_number_integer() ||
+                    (body["Direction"] != static_cast<int>(IntakeDirection::In) &&
+                     body["Direction"] != static_cast<int>(IntakeDirection::Out))))) {
+        lastError_ = StdControllerError;
+        return false;
+    }
+    // This is delivery of an already-recorded transaction. A later server
+    // allowance or tank mapping must not suppress/remap its retry.
     const auto response = HttpRequestWrapper(intake ? "/api/pump/fuel-intake" : "/api/pump/refuel", "POST", body, true);
     if (IsErrorResponse(response, &lastError_)) return false;
     lastError_.clear();

@@ -56,6 +56,31 @@ protected:
 
 } // namespace
 
+TEST(BackendBaseReportTest, CanonicalReportsEnforceMethodRoleWithoutRemappingRetries) {
+    for (int role : {0, 1, 2, 3}) {
+        TestBackendBase backend("controller");
+        int sent = 0;
+        backend.boolTokenHandler = [&](const std::string& endpoint, const std::string&,
+                                        const nlohmann::json& body, bool) -> nlohmann::json {
+            if (endpoint == "/api/pump/authorize")
+                return {{"Token", "test"}, {"RoleId", role}, {"Allowance", 1},
+                    {"fuelTanks", nlohmann::json::array({{{"idTank", 99}, {"visualNumberTank", 7}}})}};
+            ++sent;
+            EXPECT_EQ(body.at("TankNumber"), 42);
+            EXPECT_EQ(body.at("TimeAt"), 123);
+            return nullptr;
+        };
+        ASSERT_TRUE(backend.Authorize("card"));
+        EXPECT_EQ(backend.SendReportPayload(R"({"TankNumber":42,"FuelVolume":10,"TimeAt":123})", false, true), role == 1);
+        EXPECT_EQ(backend.SendReportPayload(R"({"TankNumber":42,"IntakeVolume":10,"TimeAt":123,"Direction":1})", true, true), role == 2);
+        EXPECT_EQ(sent, role == 1 || role == 2 ? 1 : 0);
+        EXPECT_FALSE(backend.SendReportPayload(R"({"TankNumber":42,"FuelVolume":-1,"TimeAt":123})", false, true));
+        EXPECT_FALSE(backend.SendReportPayload(R"({"TankNumber":42,"IntakeVolume":10,"TimeAt":123,"Direction":9})", true, true));
+        EXPECT_EQ(sent, role == 1 || role == 2 ? 1 : 0);
+        EXPECT_FALSE(backend.IsNetworkError());
+    }
+}
+
 TEST(BackendBaseFetchUserCardsTest, SendsExpectedRequestAndParsesValidCards) {
     TestBackendBase backend("controller-uid-42");
 

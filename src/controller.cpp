@@ -71,6 +71,8 @@ Controller::Controller(ControllerId controllerId,
     , noFlowCancelTimeout_(noFlowCancelTimeout)
 {
     if (foregroundWait_.count() <= 0) throw std::invalid_argument("Foreground wait must be positive");
+    if (!backendPrototype_->CreateIndependentSession())
+        throw std::invalid_argument("Controller requires a backend with independent cancellable sessions");
     resetSessionData();
     
     // Initialize user cache and cache manager
@@ -106,13 +108,15 @@ Controller::Controller(ControllerId controllerId,
 }
 
 Controller::~Controller() {
-    shutdown();
+    // Destruction with a live loop would free state still used by that thread.
+    if (!shutdown()) std::terminate();
 }
 
 bool Controller::initialize() {
     LOG_CTRL_INFO("Initializing controller: {}", controllerId_);
 
     lastErrorMessage_.clear();
+    peripheralsNeedShutdown_ = true;
     bool ok = initializePeripherals();
     
     // Setup peripheral callbacks
@@ -145,11 +149,16 @@ bool Controller::initialize() {
     return ok;
 }
 
-void Controller::shutdown() {
+bool Controller::shutdown() {
+    std::lock_guard<std::mutex> shutdownLock(shutdownMutex_);
     LOG_CTRL_INFO("Shutting down...");
     
     // Network jobs hold their own state and never reference Controller.
-    const bool wasRunning = isRunning_.exchange(false);
+    {
+        std::lock_guard<std::mutex> lock(lifecycleMutex_);
+        shutdownRequested_ = true;
+        isRunning_ = false;
+    }
     eventCv_.notify_all();
     // Stop cache manager first
     if (cacheManager_) {
@@ -160,20 +169,22 @@ void Controller::shutdown() {
     stopNoFlowMonitorThread();
     // Do not tear down state while a controller-side SQLite transaction or
     // peripheral action is still finishing. The caller joins the loop thread.
-    const auto deadline = std::chrono::steady_clock::now() + timing::kShutdownDeadline;
-    bool warned = false;
-    while (!threadExited_) {
-        if (!warned && std::chrono::steady_clock::now() >= deadline) {
-            LOG_CTRL_WARN("Waiting for controller action to finish before shutdown");
-            warned = true;
+    {
+        std::unique_lock<std::mutex> lock(lifecycleMutex_);
+        if (!lifecycleCv_.wait_for(lock, timing::kShutdownDeadline, [this] { return !loopActive_; })) {
+            LOG_CTRL_ERROR("Controller shutdown deadline exceeded; live state has not been torn down");
+            return false;
         }
-        std::this_thread::sleep_for(timing::kEventLoopIdleSleep);
     }
     abandonAuthorization();
     authorizationExecutor_.Shutdown();
     if (reportWorker_) reportWorker_->Stop();
-    if (wasRunning) shutdownPeripherals();
+    if (peripheralsNeedShutdown_) {
+        shutdownPeripherals();
+        peripheralsNeedShutdown_ = false;
+    }
     LOG_CTRL_INFO("Shutdown complete");
+    return true;
 }
 
 bool Controller::reinitializeDevice() {
@@ -212,10 +223,17 @@ bool Controller::reinitializeDevice() {
 }
 
 void Controller::run() {
+    {
+        std::lock_guard<std::mutex> lock(lifecycleMutex_);
+        if (shutdownRequested_ || !isRunning_) return;
+        if (loopActive_) throw std::logic_error("Controller event loop already running");
+        loopActive_ = true;
+    }
+    struct ExitGuard {
+        Controller* controller;
+        ~ExitGuard() { controller->finishRun(); }
+    } exitGuard{this};
     LOG_CTRL_INFO("Starting main loop");
-    
-    // Reset the flag at the start of the run loop
-    threadExited_ = false;
     
     while (isRunning_) {
         pollBackendOperations();
@@ -236,6 +254,7 @@ void Controller::run() {
             }
         }
 
+        if (!isRunning_) break;
         if (haveEvent) {
             if (queued.authorizationCancel) {
                 if (queued.cancelEnabled && queued.authorizationId == activeAuthorizationId_.load() &&
@@ -264,9 +283,16 @@ void Controller::run() {
         }
     }
     
-    // Signal that thread has exited the main loop
-    threadExited_ = true;
     LOG_CTRL_INFO("Main loop stopped");
+}
+
+void Controller::finishRun() {
+    {
+        std::lock_guard<std::mutex> lock(lifecycleMutex_);
+        isRunning_ = false;
+        loopActive_ = false;
+    }
+    lifecycleCv_.notify_all();
 }
 
 // Allow other threads to post events into controller's loop

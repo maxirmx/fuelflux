@@ -452,6 +452,8 @@ TEST_F(ControllerTest, PersistencePathsIsolateControllerState) {
 
     auto secondBackend = std::make_shared<NiceMock<MockBackend>>();
     ON_CALL(*secondBackend, GetControllerUid()).WillByDefault(ReturnRef(CONTROLLER_UID));
+    ON_CALL(*secondBackend, CreateIndependentSession())
+        .WillByDefault([weak = std::weak_ptr<IBackend>(secondBackend)] { return weak.lock(); });
     auto secondController = std::make_unique<Controller>(
         CONTROLLER_UID,
         secondBackend,

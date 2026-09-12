@@ -7,6 +7,9 @@
 
 #include "backlog_worker.h"
 #include "message_storage.h"
+#include <sqlite3.h>
+#include <filesystem>
+#include <random>
 
 using namespace fuelflux;
 using ::testing::Return;
@@ -79,4 +82,46 @@ TEST(BacklogWorkerTest, MovesToDeadOnNonNetworkError) {
     EXPECT_TRUE(worker.ProcessOnce());
     EXPECT_EQ(storage->BacklogCount(), 0);
     EXPECT_EQ(storage->DeadMessageCount(), 1);
+}
+
+TEST(BacklogWorkerTest, RetriesStartupRecoveryBeforeSendingAnyReport) {
+    const auto path = std::filesystem::temp_directory_path() /
+        ("fuelflux-recovery-" + std::to_string(std::random_device{}()) + ".db");
+    struct RemoveDatabase {
+        std::filesystem::path path;
+        ~RemoveDatabase() { std::error_code error; std::filesystem::remove(path, error); }
+    } removeDatabase{path};
+    auto storage = std::make_shared<MessageStorage>(path.string());
+    ASSERT_TRUE(storage->AddBacklog("first", MessageMethod::Refuel, "first-payload"));
+    ASSERT_TRUE(storage->ClaimNextBacklog());
+    ASSERT_TRUE(storage->AddBacklog("second", MessageMethod::Refuel, "second-payload"));
+    sqlite3* database = nullptr;
+    ASSERT_EQ(sqlite3_open(path.string().c_str(), &database), SQLITE_OK);
+    struct CloseDatabase { sqlite3* db; ~CloseDatabase() { sqlite3_close(db); } } closeDatabase{database};
+    ASSERT_EQ(sqlite3_exec(database,
+        "CREATE TRIGGER block_recovery BEFORE UPDATE ON backlog WHEN OLD.in_flight=1 AND NEW.in_flight=0 BEGIN SELECT RAISE(ABORT,'temporarily unavailable'); END",
+        nullptr, nullptr, nullptr), SQLITE_OK);
+    auto backend = std::make_shared<StrictMock<MockBackendForBacklog>>();
+    std::atomic<int> sent{0};
+    {
+        ::testing::InSequence order;
+        EXPECT_CALL(*backend, Authorize("first")).WillOnce(Return(true));
+        EXPECT_CALL(*backend, RefuelPayload("first-payload")).WillOnce([&] { ++sent; return true; });
+        EXPECT_CALL(*backend, Deauthorize()).WillOnce(Return(true));
+        EXPECT_CALL(*backend, Authorize("second")).WillOnce(Return(true));
+        EXPECT_CALL(*backend, RefuelPayload("second-payload")).WillOnce([&] { ++sent; return true; });
+        EXPECT_CALL(*backend, Deauthorize()).WillOnce(Return(true));
+    }
+    BacklogWorker worker(storage, backend, std::chrono::milliseconds(10));
+    worker.Start();
+    std::this_thread::sleep_for(std::chrono::milliseconds(80));
+    EXPECT_EQ(sent.load(), 0);
+    EXPECT_EQ(sqlite3_exec(database, "DROP TRIGGER block_recovery", nullptr, nullptr, nullptr), SQLITE_OK);
+    worker.Wake();
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    while (storage->BacklogCount() != 0 && std::chrono::steady_clock::now() < deadline)
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    worker.Stop();
+    EXPECT_EQ(sent.load(), 2);
+    EXPECT_EQ(storage->BacklogCount(), 0);
 }

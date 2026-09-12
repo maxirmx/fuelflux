@@ -48,7 +48,7 @@ constexpr std::chrono::milliseconds kEventLoopWaitInterval{100};
 // without an event (avoids busy-spinning).
 constexpr std::chrono::milliseconds kEventLoopIdleSleep{10};
 
-// Shutdown: warn if the event-loop thread takes longer than this to exit.
+// Shutdown: maximum wait for the event-loop thread before reporting failure.
 constexpr std::chrono::milliseconds kShutdownDeadline{2000};
 
 // No-flow monitor thread: polling interval.

@@ -432,7 +432,7 @@ bool MessageStorage::CompleteDelivery(const StoredMessage& m, DeliveryResult res
 }
 
 bool MessageStorage::RecoverInFlight() {
-    return Execute("UPDATE backlog SET in_flight=0,attempt=attempt+1,retry_after=0 WHERE in_flight=1");
+    return Execute("UPDATE backlog SET in_flight=0,retry_after=0 WHERE in_flight=1");
 }
 
 int MessageStorage::BacklogCount() const {

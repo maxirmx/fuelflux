@@ -49,7 +49,9 @@ struct FuelTank {
 class IBackend {
 public:
     virtual ~IBackend() = default;
-    // Return an independent mutable session for each foreground operation.
+    // Return an independent cancellable session for each foreground operation.
+    // Empty is allowed for synchronous-only adapters. Controller requires this
+    // capability and rejects unsupported adapters at construction, before use.
     virtual std::shared_ptr<IBackend> CreateIndependentSession() const { return {}; }
     virtual void CancelPendingRequests() {}
     virtual bool SendReportPayload(const std::string& payload, bool intake, bool canonicalTankId) {

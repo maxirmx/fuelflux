@@ -49,7 +49,9 @@ class Controller {
 
     // System lifecycle
     bool initialize();
-    void shutdown();
+    // False means the event loop missed its deadline. Keep this object and its
+    // peripherals alive, then retry/join after it exits or terminate the process.
+    bool shutdown();
     void run();
     /**
      * Reinitialize the device and all connected peripherals.
@@ -255,7 +257,12 @@ class Controller {
     
     // System state
     std::atomic<bool> isRunning_;
-    std::atomic<bool> threadExited_{true};
+    std::mutex shutdownMutex_;
+    std::mutex lifecycleMutex_;
+    std::condition_variable lifecycleCv_;
+    bool loopActive_ = false;
+    bool shutdownRequested_ = false;
+    bool peripheralsNeedShutdown_ = false;
     std::string lastErrorMessage_;
     bool sessionAuthorizedFromCache_ = false;
 
@@ -300,6 +307,7 @@ class Controller {
     SavedAuthorizationState savedAuthorization(const std::string& uid) const;
     void applyAuthorization(const AuthorizationSnapshot& snapshot, bool fromCache);
     void pollBackendOperations();
+    void finishRun();
     void abandonAuthorization();
     bool submitReport(MessageMethod method, const std::string& uid, TankNumber tank,
                       Volume volume, std::chrono::system_clock::time_point timestamp,

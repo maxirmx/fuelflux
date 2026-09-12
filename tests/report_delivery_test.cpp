@@ -114,10 +114,12 @@ TEST(ReportDeliveryTest, RestartInvalidatesOldAttemptsAndPreservesBalance) {
         MessageStorage storage(file.path.string());
         EXPECT_FALSE(storage.ClaimNextBacklog());
         ASSERT_TRUE(storage.RecoverInFlight());
+        EXPECT_FALSE(storage.CompleteDelivery(old, MessageStorage::DeliveryResult::Accepted));
+        ASSERT_TRUE(storage.RecoverInFlight());
         auto resumed = storage.ClaimNextBacklog();
         ASSERT_TRUE(resumed);
         EXPECT_EQ(resumed->id, old.id);
-        EXPECT_GT(resumed->attempt, old.attempt);
+        EXPECT_EQ(resumed->attempt, old.attempt + 1);
         EXPECT_FALSE(storage.CompleteDelivery(old, MessageStorage::DeliveryResult::Accepted));
         EXPECT_DOUBLE_EQ(storage.GetProtectedSnapshot("card")->authorization.user.allowance, 88);
     }
