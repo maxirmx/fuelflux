@@ -49,6 +49,12 @@ struct FuelTank {
 class IBackend {
 public:
     virtual ~IBackend() = default;
+    // Return an independent cancellable session for each foreground operation.
+    // Empty is allowed for synchronous-only adapters. Controller requires this
+    // capability and rejects unsupported adapters at construction, before use.
+    virtual std::shared_ptr<IBackend> CreateIndependentSession() const { return {}; }
+    virtual void CancelPendingRequests() = 0;
+    virtual bool SendReportPayload(const std::string& payload, bool intake, bool canonicalTankId) = 0;
     virtual bool Authorize(const std::string& uid) = 0;
     virtual bool Deauthorize() = 0;
     virtual bool Refuel(TankNumber tankNumber, Volume volume) = 0;
@@ -86,6 +92,9 @@ public:
 class BackendBase : public IBackend, public std::enable_shared_from_this<BackendBase> {
 public:
     ~BackendBase() override = default;
+    // Process shutdown only: cancel and join the shared token-cleanup worker
+    // before tearing down DNS and logging. Independent controller workers stop first.
+    static void ShutdownAsyncRequests();
 
     bool Authorize(const std::string& uid) override;
     bool Deauthorize() override;
@@ -93,6 +102,8 @@ public:
     bool Intake(TankNumber tankNumber, Volume volume, IntakeDirection direction) override;
     bool RefuelPayload(const std::string& payload) override;
     bool IntakePayload(const std::string& payload) override;
+    bool SendReportPayload(const std::string& payload, bool intake, bool canonicalTankId) override;
+    void CancelPendingRequests() override { cancelled_.store(true); }
 
     bool IsAuthorized() const override { return session_.IsAuthorized(); }
     std::string GetToken() const override { return session_.GetToken(); }
@@ -126,6 +137,7 @@ protected:
     // Get the bounded executor for async deauthorization requests
     // Uses Meyer's singleton pattern for thread-safe lazy initialization
     static BoundedExecutor& GetDeauthorizeExecutor();
+    static std::atomic<bool>& DeauthorizeCancellation();
 
     // Map TankNumber in a payload from visualNumberTank to idTank.
     // Returns true if a match was found and the mapping was applied.
@@ -140,6 +152,7 @@ protected:
     std::vector<BackendTankInfo> fuelTanks_;
     std::string lastError_;
     std::atomic<bool> networkError_{false};
+    std::atomic<bool> cancelled_{false};
     std::shared_ptr<MessageStorage> storage_;
 };
 
@@ -153,6 +166,7 @@ public:
     Backend(const std::string& baseAPI, const std::string& controllerUid, std::shared_ptr<MessageStorage> storage = nullptr);
     
     ~Backend() override;
+    std::shared_ptr<IBackend> CreateIndependentSession() const override;
 
 private:
     // Private method for common parsing of responses from the backend

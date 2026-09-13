@@ -1,4 +1,4 @@
-﻿// Copyright (C) 2025, 2026 Maxim [maxirmx] Samsonov (www.sw.consulting)
+// Copyright (C) 2025, 2026 Maxim [maxirmx] Samsonov (www.sw.consulting)
 // All rights reserved.
 // This file is a part of fuelflux application
 
@@ -39,6 +39,7 @@
 #include <thread>
 #include <atomic>
 #include <cstdlib>
+#include <exception>
 #include <cctype>
 #include <cerrno>
 #include <signal.h>
@@ -198,11 +199,7 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
             msg.line3 = "Очередь";
             display->showMessage(msg);
 
-            auto storage = std::make_shared<MessageStorage>(STORAGE_DB_PATH);
-            auto backend = Controller::CreateDefaultBackend(storage);
-            auto backlogBackend = Controller::CreateDefaultBackendShared(controllerId, nullptr);
-            BacklogWorker backlogWorker(storage, backlogBackend, timing::kBacklogWorkerInterval);
-            backlogWorker.Start();
+            auto backend = Controller::CreateDefaultBackend();
 
 
             // ----- Контроллер -----
@@ -298,26 +295,40 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
             
             // Start controller main loop in a separate thread
             controller.updateDisplay();
-            std::thread controllerThread([&controller]() {
-                controller.run();
+            std::atomic<bool> controllerFinished{false};
+            std::exception_ptr controllerFailure;
+            std::thread controllerThread([&]() {
+                try { controller.run(); }
+                catch (...) { controllerFailure = std::current_exception(); }
+                controllerFinished = true;
             });
+            struct JoinLoop {
+                std::thread& thread;
+                ~JoinLoop() { if (thread.joinable()) thread.join(); }
+            } joinLoop{controllerThread};
+            const auto shutdownController = [&controller] {
+                if (!controller.shutdown()) {
+                    // A stuck peripheral action cannot be safely detached from
+                    // Controller. Let the service supervisor restart the process.
+                    std::cerr << "Controller shutdown timed out; terminating for restart" << std::endl;
+                    std::_Exit(EXIT_FAILURE);
+                }
+            };
             
             // Ensure threads are cleaned up even if exceptions occur
             try {
                 // Main thread waits for shutdown signal
-                while (g_running) {
+                while (g_running && !controllerFinished) {
                     std::this_thread::sleep_for(timing::kMainLoopWaitInterval);
                 }
                 
                 LOG_INFO("Shutting down...");
                 
                 // Shutdown controller
-                controller.shutdown();
-                backlogWorker.Stop();
+                shutdownController();
             } catch (...) {
                 // Ensure controller is stopped even if exception occurs
-                controller.shutdown();
-                backlogWorker.Stop();
+                shutdownController();
                 throw; // Re-throw to be caught by outer handler
             }
             
@@ -327,6 +338,7 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
             if (controllerThread.joinable()) {
                 controllerThread.join();
             }
+            if (controllerFailure) std::rethrow_exception(controllerFailure);
             
             LOG_INFO("Shutdown complete");
         } catch (const std::exception& e) {
@@ -342,7 +354,7 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
         if (g_running) {
             if (retryCount >= MAX_RETRIES) {
                 LOG_CRITICAL("Maximum retry limit ({}) reached, entering permanent failure state", MAX_RETRIES);
-                
+                BackendBase::ShutdownAsyncRequests();
                 
 #ifdef USE_CARES
                 if (caresInitialized) {
@@ -391,6 +403,7 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
         }
     }
     
+    BackendBase::ShutdownAsyncRequests();
 #ifdef USE_CARES
     if (caresInitialized) {
         CleanupCaresLibrary();

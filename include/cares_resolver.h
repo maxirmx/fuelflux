@@ -11,6 +11,7 @@
 #include <chrono>
 #include <functional>
 #include <optional>
+#include <atomic>
 #include "timing_config.h"
 
 namespace fuelflux {
@@ -40,7 +41,8 @@ public:
     using TimeProvider = std::function<TimePoint()>;
 
     CaresResolver();
-    explicit CaresResolver(const std::string& cachedHostname, TimeProvider timeProvider = Clock::now);
+    explicit CaresResolver(const std::string& cachedHostname, TimeProvider timeProvider = Clock::now,
+                           const std::string& dnsServers = "");
     ~CaresResolver();
 
     // Resolve hostname to IP address using Yandex DNS
@@ -50,7 +52,8 @@ public:
     //   interface - network interface to bind for DNS queries (e.g., "ppp0")
     //               empty string means use system default
     // Thread-safe: multiple threads can call this method concurrently
-    std::string Resolve(const std::string& hostname, const std::string& interface = "");
+    std::string Resolve(const std::string& hostname, const std::string& interface = "",
+                        const std::atomic<bool>* cancelled = nullptr);
 
     // Test helpers for validating targeted cache behavior
     bool HasValidTargetedCacheForTesting() const;
@@ -69,11 +72,12 @@ private:
 
     std::string cached_hostname_;
     TimeProvider time_provider_;
+    std::string dns_servers_;
     std::optional<CacheEntry> backend_api_cache_entry_;
 
     // Mutex for thread-safe DNS resolution
     // Protects concurrent channel operations
-    mutable std::mutex resolve_mutex_;
+    mutable std::timed_mutex resolve_mutex_;
 };
 
 } // namespace fuelflux

@@ -30,6 +30,12 @@ constexpr std::chrono::seconds kCalibrationSavedDisplayDuration{2};
 
 // ─── Controller ───────────────────────────────────────────────────────────────
 
+// Maximum foreground wait before cache fallback or background report delivery.
+// Transport deadlines remain independent of this user-interface threshold.
+constexpr std::chrono::seconds kForegroundBackendWaitTimeout{5};
+static_assert(kForegroundBackendWaitTimeout.count() > 0,
+              "Foreground backend wait must be positive");
+
 // Default no-flow cancel timeout: pump stops if no flow pulses are received
 // for this long during refuelling (seconds).
 constexpr std::chrono::seconds kNoFlowCancelTimeout{30};
@@ -42,7 +48,7 @@ constexpr std::chrono::milliseconds kEventLoopWaitInterval{100};
 // without an event (avoids busy-spinning).
 constexpr std::chrono::milliseconds kEventLoopIdleSleep{10};
 
-// Shutdown: maximum time to wait for the event-loop thread to exit.
+// Shutdown: maximum wait for the event-loop thread before reporting failure.
 constexpr std::chrono::milliseconds kShutdownDeadline{2000};
 
 // No-flow monitor thread: polling interval.

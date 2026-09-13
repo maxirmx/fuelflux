@@ -67,6 +67,7 @@ enum class Event {
     AuthorizationSuccess,
     AuthorizationDenied,
     AuthorizationFailed,
+    AuthorizationCancelled,
     TankSelected,
     VolumeEntered,
     AmountEntered,
@@ -82,7 +83,8 @@ enum class Event {
     Timeout,
     Error,
     ErrorRecovery,
-    DisplayReset
+    DisplayReset,
+    FlowDisplayRefresh
 };
 
 // Key codes for keyboard input

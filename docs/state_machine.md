@@ -4,6 +4,12 @@
 
 The FuelFlux controller uses a Mealy state machine to manage the fuel dispensing workflow. The state machine ensures proper sequencing of operations and handles various user interactions, timeouts, and error conditions.
 
+Authorization and report delivery run on separate workers. The shared
+`kForegroundBackendWaitTimeout` (default 5 seconds, rebuild to change) controls
+cache fallback, the slow-connection warning, and release of transmission screens.
+See [Foreground Backend Waits](foreground_backend_waits.md) for persistence,
+pending-card continuation, late responses, and retry behavior.
+
 ## States
 
 ### SystemState Enumeration
@@ -42,12 +48,14 @@ The FuelFlux controller uses a Mealy state machine to manage the fuel dispensing
 | `PinEntered` | User completed PIN entry (pressed 'A') |
 | `AuthorizationSuccess` | Backend authorization succeeded |
 | `AuthorizationFailed` | Backend authorization failed |
+| `AuthorizationCancelled` | User abandoned a pending attempt from the slow-connection screen |
 | `TankSelected` | User selected a valid tank |
 | `VolumeEntered` | User entered a valid volume |
 | `AmountEntered` | User entered a payment amount (future use) |
 | `RefuelingStarted` | Pump started dispensing fuel |
 | `RefuelingStopped` | Pump stopped (manually or target reached) |
-| `DataTransmissionComplete` | Backend transaction transmission completed |
+| `DataTransmissionComplete` | Report resolved or foreground wait expired after durable storage |
+| `FlowDisplayRefresh` | Refresh the meter display without treating it as keyboard input |
 | `IntakeSelected` | Operator selected intake operation |
 | `IntakeDirectionSelected` | Operator selected intake direction (In/Out) |
 | `IntakeVolumeEntered` | Operator entered intake volume |
@@ -128,9 +136,10 @@ reporting, offline backlog storage, and allowance deduction.
      - Both trigger: Event: `RefuelingStopped` → State: `RefuelDataTransmission`
 
 6. **Refuel Data Transmission**
-   - Transaction is logged to backend asynchronously
+   - Report and reduced local allowance are committed together before another operation is enabled
+   - The delivery coordinator sends the report using its own session
    - Display shows: "Data transmission in progress"
-   - User cannot interact during transmission
+   - At delivery completion or the configured foreground deadline, the screen is released; delivery/retries can continue in the background
    - Event: `DataTransmissionComplete` → State: `RefuelingComplete`
 
 7. **Refueling Complete**
@@ -200,9 +209,9 @@ reporting, offline backlog storage, and allowance deduction.
      - Volume to transfer
      - Direction (In: 1, Out: 2)
      - Timestamp
-   - Transaction is logged to backend asynchronously
+   - Transaction and saved session data are persisted locally, then sent by the delivery coordinator
    - Display shows: "Data transmission in progress"
-   - Operator cannot interact during transmission (all keys disabled)
+   - At delivery completion or the configured foreground deadline, the screen is released; delivery/retries can continue in the background
    - Event: `DataTransmissionComplete` → State: `IntakeComplete`
 
 7. **Intake Complete**
@@ -266,7 +275,9 @@ When timeout occurs during intake entry: session ends, returns to `Waiting`, ope
 |----------|-------|--------|--------|
 | Invalid direction (e.g., '3') | `IntakeDirectionSelection` | Shows error, clears input | Stay in `IntakeDirectionSelection` |
 | Zero or negative volume | `IntakeVolumeEntry` | Shows error, clears input | Stay in `IntakeVolumeEntry` |
-| Backend transmission fails | `IntakeDataTransmission` | Transaction not logged | Stay in `IntakeDataTransmission`, can retry with cancel+restart |
+| Network transmission fails | `IntakeDataTransmission` | Durable report queued for retry | Completion screen after foreground deadline; same card uses saved data |
+| Backend definitively rejects report | `IntakeDataTransmission` | Move report to failed reports | Report resolved; next online authorization allowed when card has no pending reports |
+| Local report storage fails | `IntakeDataTransmission` | Show `Ошибка записи` | Enter `Error`; do not release an unrecorded transaction |
 | Invalid tank number | `TankSelection` | Shows error, clears input | Stay in `TankSelection` |
 | Timeout during intake | Any intake state | Session cleared | Return to `Waiting` |
 
@@ -317,7 +328,7 @@ The 'B' key (Stop/Cancel) is active in most states and handles different operati
 |------------|--------|
 | `Waiting` | No effect |
 | `PinEntry` | Clear PIN, return to `Waiting` |
-| `Authorization` | No effect (cannot cancel during auth) |
+| `Authorization` | No effect before foreground deadline; on the slow-connection screen, abandon attempt and return to `Waiting` |
 | `NotAuthorized` | Return to `Waiting` |
 | `TankSelection` | Cancel selection, return to `Waiting` |
 | `VolumeEntry` | Cancel entry, return to `Waiting` |

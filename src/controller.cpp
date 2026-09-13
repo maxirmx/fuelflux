@@ -1,4 +1,4 @@
-﻿// Copyright (C) 2025, 2026 Maxim [maxirmx] Samsonov (www.sw.consulting)
+// Copyright (C) 2025, 2026 Maxim [maxirmx] Samsonov (www.sw.consulting)
 // All rights reserved.
 // This file is a part of fuelflux application
 
@@ -55,10 +55,13 @@ Controller::Controller(ControllerId controllerId,
 Controller::Controller(ControllerId controllerId,
                        std::shared_ptr<IBackend> backend,
                        std::chrono::seconds noFlowCancelTimeout,
-                       ControllerPersistencePaths persistencePaths)
+                       ControllerPersistencePaths persistencePaths,
+                       std::chrono::milliseconds foregroundWait)
     : controllerId_(std::move(controllerId))
     , stateMachine_(this)
     , backend_(backend ? std::move(backend) : CreateDefaultBackend())
+    , backendPrototype_(backend_)
+    , foregroundWait_(foregroundWait)
     , selectedTank_(0)
     , enteredVolume_(0.0)
     , selectedIntakeDirection_(IntakeDirection::In)
@@ -67,6 +70,9 @@ Controller::Controller(ControllerId controllerId,
     , isRunning_(false)
     , noFlowCancelTimeout_(noFlowCancelTimeout)
 {
+    if (foregroundWait_.count() <= 0) throw std::invalid_argument("Foreground wait must be positive");
+    if (!backendPrototype_->CreateIndependentSession())
+        throw std::invalid_argument("Controller requires a backend with independent cancellable sessions");
     resetSessionData();
     
     // Initialize user cache and cache manager
@@ -75,7 +81,9 @@ Controller::Controller(ControllerId controllerId,
         // Create a separate backend instance for cache manager synchronization to avoid JWT token conflicts
         // The cache manager needs its own backend with independent session state so that synchronization
         // operations don't interfere with concurrent user authorization sessions in the main backend
-        auto syncBackend = CreateDefaultBackendShared(backend_->GetControllerUid(), nullptr);
+        auto syncBackend = backendPrototype_->CreateIndependentSession();
+        if (!syncBackend)
+            throw std::invalid_argument("Controller requires a backend with independent cancellable sessions");
         cacheManager_ = std::make_shared<CacheManager>(userCache_, syncBackend);
         LOG_CTRL_INFO("User cache initialized at: {}", persistencePaths.cacheDbPath);
     } catch (const std::exception& e) {
@@ -85,6 +93,8 @@ Controller::Controller(ControllerId controllerId,
 
     try {
         messageStorage_ = std::make_shared<MessageStorage>(persistencePaths.messageStorageDbPath);
+        reportWorker_ = std::make_unique<BacklogWorker>(messageStorage_, backendPrototype_, timing::kBacklogWorkerInterval);
+        if (cacheManager_) cacheManager_->SetReportStorage(messageStorage_);
         LOG_CTRL_INFO("Message storage initialized at: {}", persistencePaths.messageStorageDbPath);
         const auto storedCoefficient = messageStorage_->GetCalibrationCoefficient();
         if (storedCoefficient.has_value()) {
@@ -100,20 +110,24 @@ Controller::Controller(ControllerId controllerId,
 }
 
 Controller::~Controller() {
-    shutdown();
+    // Destruction with a live loop would free state still used by that thread.
+    if (!shutdown()) std::terminate();
 }
 
 bool Controller::initialize() {
     LOG_CTRL_INFO("Initializing controller: {}", controllerId_);
 
     lastErrorMessage_.clear();
+    peripheralsNeedShutdown_ = false;
     bool ok = initializePeripherals();
+    peripheralsNeedShutdown_ = ok;
     
     // Setup peripheral callbacks
     setupPeripheralCallbacks();
     
     // Initialize state machine
     stateMachine_.initialize();
+    if (reportWorker_) reportWorker_->Start();
     
     // Start cache manager (non-blocking)
     if (cacheManager_) {
@@ -138,39 +152,51 @@ bool Controller::initialize() {
     return ok;
 }
 
-void Controller::shutdown() {
+bool Controller::shutdown() {
+    std::lock_guard<std::mutex> shutdownLock(shutdownMutex_);
     LOG_CTRL_INFO("Shutting down...");
     
+    // Network jobs hold their own state and never reference Controller.
+    {
+        std::lock_guard<std::mutex> lock(lifecycleMutex_);
+        shutdownRequested_ = true;
+        isRunning_ = false;
+    }
+    eventCv_.notify_all();
     // Stop cache manager first
     if (cacheManager_) {
         cacheManager_->Stop();
         LOG_CTRL_INFO("Cache manager stopped");
     }
     
-    if (isRunning_) {
-        isRunning_ = false;
-        stopNoFlowMonitorThread();
-        eventCv_.notify_all();
-        
-        // Wait for the event loop thread to actually exit
-        // The thread checks isRunning_ at the top of the loop and the 
-        // condition variable wait has a kEventLoopWaitInterval timeout, so this waits up to kShutdownDeadline
-        const auto deadline = std::chrono::steady_clock::now() + timing::kShutdownDeadline;
-        while (!threadExited_ && std::chrono::steady_clock::now() < deadline) {
-            std::this_thread::sleep_for(timing::kEventLoopIdleSleep);
+    stopNoFlowMonitorThread();
+    // Do not tear down state while a controller-side SQLite transaction or
+    // peripheral action is still finishing. The caller joins the loop thread.
+    {
+        std::unique_lock<std::mutex> lock(lifecycleMutex_);
+        if (!lifecycleCv_.wait_for(lock, timing::kShutdownDeadline, [this] { return !loopActive_; })) {
+            LOG_CTRL_ERROR("Controller shutdown deadline exceeded; live state has not been torn down");
+            return false;
         }
-        
-        if (!threadExited_) {
-            LOG_CTRL_ERROR("Thread shutdown timeout - thread did not exit within 2 seconds");
-        }
-    
-        // Shutdown peripherals
+    }
+    abandonAuthorization();
+    authorizationExecutor_.Shutdown();
+    if (reportWorker_) reportWorker_->Stop();
+    if (!sessionAuthorizedFromCache_ && backend_ && backend_->IsAuthorized()) {
+        try { (void)backend_->Deauthorize(); } catch (...) {}
+    }
+    backend_.reset();
+    if (peripheralsNeedShutdown_) {
         shutdownPeripherals();
+        peripheralsNeedShutdown_ = false;
     }
     LOG_CTRL_INFO("Shutdown complete");
+    return true;
 }
 
 bool Controller::reinitializeDevice() {
+    abandonAuthorization();
+    foregroundReport_.reset();
     LOG_CTRL_WARN("Reinitializing device after error");
     lastErrorMessage_.clear();
 
@@ -178,15 +204,17 @@ bool Controller::reinitializeDevice() {
     // but do NOT stop the event loop - we need it to process the ErrorRecovery event
     {
         std::lock_guard<std::mutex> lock(eventQueueMutex_);
-        std::queue<Event> emptyQueue;
+        std::queue<QueuedEvent> emptyQueue;
         std::swap(eventQueue_, emptyQueue);
     }
 
     // Shutdown old peripherals
     shutdownPeripherals();
+    peripheralsNeedShutdown_ = false;
 
     // Reinitialize peripherals and callbacks
     bool ok = initializePeripherals();
+    peripheralsNeedShutdown_ = ok;
     if (ok) {
         setupPeripheralCallbacks();
     }
@@ -204,14 +232,23 @@ bool Controller::reinitializeDevice() {
 }
 
 void Controller::run() {
+    {
+        std::lock_guard<std::mutex> lock(lifecycleMutex_);
+        if (shutdownRequested_ || !isRunning_) return;
+        if (loopActive_) throw std::logic_error("Controller event loop already running");
+        loopActive_ = true;
+    }
+    struct ExitGuard {
+        Controller* controller;
+        ~ExitGuard() { controller->finishRun(); }
+    } exitGuard{this};
     LOG_CTRL_INFO("Starting main loop");
     
-    // Reset the flag at the start of the run loop
-    threadExited_ = false;
-    
     while (isRunning_) {
+        pollBackendOperations();
         bool haveEvent = false;
         Event event = Event::Timeout; // initialize but treat as invalid until popped
+        QueuedEvent queued{Event::Timeout};
         {
             std::unique_lock<std::mutex> lock(eventQueueMutex_);
             if (eventQueue_.empty()) {
@@ -219,20 +256,32 @@ void Controller::run() {
                 eventCv_.wait_for(lock, timing::kEventLoopWaitInterval, [this] { return !eventQueue_.empty() || !isRunning_; });
             }
             if (!eventQueue_.empty()) {
-                event = eventQueue_.front();
+                queued = eventQueue_.front();
+                event = queued.event;
                 eventQueue_.pop();
                 haveEvent = true;
             }
         }
 
+        if (!isRunning_) break;
         if (haveEvent) {
+            if (queued.authorizationCancel) {
+                if (queued.cancelEnabled && queued.authorizationId == activeAuthorizationId_.load() &&
+                    stateMachine_.getCurrentState() == SystemState::Authorization)
+                    cancelSlowAuthorization();
+                continue;
+            }
             // Handle DisplayReset event in the controller thread to avoid race conditions.
             // This event bypasses the state machine because display reset is a hardware
             // operation that doesn't affect logical state transitions. The state machine
             // state is preserved across display resets, and the display simply shows the
             // same state information after reinitialization. This design keeps display
             // hardware management separate from business logic.
-            if (event == Event::DisplayReset) {
+            if (event == Event::FlowDisplayRefresh) {
+                // A meter refresh queued before report completion must never
+                // be interpreted as PIN input on the completion screen.
+                updateDisplay();
+            } else if (event == Event::DisplayReset) {
                 reinitializeDisplay();
             } else {
                 stateMachine_.processEvent(event);
@@ -243,16 +292,29 @@ void Controller::run() {
         }
     }
     
-    // Signal that thread has exited the main loop
-    threadExited_ = true;
     LOG_CTRL_INFO("Main loop stopped");
+}
+
+void Controller::finishRun() {
+    {
+        std::lock_guard<std::mutex> lock(lifecycleMutex_);
+        isRunning_ = false;
+        loopActive_ = false;
+    }
+    lifecycleCv_.notify_all();
 }
 
 // Allow other threads to post events into controller's loop
 void Controller::postEvent(Event event) {
+    QueuedEvent queued{event};
+    if (event == Event::CancelPressed && stateMachine_.getCurrentState() == SystemState::Authorization) {
+        queued.authorizationCancel = true;
+        queued.authorizationId = activeAuthorizationId_.load();
+        queued.cancelEnabled = authorizationSlow_.load();
+    }
     {
         std::lock_guard<std::mutex> lock(eventQueueMutex_);
-        eventQueue_.push(event);
+        eventQueue_.push(queued);
     }
     eventCv_.notify_one();
 }
@@ -261,7 +323,7 @@ void Controller::postEvent(Event event) {
 // leaving the first non-InputUpdated event (if any) untouched.
 void Controller::discardPendingInputUpdatedEvents() {
     std::lock_guard<std::mutex> lock(eventQueueMutex_);
-    while (!eventQueue_.empty() && eventQueue_.front() == Event::InputUpdated) {
+    while (!eventQueue_.empty() && eventQueue_.front().event == Event::InputUpdated) {
         eventQueue_.pop();
     }
 }
@@ -451,7 +513,7 @@ void Controller::handleFlowUpdate(Volume currentVolume) {
     auto now = std::chrono::steady_clock::now();
     if ((now - lastFlowCallbackTime_) >= timing::kFlowDisplayRefreshInterval) {
         lastFlowCallbackTime_ = now;
-        postEvent(Event::InputUpdated);
+        postEvent(Event::FlowDisplayRefresh);
     }
 }
 
@@ -515,6 +577,9 @@ void Controller::startNewSession() {
 }
 
 void Controller::endCurrentSession() {
+    abandonAuthorization();
+    if (!sessionAuthorizedFromCache_ && backend_ && backend_->IsAuthorized())
+        (void)backend_->Deauthorize();
     resetSessionData();
     clearInputSilent();
     if (pump_ && pump_->isRunning()) {
@@ -522,9 +587,6 @@ void Controller::endCurrentSession() {
     }
     if (flowMeter_) {
         flowMeter_->stopMeasurement();
-    }
-    if (!sessionAuthorizedFromCache_ && backend_ && backend_->IsAuthorized()) {
-        (void)backend_->Deauthorize();
     }
 }
 
@@ -600,7 +662,174 @@ void Controller::setMaxValue() {
 }
 
 // Authorization
+Controller::AuthorizationAttempt::~AuthorizationAttempt() {
+    // The last owner can be either the worker or controller. An adopted session
+    // belongs to the controller; every other successful session is discarded.
+    if (done.load() && !adopted && backend && backend->IsAuthorized()) {
+        try { backend->Deauthorize(); } catch (...) {}
+    }
+}
+
+SavedAuthorizationState Controller::savedAuthorization(const std::string& uid) const {
+    if (!messageStorage_) return {};
+    return messageStorage_->CaptureAuthorizationState(uid, [this, &uid] {
+        return userCache_ ? userCache_->GetAuthorizationSnapshot(uid) : std::nullopt;
+    });
+}
+
+void Controller::applyAuthorization(const AuthorizationSnapshot& snapshot, bool fromCache) {
+    sessionAuthorizedFromCache_ = fromCache;
+    currentUser_ = snapshot.user;
+    if (fromCache) currentUser_.price = 0.0;
+    cachedFuelTanks_ = snapshot.tanks;
+    availableTanks_.clear();
+    for (const auto& tank : snapshot.tanks) {
+        TankInfo info;
+        info.number = tank.visualNumberTank;
+        availableTanks_.push_back(info);
+    }
+    if (!fromCache) {
+        // Keep protection until a synchronization fetch begun after resolution
+        // commits. Otherwise an older in-flight sync could undo this fresh reply.
+        if (messageStorage_) messageStorage_->RefreshResolvedSnapshot(snapshot);
+        if (cacheManager_) cacheManager_->UpdateCacheEntry(currentUser_.uid, currentUser_.allowance,
+                                                           static_cast<int>(currentUser_.role));
+    }
+}
+
+void Controller::abandonAuthorization() {
+    activeAuthorizationId_.store(0);
+    if (authorizationAttempt_) {
+        authorizationAttempt_->backend->CancelPendingRequests();
+        authorizationAttempt_.reset();
+    }
+    authorizationSlow_ = false;
+}
+
+void Controller::beginAuthorization(const UserId& uid) {
+    abandonAuthorization();
+    if (!messageStorage_) {
+        showError("Ошибка записи");
+        postEvent(Event::AuthorizationFailed);
+        return;
+    }
+    const auto started = std::chrono::steady_clock::now();
+    const auto local = savedAuthorization(uid);
+    if (!local.reportStorageAvailable) {
+        showError("Ошибка записи");
+        postEvent(Event::AuthorizationFailed);
+        return;
+    }
+    const auto saved = local.reportStorageAvailable ? local.saved : std::nullopt;
+    if (messageStorage_ && local.pendingReports) {
+        if (saved) {
+            applyAuthorization(*saved, true);
+            postEvent(Event::AuthorizationSuccess);
+        } else postEvent(Event::AuthorizationFailed);
+        return;
+    }
+    auto session = backendPrototype_->CreateIndependentSession();
+    if (!session) { postEvent(Event::AuthorizationFailed); return; }
+    auto attempt = std::make_shared<AuthorizationAttempt>();
+    attempt->id = ++nextAuthorizationId_;
+    activeAuthorizationId_.store(attempt->id);
+    attempt->uid = uid;
+    attempt->saved = saved;
+    attempt->started = started;
+    attempt->backend = std::move(session);
+    authorizationAttempt_ = attempt;
+    if (!authorizationExecutor_.Submit([attempt]() {
+        try {
+            attempt->success = attempt->backend->Authorize(attempt->uid);
+            attempt->networkError = attempt->backend->IsNetworkError();
+            if (attempt->success) {
+                attempt->online.user = {attempt->uid, static_cast<UserRole>(attempt->backend->GetRoleId()),
+                                       attempt->backend->GetAllowance(), attempt->backend->GetPrice()};
+                attempt->online.tanks = attempt->backend->GetFuelTanks();
+            }
+        } catch (...) { attempt->success = false; attempt->networkError = true; }
+        attempt->done.store(true);
+    })) {
+        abandonAuthorization();
+        if (saved) { applyAuthorization(*saved, true); postEvent(Event::AuthorizationSuccess); }
+        else postEvent(Event::AuthorizationFailed);
+    }
+}
+
+void Controller::cancelSlowAuthorization() {
+    if (!authorizationSlow_ || !authorizationAttempt_) return;
+    abandonAuthorization();
+    stateMachine_.processEvent(Event::AuthorizationCancelled);
+}
+
+void Controller::pollBackendOperations() {
+    if (authorizationAttempt_ && stateMachine_.getCurrentState() != SystemState::Authorization)
+        abandonAuthorization();
+    if (authorizationAttempt_) {
+        auto attempt = authorizationAttempt_;
+        if (attempt->done.load()) {
+            authorizationAttempt_.reset();
+            activeAuthorizationId_.store(0);
+            authorizationSlow_ = false;
+            if (attempt->success) {
+                if (attempt->online.tanks.empty()) {
+                    stateMachine_.processEvent(Event::AuthorizationDenied);
+                    return;
+                }
+                attempt->adopted = true;
+                backend_ = attempt->backend;
+                applyAuthorization(attempt->online, false);
+                stateMachine_.processEvent(Event::AuthorizationSuccess);
+            } else if (attempt->networkError && attempt->saved) {
+                applyAuthorization(*attempt->saved, true);
+                stateMachine_.processEvent(Event::AuthorizationSuccess);
+            } else stateMachine_.processEvent(attempt->networkError ? Event::AuthorizationFailed : Event::AuthorizationDenied);
+        } else if (!authorizationSlow_ && std::chrono::steady_clock::now() - attempt->started >= foregroundWait_) {
+            if (attempt->saved) {
+                const auto saved = *attempt->saved;
+                abandonAuthorization();
+                applyAuthorization(saved, true);
+                stateMachine_.processEvent(Event::AuthorizationSuccess);
+            } else {
+                authorizationSlow_ = true;
+                updateDisplay();
+            }
+        }
+    }
+    if (foregroundReport_ && (!messageStorage_->HasReport(*foregroundReport_) ||
+        std::chrono::steady_clock::now() - reportStarted_ >= foregroundWait_)) {
+        foregroundReport_.reset();
+        const auto state = stateMachine_.getCurrentState();
+        if (state == SystemState::RefuelDataTransmission || state == SystemState::IntakeDataTransmission)
+            stateMachine_.processEvent(Event::DataTransmissionComplete);
+    }
+}
+
 void Controller::requestAuthorization(const UserId& userId) {
+    if (!messageStorage_) {
+        showError("Ошибка записи");
+        postEvent(Event::AuthorizationFailed);
+        return;
+    }
+    const auto local = savedAuthorization(userId);
+    if (!local.reportStorageAvailable) {
+        showError("Ошибка записи");
+        postEvent(Event::AuthorizationFailed);
+        return;
+    }
+    const auto saved = local.saved;
+    if (local.pendingReports) {
+        if (saved) {
+            applyAuthorization(*saved, true);
+            postEvent(Event::AuthorizationSuccess);
+        } else {
+            postEvent(Event::AuthorizationFailed);
+        }
+        return;
+    }
+    if (!backend_) {
+        backend_ = backendPrototype_->CreateIndependentSession();
+    }
     if (!backend_) {
         showError("Backend unavailable");
         postEvent(Event::AuthorizationFailed);
@@ -609,61 +838,25 @@ void Controller::requestAuthorization(const UserId& userId) {
 
     // This method handles the actual authorization for both card and PIN
     if (backend_->Authorize(userId)) {
-        sessionAuthorizedFromCache_ = false;
-        currentUser_.uid = userId;
-        currentUser_.role = static_cast<UserRole>(backend_->GetRoleId());
-        currentUser_.allowance = backend_->GetAllowance();
-        currentUser_.price = backend_->GetPrice();
-
-        availableTanks_.clear();
-        cachedFuelTanks_.clear();
-        for (const auto& tank : backend_->GetFuelTanks()) {
-            TankInfo info;
-            info.number = tank.visualNumberTank;
-            availableTanks_.push_back(info);
-            cachedFuelTanks_.push_back(tank);
+        AuthorizationSnapshot online{{userId, static_cast<UserRole>(backend_->GetRoleId()),
+                                      backend_->GetAllowance(), backend_->GetPrice()},
+                                     backend_->GetFuelTanks()};
+        if (online.tanks.empty()) {
+            if (backend_->IsAuthorized()) (void)backend_->Deauthorize();
+            postEvent(Event::AuthorizationDenied);
+            return;
         }
-        
-        // Update cache with authorization data
-        if (cacheManager_) {
-            cacheManager_->UpdateCacheEntry(userId, currentUser_.allowance, 
-                                           static_cast<int>(currentUser_.role));
-        }
-        
-        // Post event instead of processing it directly to maintain sequential event processing
+        applyAuthorization(online, false);
         postEvent(Event::AuthorizationSuccess);
     } else {
         // Check if it's a network error
         bool isNetworkError = backend_->IsNetworkError();
         
-        // Try cache fallback if network error and cache is available
-        if (isNetworkError && userCache_ && messageStorage_) {
-            auto cached = userCache_->GetEntry(userId);
-            if (cached.has_value()) {
-                sessionAuthorizedFromCache_ = true;
-                currentUser_.uid = cached->uid;
-                currentUser_.role = static_cast<UserRole>(cached->roleId);
-                currentUser_.allowance = cached->allowance;
-                currentUser_.price = 0.0;
-                availableTanks_.clear();
-                cachedFuelTanks_.clear();
-                const auto cachedTanks = userCache_->GetTanks();
-                for (const auto& tank : cachedTanks) {
-                    TankInfo info;
-                    info.number = tank.visualNumberTank;
-                    availableTanks_.push_back(info);
-
-                    BackendTankInfo cachedInfo;
-                    cachedInfo.idTank = tank.idTank;
-                    cachedInfo.visualNumberTank = tank.visualNumberTank;
-                    cachedInfo.nameTank = tank.nameTank;
-                    cachedInfo.volume = tank.volume;
-                    cachedFuelTanks_.push_back(cachedInfo);
-                }
-                LOG_CTRL_WARN("Authorized user {} from cache due to backend network error", userId);
-                postEvent(Event::AuthorizationSuccess);
-                return;
-            }
+        if (isNetworkError && saved) {
+            applyAuthorization(*saved, true);
+            LOG_CTRL_WARN("Authorized user {} from cache due to backend network error", userId);
+            postEvent(Event::AuthorizationSuccess);
+            return;
         }
         
         // Post appropriate failure event
@@ -829,61 +1022,52 @@ void Controller::completeIntakeOperation() {
 }
 
 // Transaction logging
+bool Controller::submitReport(MessageMethod method, const std::string& uid, TankNumber tankNumber,
+    Volume volume, std::chrono::system_clock::time_point timestamp, IntakeDirection direction) {
+    reportStarted_ = std::chrono::steady_clock::now();
+    const auto tank = std::find_if(cachedFuelTanks_.begin(), cachedFuelTanks_.end(),
+        [tankNumber](const BackendTankInfo& t) { return t.visualNumberTank == tankNumber; });
+    if (!reportWorker_ || !messageStorage_ || tank == cachedFuelTanks_.end()) {
+        showError("Ошибка записи");
+        postEvent(Event::Error);
+        return false;
+    }
+    nlohmann::json payload{{"TankNumber", tank->idTank},
+        {"TimeAt", std::chrono::duration_cast<std::chrono::milliseconds>(timestamp.time_since_epoch()).count()}};
+    if (method == MessageMethod::Refuel) payload["FuelVolume"] = volume;
+    else { payload["IntakeVolume"] = volume; payload["Direction"] = static_cast<int>(direction); }
+    AuthorizationSnapshot snapshot{currentUser_, cachedFuelTanks_};
+    snapshot.user.uid = uid;
+    auto session = !sessionAuthorizedFromCache_ ? backend_ : nullptr;
+    const auto id = reportWorker_->Submit(method, payload.dump(), snapshot,
+        method == MessageMethod::Refuel ? volume : 0.0, session);
+    if (!id) {
+        if (session) {
+            try { session->Deauthorize(); } catch (...) {}
+            if (session == backend_) {
+                backend_.reset();
+            }
+        }
+        showError("Ошибка записи");
+        postEvent(Event::Error);
+        return false;
+    }
+    if (session) backend_.reset(); // The reporting worker now owns this session.
+    if (method == MessageMethod::Refuel && cacheManager_)
+        cacheManager_->DeductAllowance(uid, volume); // Mirror; protected durable state is authoritative.
+    foregroundReport_ = *id;
+    return true;
+}
+
 void Controller::logRefuelTransaction(const RefuelTransaction& transaction) {
-    if (sessionAuthorizedFromCache_ && messageStorage_) {
-        const auto timestampMs = std::chrono::duration_cast<std::chrono::milliseconds>(
-            transaction.timestamp.time_since_epoch()).count();
-
-        nlohmann::json payload;
-        payload["TankNumber"] = transaction.tankNumber;
-        payload["FuelVolume"] = transaction.volume;
-        payload["TimeAt"] = timestampMs;
-
-        const bool stored = messageStorage_->AddBacklog(transaction.userId, MessageMethod::Refuel, payload.dump());
-        if (!stored) {
-            LOG_CTRL_ERROR("Failed to save offline refuel report to backlog for user {}", transaction.userId);
-        }
-
-        if (cacheManager_ && currentUser_.role == UserRole::Customer) {
-            cacheManager_->DeductAllowance(transaction.userId, transaction.volume);
-        }
-        return;
-    }
-
-    if (backend_) {
-        (void)backend_->Refuel(transaction.tankNumber, transaction.volume);
-        
-        // Deduct allowance from cache for customers (RoleId==1)
-        // Do this even if refuel fails, but check we're not processing backlog
-        if (cacheManager_ && currentUser_.role == UserRole::Customer) {
-            cacheManager_->DeductAllowance(transaction.userId, transaction.volume);
-        }
-    }
+    submitReport(MessageMethod::Refuel, transaction.userId, transaction.tankNumber,
+                 transaction.volume, transaction.timestamp);
 }
 
 void Controller::logIntakeTransaction(const IntakeTransaction& transaction) {
-    if (sessionAuthorizedFromCache_ && messageStorage_) {
-        const auto timestampMs = std::chrono::duration_cast<std::chrono::milliseconds>(
-            transaction.timestamp.time_since_epoch()).count();
-
-        nlohmann::json payload;
-        payload["TankNumber"] = transaction.tankNumber;
-        payload["IntakeVolume"] = transaction.volume;
-        payload["Direction"] = static_cast<int>(transaction.direction);
-        payload["TimeAt"] = timestampMs;
-
-        const bool stored = messageStorage_->AddBacklog(transaction.operatorId, MessageMethod::Intake, payload.dump());
-        if (!stored) {
-            LOG_CTRL_ERROR("Failed to save offline intake report to backlog for user {}", transaction.operatorId);
-        }
-        return;
-    }
-
-    if (backend_) {
-        (void)backend_->Intake(transaction.tankNumber, transaction.volume, transaction.direction);
-    }
+    submitReport(MessageMethod::Intake, transaction.operatorId, transaction.tankNumber,
+                 transaction.volume, transaction.timestamp, transaction.direction);
 }
-
 // Utility functions
 std::string Controller::formatVolume(Volume volume) const {
     std::ostringstream oss;
