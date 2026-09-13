@@ -57,9 +57,10 @@ public:
             return;
         }
         
+        // Use the legacy c-ares API on purpose for broad platform compatibility.
         // Defaults to Yandex DNS. An explicit server list also permits local
         // resolver tests without relying on public DNS timing.
-        status = ares_set_servers_ports_csv(channel_, dnsServers.c_str());
+        status = ares_set_servers_csv(channel_, dnsServers.c_str());
         if (status != ARES_SUCCESS) {
             LOG_BCK_ERROR("Failed to set DNS servers '{}': {} (error code: {})", 
                           dnsServers, ares_strerror(status), status);

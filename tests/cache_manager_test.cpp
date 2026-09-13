@@ -23,6 +23,7 @@ namespace {
 
 class MockBackend : public IBackend {
 public:
+    MOCK_METHOD(void, CancelPendingRequests, (), (override));
     MOCK_METHOD(bool, Authorize, (const std::string& uid), (override));
     MOCK_METHOD(bool, Deauthorize, (), (override));
     MOCK_METHOD(bool, Refuel, (TankNumber tankNumber, Volume volume), (override));

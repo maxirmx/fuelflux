@@ -91,6 +91,7 @@ using ::testing::NiceMock;
 // Mock Backend
 class MockBackend : public IBackend {
 public:
+    MOCK_METHOD(void, CancelPendingRequests, (), (override));
     MOCK_METHOD(std::shared_ptr<IBackend>, CreateIndependentSession, (), (const, override));
     MOCK_METHOD(bool, SendReportPayload, (const std::string&, bool, bool), (override));
     MOCK_METHOD(bool, Authorize, (const std::string& uid), (override));

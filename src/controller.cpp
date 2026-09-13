@@ -656,7 +656,7 @@ void Controller::setMaxValue() {
 Controller::AuthorizationAttempt::~AuthorizationAttempt() {
     // The last owner can be either the worker or controller. An adopted session
     // belongs to the controller; every other successful session is discarded.
-    if (done.load() && success && !adopted && backend) {
+    if (done.load() && !adopted && backend && backend->IsAuthorized()) {
         try { backend->Deauthorize(); } catch (...) {}
     }
 }
@@ -699,6 +699,11 @@ void Controller::abandonAuthorization() {
 
 void Controller::beginAuthorization(const UserId& uid) {
     abandonAuthorization();
+    if (!messageStorage_) {
+        showError("Ошибка записи");
+        postEvent(Event::AuthorizationFailed);
+        return;
+    }
     const auto started = std::chrono::steady_clock::now();
     const auto local = savedAuthorization(uid);
     const auto saved = local.reportStorageAvailable ? local.saved : std::nullopt;
@@ -783,6 +788,14 @@ void Controller::pollBackendOperations() {
 }
 
 void Controller::requestAuthorization(const UserId& userId) {
+    if (!messageStorage_) {
+        showError("Ошибка записи");
+        postEvent(Event::AuthorizationFailed);
+        return;
+    }
+    if (!backend_) {
+        backend_ = backendPrototype_->CreateIndependentSession();
+    }
     if (!backend_) {
         showError("Backend unavailable");
         postEvent(Event::AuthorizationFailed);
@@ -1031,6 +1044,12 @@ bool Controller::submitReport(MessageMethod method, const std::string& uid, Tank
     const auto id = reportWorker_->Submit(method, payload.dump(), snapshot,
         method == MessageMethod::Refuel ? volume : 0.0, session);
     if (!id) {
+        if (session) {
+            try { session->Deauthorize(); } catch (...) {}
+            if (session == backend_) {
+                backend_.reset();
+            }
+        }
         showError("Ошибка записи");
         postEvent(Event::Error);
         return false;

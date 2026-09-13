@@ -152,7 +152,9 @@ SavedAuthorizationState MessageStorage::CaptureAuthorizationState(const std::str
         card.text(1, uid);
         const int status = sqlite3_step(card.value);
         if (status == SQLITE_ROW) result.saved = parseSnapshot(columnText(card.value, 0));
-        else if (status == SQLITE_DONE && generalCache) result.saved = generalCache();
+        else if (status == SQLITE_DONE && !result.pendingReports && generalCache) {
+            result.saved = generalCache();
+        }
         else if (status != SQLITE_DONE) return result;
         result.reportStorageAvailable = true;
     } catch (...) { result.saved.reset(); }
