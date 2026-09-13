@@ -115,6 +115,7 @@ public:
     std::string tokenStorage_;
     std::vector<BackendTankInfo> tanksStorage_;
     std::string lastErrorStorage_;
+    std::string controllerUidStorage_;
     int roleId_ = static_cast<int>(UserRole::Unknown);
     double allowance_ = 0.0;
     double price_ = 0.0;
@@ -284,7 +285,7 @@ protected:
         auto backend = std::make_shared<NiceMock<MockBackend>>();
         mockBackend = backend.get();
         ON_CALL(*mockBackend, CreateIndependentSession()).WillByDefault([weak = std::weak_ptr<IBackend>(backend)] { return weak.lock(); });
-        ON_CALL(*mockBackend, GetControllerUid()).WillByDefault(ReturnRef(CONTROLLER_UID));
+        ON_CALL(*mockBackend, GetControllerUid()).WillByDefault(ReturnRef(mockBackend->controllerUidStorage_));
         controller = std::make_unique<Controller>(
             CONTROLLER_UID,
             backend,
@@ -311,6 +312,10 @@ protected:
         ON_CALL(*mockCardReader, initialize()).WillByDefault(Return(true));
         ON_CALL(*mockPump, initialize()).WillByDefault(Return(true));
         ON_CALL(*mockFlowMeter, initialize()).WillByDefault(Return(true));
+        EXPECT_CALL(*mockBackend, Authorize(_)).Times(::testing::AnyNumber()).WillRepeatedly([&](const std::string&) {
+            mockBackend->authorized_ = true;
+            return true;
+        });
         ON_CALL(*mockBackend, Authorize(_)).WillByDefault([&]() {
             mockBackend->authorized_ = true;
             return true;
@@ -319,6 +324,10 @@ protected:
         ON_CALL(*mockBackend, SendReportPayload(_, _, _)).WillByDefault(Return(true));
         ON_CALL(*mockBackend, Intake(_, _, _)).WillByDefault(Return(true));
         ON_CALL(*mockBackend, IsAuthorized()).WillByDefault(ReturnPointee(&mockBackend->authorized_));
+        EXPECT_CALL(*mockBackend, Deauthorize()).Times(::testing::AnyNumber()).WillRepeatedly([&]() {
+            mockBackend->authorized_ = false;
+            return true;
+        });
         ON_CALL(*mockBackend, Deauthorize()).WillByDefault([&]() {
             mockBackend->authorized_ = false;
             return true;
@@ -329,6 +338,12 @@ protected:
         ON_CALL(*mockBackend, GetPrice()).WillByDefault(ReturnPointee(&mockBackend->price_));
         ON_CALL(*mockBackend, GetFuelTanks()).WillByDefault(ReturnRef(mockBackend->tanksStorage_));
         ON_CALL(*mockBackend, GetLastError()).WillByDefault(ReturnRef(mockBackend->lastErrorStorage_));
+        EXPECT_CALL(*mockBackend, FetchUserCards(_, _))
+            .Times(::testing::AnyNumber())
+            .WillRepeatedly(Return(std::vector<UserCard>{}));
+        EXPECT_CALL(*mockBackend, FetchFuelTanks(_, _))
+            .Times(::testing::AnyNumber())
+            .WillRepeatedly(Return(std::vector<FuelTank>{}));
 
         ON_CALL(*mockDisplay, isConnected()).WillByDefault(Return(true));
         ON_CALL(*mockKeyboard, isConnected()).WillByDefault(Return(true));
@@ -607,6 +622,22 @@ TEST_F(ControllerTest, CachedAuthorizationIntakeGoesToBacklog) {
     ASSERT_TRUE(message.has_value());
     EXPECT_EQ(message->uid, "offline-operator");
     EXPECT_EQ(message->method, MessageMethod::Intake);
+}
+
+TEST_F(ControllerTest, RequestAuthorizationPrefersProtectedSnapshotWhileReportPending) {
+    AuthorizationSnapshot saved{{"card", UserRole::Customer, 100.0, 0.0}, {{42, 7, "Tank-7", 700.0}}};
+    MessageStorage storage(messageStorageDbPath.string());
+    ASSERT_TRUE(storage.EnqueueReport(MessageMethod::Refuel, "{}", saved, 10.0));
+
+    EXPECT_CALL(*mockBackend, Authorize("card")).Times(0);
+
+    controller->requestAuthorization("card");
+
+    EXPECT_TRUE(controller->isSessionAuthorizedFromCache());
+    EXPECT_EQ(controller->getCurrentUser().uid, "card");
+    EXPECT_DOUBLE_EQ(controller->getCurrentUser().allowance, 90.0);
+    ASSERT_EQ(controller->getAvailableTanks().size(), 1u);
+    EXPECT_EQ(controller->getAvailableTanks()[0].number, 7);
 }
 
 // Test Controller initialization
@@ -958,6 +989,11 @@ TEST_F(ControllerTest, InitializationFailureForcesErrorState) {
     EXPECT_CALL(*mockCardReader, initialize()).Times(1);
     EXPECT_CALL(*mockPump, initialize()).Times(1);
     EXPECT_CALL(*mockFlowMeter, initialize()).Times(1);
+    EXPECT_CALL(*mockDisplay, shutdown()).Times(1);
+    EXPECT_CALL(*mockKeyboard, shutdown()).Times(1);
+    EXPECT_CALL(*mockCardReader, shutdown()).Times(1);
+    EXPECT_CALL(*mockPump, shutdown()).Times(1);
+    EXPECT_CALL(*mockFlowMeter, shutdown()).Times(1);
 
     bool ok = controller->initialize();
     EXPECT_FALSE(ok);

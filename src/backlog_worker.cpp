@@ -83,6 +83,9 @@ bool BacklogWorker::ProcessOnce() {
     std::optional<StoredMessage> message;
     {
         std::lock_guard<std::mutex> lock(mutex_);
+        if (workerThread_.joinable() && !running_.load()) {
+            return false;
+        }
         message = storage_->ClaimNextBacklog();
         if (message) {
             const auto it = sessions_.find(message->id);

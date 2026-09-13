@@ -247,6 +247,18 @@ TEST_F(ForegroundBackendTest, ShutdownCancelsBlockedAuthorization) {
     EXPECT_FALSE(controller->isSessionAuthorizedFromCache());
 }
 
+TEST_F(ForegroundBackendTest, ShutdownDeauthorizesActiveOnlineSession) {
+    Start();
+    Scan("card");
+    ASSERT_TRUE(State(SystemState::VolumeEntry));
+    EXPECT_EQ(network->AuthCount("card"), 1);
+
+    EXPECT_TRUE(controller->shutdown());
+    thread.join();
+
+    ASSERT_TRUE(Wait([&] { return network->closedSessions.load() == 1; }));
+}
+
 TEST_F(ForegroundBackendTest, ShutdownDuringReportingRestoresPendingCardAllowance) {
     Start(); Scan("card"); ASSERT_TRUE(State(SystemState::VolumeEntry));
     network->holdReports = true;
@@ -389,8 +401,23 @@ TEST_F(ForegroundBackendTest, FailedPersistenceShowsStorageErrorWithoutReleasing
     ASSERT_TRUE(State(SystemState::Error));
     EXPECT_EQ(controller->getLastErrorMessage(), "Ошибка записи");
     EXPECT_EQ(storage->BacklogCount(), 0);
-    EXPECT_FALSE(storage->GetProtectedSnapshot("card"));
+    ASSERT_TRUE(storage->GetProtectedSnapshot("card"));
+    EXPECT_DOUBLE_EQ(storage->GetProtectedSnapshot("card")->authorization.user.allowance, 100.0);
     EXPECT_EQ(network->reportCalls.load(), 0);
+}
+
+TEST_F(ForegroundBackendTest, UnwritableStorageRejectsAuthorizationBeforeBackendCall) {
+    Start();
+    sqlite3* db = nullptr;
+    ASSERT_EQ(sqlite3_open((directory / "reports.db").string().c_str(), &db), SQLITE_OK);
+    ASSERT_EQ(sqlite3_exec(db, "CREATE TRIGGER fail_write BEFORE UPDATE ON device_settings BEGIN SELECT RAISE(ABORT,'full'); END", nullptr, nullptr, nullptr), SQLITE_OK);
+    sqlite3_close(db);
+
+    Scan("card");
+
+    ASSERT_TRUE(State(SystemState::CannotAuthorize));
+    EXPECT_EQ(network->AuthCount("card"), 0);
+    EXPECT_EQ(controller->getLastErrorMessage(), "Ошибка записи");
 }
 
 TEST(ForegroundDisplayTest, WarningAndBothCancelLabelsFitSmallDisplay) {

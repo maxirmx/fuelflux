@@ -18,6 +18,7 @@ using ::testing::StrictMock;
 class MockBackendForBacklog : public IBackend {
 public:
     MOCK_METHOD(void, CancelPendingRequests, (), (override));
+    MOCK_METHOD(bool, SendReportPayload, (const std::string& payload, bool intake, bool canonicalTankId), (override));
     MOCK_METHOD(bool, Authorize, (const std::string& uid), (override));
     MOCK_METHOD(bool, Deauthorize, (), (override));
     MOCK_METHOD(bool, Refuel, (TankNumber tankNumber, Volume volume), (override));
@@ -45,7 +46,7 @@ TEST(BacklogWorkerTest, ProcessesBacklogSuccessfully) {
     EXPECT_CALL(*backend, CancelPendingRequests()).Times(::testing::AnyNumber());
     EXPECT_CALL(*backend, IsAuthorized()).WillRepeatedly(Return(false));
     EXPECT_CALL(*backend, Authorize("uid-1")).WillOnce(Return(true));
-    EXPECT_CALL(*backend, RefuelPayload("{\"TankNumber\":1}")).WillOnce(Return(true));
+    EXPECT_CALL(*backend, SendReportPayload("{\"TankNumber\":1}", false, false)).WillOnce(Return(true));
     EXPECT_CALL(*backend, Deauthorize()).WillOnce(Return(true));
 
     BacklogWorker worker(storage, backend, std::chrono::milliseconds(1));
@@ -78,7 +79,7 @@ TEST(BacklogWorkerTest, MovesToDeadOnNonNetworkError) {
     EXPECT_CALL(*backend, CancelPendingRequests()).Times(::testing::AnyNumber());
     EXPECT_CALL(*backend, IsAuthorized()).WillRepeatedly(Return(false));
     EXPECT_CALL(*backend, Authorize("uid-3")).WillOnce(Return(true));
-    EXPECT_CALL(*backend, RefuelPayload("{\"TankNumber\":3}")).WillOnce(Return(false));
+    EXPECT_CALL(*backend, SendReportPayload("{\"TankNumber\":3}", false, false)).WillOnce(Return(false));
     EXPECT_CALL(*backend, Deauthorize()).WillOnce(Return(true));
     EXPECT_CALL(*backend, IsNetworkError()).WillOnce(Return(false));
 
@@ -111,10 +112,10 @@ TEST(BacklogWorkerTest, RetriesStartupRecoveryBeforeSendingAnyReport) {
     {
         ::testing::InSequence order;
         EXPECT_CALL(*backend, Authorize("first")).WillOnce(Return(true));
-        EXPECT_CALL(*backend, RefuelPayload("first-payload")).WillOnce([&] { ++sent; return true; });
+        EXPECT_CALL(*backend, SendReportPayload("first-payload", false, false)).WillOnce([&] { ++sent; return true; });
         EXPECT_CALL(*backend, Deauthorize()).WillOnce(Return(true));
         EXPECT_CALL(*backend, Authorize("second")).WillOnce(Return(true));
-        EXPECT_CALL(*backend, RefuelPayload("second-payload")).WillOnce([&] { ++sent; return true; });
+        EXPECT_CALL(*backend, SendReportPayload("second-payload", false, false)).WillOnce([&] { ++sent; return true; });
         EXPECT_CALL(*backend, Deauthorize()).WillOnce(Return(true));
     }
     BacklogWorker worker(storage, backend, std::chrono::milliseconds(10));

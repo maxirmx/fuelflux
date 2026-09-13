@@ -362,8 +362,11 @@ bool MessageStorage::ClearProtectedSnapshot(const std::string& uid) {
 bool MessageStorage::RefreshResolvedSnapshot(const AuthorizationSnapshot& snapshot) {
     std::lock_guard<std::mutex> lock(dbMutex_);
     try {
-        Statement q(db_, "UPDATE card_report_state SET snapshot=?,revision=revision+1 WHERE uid=? AND protected=1 AND NOT EXISTS(SELECT 1 FROM backlog WHERE uid=?)");
-        q.text(1, snapshotJson(snapshot).dump()); q.text(2, snapshot.user.uid); q.text(3, snapshot.user.uid);
+        Statement q(db_, "INSERT INTO card_report_state(uid,snapshot,revision,protected) "
+                         "SELECT ?,?,1,1 WHERE NOT EXISTS(SELECT 1 FROM backlog WHERE uid=?) "
+                         "ON CONFLICT(uid) DO UPDATE SET snapshot=excluded.snapshot,protected=1,revision=card_report_state.revision+1 "
+                         "WHERE NOT EXISTS(SELECT 1 FROM backlog WHERE uid=excluded.uid)");
+        q.text(1, snapshot.user.uid); q.text(2, snapshotJson(snapshot).dump()); q.text(3, snapshot.user.uid);
         return sqlite3_step(q.value) == SQLITE_DONE;
     } catch (...) { return false; }
 }

@@ -54,10 +54,7 @@ public:
     // capability and rejects unsupported adapters at construction, before use.
     virtual std::shared_ptr<IBackend> CreateIndependentSession() const { return {}; }
     virtual void CancelPendingRequests() = 0;
-    virtual bool SendReportPayload(const std::string& payload, bool intake, bool canonicalTankId) {
-        if (!canonicalTankId) return intake ? IntakePayload(payload) : RefuelPayload(payload);
-        return false;
-    }
+    virtual bool SendReportPayload(const std::string& payload, bool intake, bool canonicalTankId) = 0;
     virtual bool Authorize(const std::string& uid) = 0;
     virtual bool Deauthorize() = 0;
     virtual bool Refuel(TankNumber tankNumber, Volume volume) = 0;

@@ -81,7 +81,9 @@ Controller::Controller(ControllerId controllerId,
         // Create a separate backend instance for cache manager synchronization to avoid JWT token conflicts
         // The cache manager needs its own backend with independent session state so that synchronization
         // operations don't interfere with concurrent user authorization sessions in the main backend
-        auto syncBackend = CreateDefaultBackendShared(backend_->GetControllerUid(), nullptr);
+        auto syncBackend = backendPrototype_->CreateIndependentSession();
+        if (!syncBackend)
+            throw std::invalid_argument("Controller requires a backend with independent cancellable sessions");
         cacheManager_ = std::make_shared<CacheManager>(userCache_, syncBackend);
         LOG_CTRL_INFO("User cache initialized at: {}", persistencePaths.cacheDbPath);
     } catch (const std::exception& e) {
@@ -116,8 +118,9 @@ bool Controller::initialize() {
     LOG_CTRL_INFO("Initializing controller: {}", controllerId_);
 
     lastErrorMessage_.clear();
-    peripheralsNeedShutdown_ = true;
+    peripheralsNeedShutdown_ = false;
     bool ok = initializePeripherals();
+    peripheralsNeedShutdown_ = ok;
     
     // Setup peripheral callbacks
     setupPeripheralCallbacks();
@@ -179,6 +182,10 @@ bool Controller::shutdown() {
     abandonAuthorization();
     authorizationExecutor_.Shutdown();
     if (reportWorker_) reportWorker_->Stop();
+    if (!sessionAuthorizedFromCache_ && backend_ && backend_->IsAuthorized()) {
+        try { (void)backend_->Deauthorize(); } catch (...) {}
+    }
+    backend_.reset();
     if (peripheralsNeedShutdown_) {
         shutdownPeripherals();
         peripheralsNeedShutdown_ = false;
@@ -203,9 +210,11 @@ bool Controller::reinitializeDevice() {
 
     // Shutdown old peripherals
     shutdownPeripherals();
+    peripheralsNeedShutdown_ = false;
 
     // Reinitialize peripherals and callbacks
     bool ok = initializePeripherals();
+    peripheralsNeedShutdown_ = ok;
     if (ok) {
         setupPeripheralCallbacks();
     }
@@ -706,6 +715,11 @@ void Controller::beginAuthorization(const UserId& uid) {
     }
     const auto started = std::chrono::steady_clock::now();
     const auto local = savedAuthorization(uid);
+    if (!local.reportStorageAvailable) {
+        showError("Ошибка записи");
+        postEvent(Event::AuthorizationFailed);
+        return;
+    }
     const auto saved = local.reportStorageAvailable ? local.saved : std::nullopt;
     if (messageStorage_ && local.pendingReports) {
         if (saved) {
@@ -758,6 +772,10 @@ void Controller::pollBackendOperations() {
             activeAuthorizationId_.store(0);
             authorizationSlow_ = false;
             if (attempt->success) {
+                if (attempt->online.tanks.empty()) {
+                    stateMachine_.processEvent(Event::AuthorizationDenied);
+                    return;
+                }
                 attempt->adopted = true;
                 backend_ = attempt->backend;
                 applyAuthorization(attempt->online, false);
@@ -793,6 +811,22 @@ void Controller::requestAuthorization(const UserId& userId) {
         postEvent(Event::AuthorizationFailed);
         return;
     }
+    const auto local = savedAuthorization(userId);
+    if (!local.reportStorageAvailable) {
+        showError("Ошибка записи");
+        postEvent(Event::AuthorizationFailed);
+        return;
+    }
+    const auto saved = local.saved;
+    if (local.pendingReports) {
+        if (saved) {
+            applyAuthorization(*saved, true);
+            postEvent(Event::AuthorizationSuccess);
+        } else {
+            postEvent(Event::AuthorizationFailed);
+        }
+        return;
+    }
     if (!backend_) {
         backend_ = backendPrototype_->CreateIndependentSession();
     }
@@ -804,61 +838,25 @@ void Controller::requestAuthorization(const UserId& userId) {
 
     // This method handles the actual authorization for both card and PIN
     if (backend_->Authorize(userId)) {
-        sessionAuthorizedFromCache_ = false;
-        currentUser_.uid = userId;
-        currentUser_.role = static_cast<UserRole>(backend_->GetRoleId());
-        currentUser_.allowance = backend_->GetAllowance();
-        currentUser_.price = backend_->GetPrice();
-
-        availableTanks_.clear();
-        cachedFuelTanks_.clear();
-        for (const auto& tank : backend_->GetFuelTanks()) {
-            TankInfo info;
-            info.number = tank.visualNumberTank;
-            availableTanks_.push_back(info);
-            cachedFuelTanks_.push_back(tank);
+        AuthorizationSnapshot online{{userId, static_cast<UserRole>(backend_->GetRoleId()),
+                                      backend_->GetAllowance(), backend_->GetPrice()},
+                                     backend_->GetFuelTanks()};
+        if (online.tanks.empty()) {
+            if (backend_->IsAuthorized()) (void)backend_->Deauthorize();
+            postEvent(Event::AuthorizationDenied);
+            return;
         }
-        
-        // Update cache with authorization data
-        if (cacheManager_) {
-            cacheManager_->UpdateCacheEntry(userId, currentUser_.allowance, 
-                                           static_cast<int>(currentUser_.role));
-        }
-        
-        // Post event instead of processing it directly to maintain sequential event processing
+        applyAuthorization(online, false);
         postEvent(Event::AuthorizationSuccess);
     } else {
         // Check if it's a network error
         bool isNetworkError = backend_->IsNetworkError();
         
-        // Try cache fallback if network error and cache is available
-        if (isNetworkError && userCache_ && messageStorage_) {
-            auto cached = userCache_->GetEntry(userId);
-            if (cached.has_value()) {
-                sessionAuthorizedFromCache_ = true;
-                currentUser_.uid = cached->uid;
-                currentUser_.role = static_cast<UserRole>(cached->roleId);
-                currentUser_.allowance = cached->allowance;
-                currentUser_.price = 0.0;
-                availableTanks_.clear();
-                cachedFuelTanks_.clear();
-                const auto cachedTanks = userCache_->GetTanks();
-                for (const auto& tank : cachedTanks) {
-                    TankInfo info;
-                    info.number = tank.visualNumberTank;
-                    availableTanks_.push_back(info);
-
-                    BackendTankInfo cachedInfo;
-                    cachedInfo.idTank = tank.idTank;
-                    cachedInfo.visualNumberTank = tank.visualNumberTank;
-                    cachedInfo.nameTank = tank.nameTank;
-                    cachedInfo.volume = tank.volume;
-                    cachedFuelTanks_.push_back(cachedInfo);
-                }
-                LOG_CTRL_WARN("Authorized user {} from cache due to backend network error", userId);
-                postEvent(Event::AuthorizationSuccess);
-                return;
-            }
+        if (isNetworkError && saved) {
+            applyAuthorization(*saved, true);
+            LOG_CTRL_WARN("Authorized user {} from cache due to backend network error", userId);
+            postEvent(Event::AuthorizationSuccess);
+            return;
         }
         
         // Post appropriate failure event

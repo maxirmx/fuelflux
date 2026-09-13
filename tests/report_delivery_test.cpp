@@ -177,3 +177,13 @@ TEST(ReportDeliveryTest, FreshAuthorizationCannotExposeOlderSynchronizationData)
     storage.ReleaseResolvedSnapshots(storage.ResolvedSnapshotVersions());
     EXPECT_FALSE(storage.GetProtectedSnapshot("card"));
 }
+
+TEST(ReportDeliveryTest, RefreshResolvedSnapshotCreatesProtectionWithoutPriorPendingState) {
+    MessageStorage storage(":memory:");
+    EXPECT_FALSE(storage.GetProtectedSnapshot("card"));
+    ASSERT_TRUE(storage.RefreshResolvedSnapshot(SavedCard("card", 70)));
+    ASSERT_TRUE(storage.GetProtectedSnapshot("card"));
+    EXPECT_DOUBLE_EQ(storage.GetProtectedSnapshot("card")->authorization.user.allowance, 70);
+    storage.ReleaseResolvedSnapshots(storage.ResolvedSnapshotVersions());
+    EXPECT_FALSE(storage.GetProtectedSnapshot("card"));
+}
