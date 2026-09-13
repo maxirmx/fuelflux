@@ -59,6 +59,7 @@ private:
                                       const nlohmann::json& b, const std::string&) override {
         return HttpRequestWrapper(e, m, b, true);
     }
+    void CancelPendingRequests() override { BackendBase::CancelPendingRequests(); }
     void SendAsyncDeauthorizeRequest(const std::string&) override { ++network_->closedSessions; }
     std::shared_ptr<Network> network_;
 };
