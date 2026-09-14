@@ -5,7 +5,7 @@
 
 namespace fuelflux {
 
-bool Controller::onOwnerThread() const { return owner_ == this || (!loopActive_.load() && std::this_thread::get_id() == setupThread_); }
+bool Controller::onOwnerThread() const { return owner_ == this || (!loopActive_.load() && !lifecycleStopping_ && std::this_thread::get_id() == setupThread_); }
 void Controller::assertOwner() const { assert(onOwnerThread()); }
 ControllerStatus Controller::getStatus() const {
     std::lock_guard<std::mutex> lock(statusMutex_);
@@ -28,28 +28,38 @@ void Controller::publishStatus() {
     copy.revision = status_.revision + 1;
     status_ = std::move(copy);
 }
-void Controller::enqueue(Message message) {
+bool Controller::enqueue(Message message) {
     {
         std::lock_guard<std::mutex> lock(eventQueueMutex_);
+        const auto command = std::get_if<Command>(&message);
+        const bool external = std::holds_alternative<KeyMessage>(message) || std::holds_alternative<CardMessage>(message) ||
+            std::holds_alternative<Event>(message) || (command && command->kind != CommandKind::Shutdown);
+        if (ingressClosed_ || (inputClosed_ && external)) {
+            if (auto barrier = std::get_if<Barrier>(&message)) barrier->completion->set_value();
+            if (auto command = std::get_if<Command>(&message); command && command->completion) command->completion->set_value(false);
+            return false;
+        }
         if (auto flow = std::get_if<FlowMessage>(&message); flow && !eventQueue_.empty()) {
             auto previous = std::get_if<FlowMessage>(&eventQueue_.back().message);
             if (previous && previous->generation == flow->generation) {
                 // Cumulative samples: retain the largest observation. Never cross a
                 // command boundary or change the queue age of the pending sample.
                 previous->volume = std::max(previous->volume, flow->volume);
-                return;
+                return true;
             }
         }
         if (auto event = std::get_if<Event>(&message); event && *event == Event::InputUpdated && !eventQueue_.empty()) {
             const auto previous = std::get_if<Event>(&eventQueue_.back().message);
-            if (previous && *previous == Event::InputUpdated) return;
+            if (previous && *previous == Event::InputUpdated) return true;
         }
         eventQueue_.push_back({std::move(message), std::chrono::steady_clock::now()});
         if (eventQueue_.size() == 1000) LOG_CTRL_WARN("Controller queue reached 1000 messages");
     }
     eventCv_.notify_one();
+    return true;
 }
 bool Controller::defer(Command command) {
+    if (cleanupDone_) return true;
     if (onOwnerThread()) return false;
     enqueue(std::move(command));
     return true;
@@ -64,9 +74,10 @@ void Controller::handleFlowUpdate(Volume volume) { enqueue(FlowMessage{volume, g
 void Controller::synchronize() {
     if (owner_ == this) return;
     std::unique_lock<std::mutex> lifecycle(lifecycleMutex_);
-    if (cleanupDone_ || (loopActive_ && !acceptingBarriers_)) return;
+    if (cleanupDone_ || (loopActive_ && !acceptingBarriers_) ||
+        (!loopActive_ && lifecycleStopping_ && shutdownDriver_ != std::this_thread::get_id())) return;
     if (!loopActive_) {
-        assert(onOwnerThread());
+        assert(onOwnerThread() || shutdownDriver_ == std::this_thread::get_id());
         struct RestoreOwner {
             Controller*& slot;
             Controller* previous;
@@ -91,7 +102,14 @@ void Controller::synchronize() {
                     next = std::move(eventQueue_.front().message); eventQueue_.pop_front();
                 }
             }
-            if (!next) break;
+            if (!next) {
+                if (shutdownRequested_ && !shutdownFinalized()) {
+                    std::unique_lock<std::mutex> lock(eventQueueMutex_);
+                    eventCv_.wait_for(lock, timing::kEventLoopWaitInterval);
+                    continue;
+                }
+                break;
+            }
             dispatch(std::move(*next));
         }
         publishStatus();
@@ -148,7 +166,7 @@ void Controller::dispatch(Message message) {
                     finalizationFailed_ = true;
                     inputFault_ = true;
                     lastErrorMessage_ = "Ошибка записи операции";
-                    LOG_CTRL_ERROR("Transaction neither delivered nor persisted; new sessions inhibited");
+                    LOG_CTRL_ERROR("Transaction finalization incomplete; receipt recovery required");
                     postEvent(Event::Error);
                     return;
                 }
@@ -175,6 +193,7 @@ void Controller::dispatch(Message message) {
             switch (value.kind) {
             case CommandKind::Shutdown:
                 shutdownRequested_ = true;
+                { std::lock_guard<std::mutex> lock(eventQueueMutex_); inputClosed_ = true; }
                 if (pumpRunning_ && !stopping_) postEvent(Event::CancelPressed);
                 break;
             case CommandKind::Reset: (void)reinitializeDevice(); break;
@@ -271,7 +290,7 @@ void Controller::startDisplayWorker() {
             try {
                 if (reset) { display_->shutdown(); displayReady_ = display_->initialize(); if (!displayReady_) { LOG_CTRL_ERROR("Display reset failed"); continue; } if (!message) message = getStatus().display; }
                 if (message && displayReady_) display_->showMessage(*message);
-            } catch (const std::exception& e) { if (reset) displayReady_ = false; LOG_CTRL_ERROR("Display worker failed: {}", e.what()); }
+            } catch (const std::exception& e) { displayReady_ = false; LOG_CTRL_ERROR("Display worker failed: {}", e.what()); }
         }
     });
 }

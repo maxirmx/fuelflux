@@ -339,6 +339,7 @@ set(LIB_SOURCES
     src/controller_events.cpp
     src/logger.cpp
     src/message_storage.cpp
+    src/receipt_storage.cpp
     src/user_cache.cpp
     src/cache_manager.cpp
     src/backlog_worker.cpp

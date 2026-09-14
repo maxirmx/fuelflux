@@ -110,6 +110,11 @@ bool Controller::initialize() {
 
     lastErrorMessage_.clear();
     bool ok = initializePeripherals();
+    if (!reconcileReceipts()) {
+        finalizationFailed_ = true;
+        lastErrorMessage_ = "Unfinished transaction accounting requires recovery";
+        ok = false;
+    }
     
     // Setup peripheral callbacks
     setupPeripheralCallbacks();
@@ -118,7 +123,7 @@ bool Controller::initialize() {
     stateMachine_.initialize();
     
     // Start cache manager (non-blocking)
-    if (cacheManager_ && options_.startCacheSynchronization) {
+    if (cacheManager_ && options_.startCacheSynchronization && !finalizationFailed_) {
         if (cacheManager_->Start()) {
             LOG_CTRL_INFO("Cache manager started successfully");
         } else {
@@ -147,22 +152,50 @@ void Controller::shutdown() {
     std::unique_lock<std::mutex> cleanup(shutdownMutex_);
     std::unique_lock<std::mutex> lifecycle(lifecycleMutex_);
     lifecycleStopping_ = true;
+    shutdownDriver_ = std::this_thread::get_id();
     if (loopActive_.load()) {
         enqueue(Command{CommandKind::Shutdown});
         lifecycleCv_.wait(lifecycle, [this] { return !loopActive_.load(); });
     }
     if (cleanupDone_) return;
-    const bool finalizeSynchronously = isRunning_ && (pumpRunning_ || stopping_ || reporting_ || pendingOperations_);
+    const bool finalizeSynchronously = isRunning_;
     lifecycle.unlock();
     if (finalizeSynchronously) { enqueue(Command{CommandKind::Shutdown}); synchronize(); }
     isRunning_ = false;
+    closeIngress();
     cleanupWorkers();
+}
+
+bool Controller::shutdownFinalized() {
+    if (stopping_ || reporting_ || pendingOperations_) return false;
+    bool outputActive = pumpRunning_ || pumpOffFailed_;
+    try { outputActive = outputActive || (pump_ && pump_->isRunning()); }
+    catch (...) { outputActive = true; }
+    if (outputActive || measurementActive_) {
+        stopRefueling();
+        return false; // Re-evaluate only after stop/final-measurement processing.
+    }
+    return true;
+}
+
+void Controller::closeIngress() {
+    std::lock_guard<std::mutex> lifecycle(lifecycleMutex_);
+    acceptingBarriers_ = false;
+    lifecycleStopping_ = true;
+    std::lock_guard<std::mutex> queue(eventQueueMutex_);
+    ingressClosed_ = true;
+    for (auto& envelope : eventQueue_) {
+        if (auto barrier = std::get_if<Barrier>(&envelope.message)) barrier->completion->set_value();
+        if (auto command = std::get_if<Command>(&envelope.message); command && command->completion) command->completion->set_value(false);
+    }
+    eventQueue_.clear();
 }
 
 void Controller::cleanupWorkers() {
     // Workers retain their dependencies until every outstanding task has exited.
     backendWorker_.Shutdown();
     flowWorker_.Shutdown();
+    persistenceWorker_.Shutdown();
     stopDisplayWorker();
     if (cacheManager_) cacheManager_->Stop();
     shutdownPeripherals();
@@ -170,7 +203,12 @@ void Controller::cleanupWorkers() {
 }
 
 bool Controller::reinitializeDevice() {
-    if (defer(Command{CommandKind::Reset})) return true;
+    if (owner_ != this) {
+        std::lock_guard<std::mutex> lifecycle(lifecycleMutex_);
+        if (lifecycleStopping_ || cleanupDone_) return false;
+        if (!onOwnerThread()) return enqueue(Command{CommandKind::Reset});
+    }
+    if (shutdownRequested_ || cleanupDone_) return false;
     assertOwner();
     // Input devices own their reconnect loops. A reset must never close their
     // handles or join them from the controller loop.
@@ -212,12 +250,7 @@ void Controller::run() {
             else stateMachine_.processEvent(event);
         }
         publishStatus();
-        if (shutdownRequested_ && !stopping_ && !reporting_ && pendingOperations_ == 0) {
-            if (pump_ && pump_->isRunning()) {
-                // A failed relay-off must not be hidden by normal shutdown.
-                stopRefueling();
-                if (stopping_ || pump_->isRunning()) continue;
-            }
+        if (shutdownRequested_ && shutdownFinalized()) {
             isRunning_ = false;
             break;
         }
@@ -253,20 +286,7 @@ void Controller::run() {
         }
     }
     publishStatus();
-    {
-        // Close barrier admission atomically with draining accepted waiters.
-        // Shutdown cancels trailing commands; barriers observe the final snapshot.
-        std::lock_guard<std::mutex> lifecycle(lifecycleMutex_);
-        acceptingBarriers_ = false;
-        lifecycleStopping_ = true;
-        std::lock_guard<std::mutex> queue(eventQueueMutex_);
-        for (auto& envelope : eventQueue_)
-            if (auto barrier = std::get_if<Barrier>(&envelope.message))
-                barrier->completion->set_value();
-            else if (auto command = std::get_if<Command>(&envelope.message); command && command->completion)
-                command->completion->set_value(false);
-        eventQueue_.clear();
-    }
+    closeIngress();
     cleanupWorkers();
     owner_ = nullptr;
     {
@@ -602,6 +622,12 @@ void Controller::requestAuthorization(const UserId& userId) {
     const auto work = [this, userId, generation] {
         AuthorizationResult result{generation};
         try {
+            // A previous report's network deauthorization may have failed.
+            // Never authorize the next credential against the previous session.
+            if (backend_ && backend_->IsAuthorized() && !backend_->Deauthorize()) {
+                enqueue(std::move(result));
+                return;
+            }
             if (backend_ && backend_->Authorize(userId)) {
                 result.user = {userId, static_cast<UserRole>(backend_->GetRoleId()), backend_->GetAllowance(), backend_->GetPrice()};
                 result.tanks = backend_->GetFuelTanks();
@@ -705,6 +731,7 @@ void Controller::startRefueling() {
     if (defer(Command{CommandKind::Start})) return;
     if (!pumpReady_ || !flowReady_ || !displayReady_ || recoveringPeripherals_ || !inputsReady_ || inputFault_ || shutdownRequested_ || pumpRunning_ || stopping_ || reporting_) return;
     startAborted_ = false;
+    measurementActive_ = true;
     currentRefuelVolume_ = 0;
     ++measurementGeneration_;
     try {
@@ -775,6 +802,9 @@ void Controller::finishStopping(const FinalFlow& result) {
         postEvent(Event::Error);
         return;
     }
+    const bool reportMeasurement = measurementActive_;
+    measurementActive_ = false;
+    if (!reportMeasurement) return; // An unexpected idle output has no sale attached.
     currentRefuelVolume_ = std::max(currentRefuelVolume_, result.volume * calibrationCoefficient_);
     if (startAborted_ && currentRefuelVolume_ == 0) {
         postEvent(Event::Error);
@@ -831,74 +861,80 @@ void Controller::completeIntakeOperation() {
 }
 
 // Transaction logging
-void Controller::logRefuelTransaction(const RefuelTransaction& transaction) {
+bool Controller::reconcileReceipts() {
+    if (!messageStorage_) return false;
+    auto receipts = messageStorage_->PendingReceipts();
+    if (!receipts) return false;
+    bool ok = true;
+    for (const auto& receipt : *receipts) {
+        // A crash can leave an unknown delivery outcome. Preserve existing
+        // backlog retry semantics; the backend wire format has no idempotency key.
+        if (!receipt.retained && !messageStorage_->RetainReceipt(receipt.id, false)) ok = false;
+        if (!receipt.accounted && (!userCache_ ||
+            !userCache_->DeductAllowanceOnce(receipt.id, receipt.message.uid, receipt.volume) ||
+            !messageStorage_->AccountReceipt(receipt.id))) ok = false;
+    }
+    return ok;
+}
+
+void Controller::reportTransaction(const std::string& uid, MessageMethod method,
+    const std::string& payload, double volume, bool deduct, bool cached) {
     assertOwner();
     if (reporting_ || reportedSession_ == sessionGeneration_) return;
     reportedSession_ = sessionGeneration_;
     reporting_ = true;
     ++pendingOperations_;
     const auto generation = sessionGeneration_;
-    const bool cached = sessionAuthorizedFromCache_;
-    const auto role = currentUser_.role;
-    if (!backendWorker_.Submit([this, transaction, cached, role, generation] {
-        bool retained = false;
-        nlohmann::json payload{{"TankNumber", transaction.tankNumber}, {"FuelVolume", transaction.volume},
-            {"TimeAt", std::chrono::duration_cast<std::chrono::milliseconds>(transaction.timestamp.time_since_epoch()).count()}};
-        bool rejected = false;
+    const auto work = [this, uid, method, payload, volume, deduct, cached, generation](bool localOnly) {
+        bool ok = false;
         try {
-            if (!cached && backend_) {
-                retained = backend_->Refuel(transaction.tankNumber, transaction.volume) || backend_->WasLastReportPersisted();
-                if (!retained) rejected = !backend_->IsNetworkError();
+            auto receipt = messageStorage_ ? messageStorage_->BeginReceipt(uid, method, payload, volume, deduct) : std::nullopt;
+            if (receipt) {
+                bool delivered = false, rejected = false;
+                try {
+                    if (!localOnly && !cached && backend_) {
+                        auto data = nlohmann::json::parse(payload);
+                        delivered = (method == MessageMethod::Refuel
+                            ? backend_->Refuel(data["TankNumber"].get<int>(), volume)
+                            : backend_->Intake(data["TankNumber"].get<int>(), volume,
+                                static_cast<IntakeDirection>(data["Direction"].get<int>()))) || backend_->WasLastReportPersisted();
+                        if (!delivered) rejected = !backend_->IsNetworkError();
+                    }
+                } catch (...) { LOG_CTRL_ERROR("Backend report failed; retaining receipt locally"); }
+                const bool retained = messageStorage_->RetainReceipt(*receipt, delivered, rejected);
+                // Even if backlog insertion failed, the receipt itself is durable.
+                // Atomically pair the debit with its receipt ID in the cache DB.
+                const bool accounted = !deduct || (userCache_ &&
+                    userCache_->DeductAllowanceOnce(*receipt, uid, volume) && messageStorage_->AccountReceipt(*receipt));
+                ok = retained && accounted;
             }
-        } catch (const std::exception& e) {
-            LOG_CTRL_ERROR("Refuel backend failed: {}", e.what());
-            // Unknown delivery outcome: retain for retry under existing backlog semantics.
+        } catch (...) { LOG_CTRL_ERROR("Transaction retention/accounting failed"); }
+        if (!localOnly && !cached && backend_) {
+            try { if (backend_->IsAuthorized()) (void)backend_->Deauthorize(); }
+            catch (...) { LOG_CTRL_ERROR("Report session cleanup failed; next authorization must retry"); }
         }
-        try {
-            if (!retained && messageStorage_) {
-                retained = rejected
-                    ? messageStorage_->AddDeadMessage(transaction.userId, MessageMethod::Refuel, payload.dump())
-                    : messageStorage_->AddBacklog(transaction.userId, MessageMethod::Refuel, payload.dump());
-            }
-            if (cacheManager_ && role == UserRole::Customer) cacheManager_->DeductAllowance(transaction.userId, transaction.volume);
-            if (!cached && backend_ && backend_->IsAuthorized()) (void)backend_->Deauthorize();
-        } catch (const std::exception& e) { LOG_CTRL_ERROR("Refuel reporting failed: {}", e.what()); }
-        enqueue(WorkComplete{generation, true, retained});
-    })) enqueue(WorkComplete{generation, true, false});
+        enqueue(WorkComplete{generation, true, ok});
+    };
+    if (!backendWorker_.Submit([work] { work(false); })) {
+        // Only one report can be active. This reserved worker has no ordinary
+        // tasks and remains alive until the report completion is consumed.
+        if (!persistenceWorker_.Submit([work] { work(true); }))
+            enqueue(WorkComplete{generation, true, false});
+    }
+}
+
+void Controller::logRefuelTransaction(const RefuelTransaction& transaction) {
+    nlohmann::json payload{{"TankNumber", transaction.tankNumber}, {"FuelVolume", transaction.volume},
+        {"TimeAt", std::chrono::duration_cast<std::chrono::milliseconds>(transaction.timestamp.time_since_epoch()).count()}};
+    reportTransaction(transaction.userId, MessageMethod::Refuel, payload.dump(), transaction.volume,
+        currentUser_.role == UserRole::Customer, sessionAuthorizedFromCache_);
 }
 
 void Controller::logIntakeTransaction(const IntakeTransaction& transaction) {
-    assertOwner();
-    if (reporting_ || reportedSession_ == sessionGeneration_) return;
-    reportedSession_ = sessionGeneration_;
-    reporting_ = true;
-    ++pendingOperations_;
-    const auto generation = sessionGeneration_;
-    const bool cached = sessionAuthorizedFromCache_;
-    if (!backendWorker_.Submit([this, transaction, cached, generation] {
-        bool retained = false;
-        nlohmann::json payload{{"TankNumber", transaction.tankNumber}, {"IntakeVolume", transaction.volume},
-            {"Direction", static_cast<int>(transaction.direction)},
-            {"TimeAt", std::chrono::duration_cast<std::chrono::milliseconds>(transaction.timestamp.time_since_epoch()).count()}};
-        bool rejected = false;
-        try {
-            if (!cached && backend_) {
-                retained = backend_->Intake(transaction.tankNumber, transaction.volume, transaction.direction) || backend_->WasLastReportPersisted();
-                if (!retained) rejected = !backend_->IsNetworkError();
-            }
-        } catch (const std::exception& e) {
-            LOG_CTRL_ERROR("Intake backend failed: {}", e.what());
-            // Unknown delivery outcome: retain for retry under existing backlog semantics.
-        }
-        try {
-            if (!retained && messageStorage_) {
-                retained = rejected
-                    ? messageStorage_->AddDeadMessage(transaction.operatorId, MessageMethod::Intake, payload.dump())
-                    : messageStorage_->AddBacklog(transaction.operatorId, MessageMethod::Intake, payload.dump());
-            }
-        } catch (const std::exception& e) { LOG_CTRL_ERROR("Intake reporting failed: {}", e.what()); }
-        enqueue(WorkComplete{generation, true, retained});
-    })) enqueue(WorkComplete{generation, true, false});
+    nlohmann::json payload{{"TankNumber", transaction.tankNumber}, {"IntakeVolume", transaction.volume},
+        {"Direction", static_cast<int>(transaction.direction)},
+        {"TimeAt", std::chrono::duration_cast<std::chrono::milliseconds>(transaction.timestamp.time_since_epoch()).count()}};
+    reportTransaction(transaction.operatorId, MessageMethod::Intake, payload.dump(), transaction.volume, false, sessionAuthorizedFromCache_);
 }
 
 // Utility functions

@@ -144,3 +144,39 @@ exceptions keep the retry path active.
 The off-owner simulation API waits for the queued command's actual result. It
 returns false when unsupported, inhibited, or canceled by shutdown. Only the
 caller waits; the controller event loop does not wait on a completion future.
+
+## Shutdown and durable receipts
+
+Both pre-loop and running-loop shutdown keep processing stop retries until the
+output is confirmed off and active measurement finalization finishes. Logical
+pump-off failures remain authoritative even when an adapter reports false after
+throwing. An unexpected idle output is stopped without manufacturing a sale.
+Input/ordinary command admission closes when shutdown is consumed; all ingress
+closes atomically with the final queue drain. Late reset calls return false.
+
+Every completed refueling/intake operation first receives a durable local receipt
+in the message-storage database. If the backend executor rejects the report, a
+reserved persistence worker journals it and routes it to backlog without touching
+the busy backend. Only one report can be outstanding, and this worker remains
+alive until its completion has been processed. Complete storage failure remains
+a fault with data held in memory; software cannot guarantee persistence on failed
+media or recovery after power loss when no durable write succeeded.
+
+Allowance deduction and an applied-receipt ID commit together in the user-cache
+database. A separate receipt marker can therefore be recovered after a crash
+without repeating the deduction. Receipt data remains durable even if backlog
+insertion fails. Failed accounting inhibits sessions; startup reconciles unfinished
+receipts before starting cache synchronization or admitting users. Preserve both
+databases when upgrading/restarting. Completed receipts and applied IDs remain as
+an audit trail; storage retention/archival must preserve IDs needed by unfinished
+receipts. Do not roll back to a binary that ignores unfinished receipts without
+first reconciling them.
+
+Local backlog promotion is atomic and idempotent. Remote delivery still uses the
+existing wire format and retry semantics: a crash after the server accepts a report
+but before local acknowledgement can require retry with an unknown outcome. This
+change does not provide server-side exactly-once delivery.
+
+Online intake and refueling clean up backend authorization before completing.
+The next authorization also checks for an uncleared session. Rendering exceptions
+mark the display unready and require successful display reset before new sessions.

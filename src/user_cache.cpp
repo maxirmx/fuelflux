@@ -41,6 +41,8 @@ UserCache::UserCache(const std::string& dbPath)
     // Create metadata table to track which table is active
     Execute("CREATE TABLE IF NOT EXISTS user_cache_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);");
     
+    Execute("CREATE TABLE IF NOT EXISTS allowance_receipts (id TEXT PRIMARY KEY);");
+
     // Initialize metadata if it doesn't exist
     std::lock_guard<std::mutex> lock(dbMutex_);
     sqlite3_stmt* stmt = nullptr;

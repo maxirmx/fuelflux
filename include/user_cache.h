@@ -42,6 +42,7 @@ public:
     std::optional<UserCacheEntry> GetEntry(const std::string& uid) const;
     bool UpdateEntry(const std::string& uid, double allowance, int roleId);
     bool DeductAllowance(const std::string& uid, double amount);
+    bool DeductAllowanceOnce(const std::string& receiptId, const std::string& uid, double amount);
     int GetCount() const;
     std::vector<TankCacheEntry> GetTanks() const;
     int GetTankCount() const;

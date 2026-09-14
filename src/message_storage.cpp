@@ -30,6 +30,7 @@ if (sqlite3_open(dbPath.c_str(), &db) != SQLITE_OK) {
     db_ = db;
     sqlite3_busy_timeout(db, 5000);
 
+    Execute("CREATE TABLE IF NOT EXISTS receipts (id TEXT PRIMARY KEY, uid TEXT NOT NULL, method TEXT NOT NULL, data TEXT NOT NULL, volume REAL NOT NULL, deduct INTEGER NOT NULL, retained INTEGER NOT NULL DEFAULT 0, accounted INTEGER NOT NULL DEFAULT 0);");
     Execute("CREATE TABLE IF NOT EXISTS backlog (uid TEXT NOT NULL, method TEXT NOT NULL, data TEXT NOT NULL);");
     Execute("CREATE TABLE IF NOT EXISTS dead_messages (uid TEXT NOT NULL, method TEXT NOT NULL, data TEXT NOT NULL);");
     Execute("CREATE TABLE IF NOT EXISTS device_settings (key TEXT PRIMARY KEY, value REAL NOT NULL);");

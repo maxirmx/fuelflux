@@ -27,6 +27,7 @@
 #include "peripherals/peripheral_interface.h"
 
 namespace fuelflux {
+enum class MessageMethod;
 
 // Forward declarations
 class CacheManager;
@@ -245,9 +246,11 @@ class Controller {
     std::condition_variable lifecycleCv_;
     bool shutdownRequested_ = false;
     bool acceptingBarriers_ = false; // Protected by lifecycleMutex_.
-    bool lifecycleStopping_ = false; // Prevent run() starting during synchronous cleanup.
+    std::atomic<bool> lifecycleStopping_{false}; // Prevent run() starting during synchronous cleanup.
     void cleanupWorkers();
     bool canStartRefueling();
+    bool reconcileReceipts();
+    void reportTransaction(const std::string& uid, MessageMethod method, const std::string& payload, double volume, bool deduct, bool cached);
     std::atomic<bool> cleanupDone_{false};
     inline static thread_local Controller* owner_ = nullptr;
     const std::thread::id setupThread_ = std::this_thread::get_id();
@@ -255,6 +258,7 @@ class Controller {
     ControllerStatus status_;
     BoundedExecutor backendWorker_{1, 100};
     BoundedExecutor flowWorker_{1, 100};
+    BoundedExecutor persistenceWorker_{1, 1}; // Reserved for the single active report.
     std::uint64_t sessionGeneration_ = 0;
     std::uint64_t measurementGeneration_ = 0;
     unsigned pendingOperations_ = 0;
@@ -264,6 +268,7 @@ class Controller {
     bool inputFault_ = false;
     bool inputsReady_ = true;
     bool startAborted_ = false;
+    bool measurementActive_ = false;
     bool pumpReady_ = true, flowReady_ = true;
     bool recoveringPeripherals_ = false;
     std::atomic<bool> displayReady_{true};
@@ -317,7 +322,12 @@ class Controller {
     std::queue<Event> internalEvents_;
     std::mutex eventQueueMutex_;
     std::condition_variable eventCv_;
-    void enqueue(Message message);
+    bool enqueue(Message message);
+    std::thread::id shutdownDriver_; // Protected by lifecycleMutex_.
+    bool inputClosed_ = false;
+    bool ingressClosed_ = false; // Protected by eventQueueMutex_.
+    void closeIngress();
+    bool shutdownFinalized();
     void dispatch(Message message);
     void publishStatus();
     void checkDeadlines(bool forceHealth = false);

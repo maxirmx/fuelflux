@@ -5,6 +5,8 @@
 #include <gtest/gtest.h>
 
 #include "message_storage.h"
+#include "user_cache.h"
+#include <sqlite3.h>
 
 #include <filesystem>
 #include <random>
@@ -121,4 +123,40 @@ TEST(MessageStorageTest, CalibrationCoefficientRejectsInvalidValues) {
     }
 
     std::filesystem::remove(dbPath);
+}
+
+TEST(ReceiptStorageTest, PromotionAndAllowanceApplicationAreIdempotent) {
+    MessageStorage storage(":memory:");
+    UserCache cache(":memory:");
+    ASSERT_TRUE(cache.UpdateEntry("uid", 100, 1));
+    auto receipt = storage.BeginReceipt("uid", MessageMethod::Refuel, "{}", 7.5, true);
+    ASSERT_TRUE(receipt);
+    EXPECT_TRUE(storage.RetainReceipt(*receipt, false));
+    EXPECT_TRUE(storage.RetainReceipt(*receipt, false));
+    EXPECT_EQ(storage.BacklogCount(), 1);
+    EXPECT_TRUE(cache.DeductAllowanceOnce(*receipt, "uid", 7.5));
+    EXPECT_TRUE(cache.DeductAllowanceOnce(*receipt, "uid", 7.5));
+    EXPECT_DOUBLE_EQ(cache.GetEntry("uid")->allowance, 92.5);
+    EXPECT_TRUE(storage.AccountReceipt(*receipt));
+    ASSERT_TRUE(storage.PendingReceipts());
+    EXPECT_TRUE(storage.PendingReceipts()->empty());
+}
+
+TEST(ReceiptStorageTest, FailedDebitDoesNotConsumeReceiptId) {
+    UserCache cache(":memory:");
+    EXPECT_FALSE(cache.DeductAllowanceOnce("receipt", "missing", 5));
+    ASSERT_TRUE(cache.UpdateEntry("missing", 100, 1));
+    EXPECT_TRUE(cache.DeductAllowanceOnce("receipt", "missing", 5));
+    EXPECT_DOUBLE_EQ(cache.GetEntry("missing")->allowance, 95);
+}
+
+TEST(ReceiptStorageTest, DebitUpdatesPopulationTablesAtomically) {
+    UserCache cache(":memory:");
+    ASSERT_TRUE(cache.UpdateEntry("uid", 100, 1));
+    ASSERT_TRUE(cache.BeginPopulation());
+    ASSERT_TRUE(cache.DeductAllowanceOnce("receipt", "uid", 5));
+    ASSERT_TRUE(cache.CommitPopulation());
+    EXPECT_DOUBLE_EQ(cache.GetEntry("uid")->allowance, 95);
+    EXPECT_TRUE(cache.DeductAllowanceOnce("receipt", "uid", 5));
+    EXPECT_DOUBLE_EQ(cache.GetEntry("uid")->allowance, 95);
 }
