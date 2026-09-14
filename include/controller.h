@@ -257,6 +257,10 @@ class Controller {
     mutable std::mutex statusMutex_;
     ControllerStatus status_;
     BoundedExecutor backendWorker_{1, 100};
+    bool cleanupPending_ = false;
+    std::uint64_t cleanupRequestedGeneration_ = 0;
+    std::uint64_t backendSessionGeneration_ = 0; // accessed only by backendWorker_
+    void requestBackendCleanup(std::uint64_t generation);
     BoundedExecutor flowWorker_{1, 100};
     BoundedExecutor persistenceWorker_{1, 1}; // Reserved for the single active report.
     std::uint64_t sessionGeneration_ = 0;
@@ -299,7 +303,7 @@ class Controller {
         std::vector<BackendTankInfo> tanks;
         bool cached = false;
     };
-    struct WorkComplete { std::uint64_t generation; bool report = false; bool ok = true; };
+    struct WorkComplete { std::uint64_t generation; bool report = false; bool ok = true; bool cleanupNeeded = false; bool cleanupDone = false; };
     struct RecoveryResult { bool pumpReady; bool flowReady; };
     struct CalibrationResult { std::uint64_t generation; double value; bool saved; };
     enum class CommandKind { Shutdown, Reset, Simulation, Clear, ClearSilent,

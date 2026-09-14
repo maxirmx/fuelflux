@@ -160,6 +160,12 @@ void Controller::dispatch(Message message) {
             postEvent(value.outcome);
         } else if constexpr (std::is_same_v<T, WorkComplete>) {
             if (pendingOperations_) --pendingOperations_;
+            if (value.cleanupDone) {
+                cleanupPending_ = false;
+                if (!value.ok) LOG_CTRL_WARN("Backend cleanup failed; authorization will retry before admitting a session");
+                if (cleanupRequestedGeneration_ > value.generation) requestBackendCleanup(cleanupRequestedGeneration_);
+            }
+            if (value.cleanupNeeded) requestBackendCleanup(value.generation);
             if (value.report) {
                 reporting_ = false;
                 if (!value.ok) {

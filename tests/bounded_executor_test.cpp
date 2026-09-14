@@ -4,6 +4,7 @@
 
 #include <gtest/gtest.h>
 #include <atomic>
+#include <future>
 #include <chrono>
 #include <thread>
 #include "bounded_executor.h"
@@ -120,4 +121,19 @@ TEST(BoundedExecutorTest, HandlesExceptionsInTasks) {
     // Deterministically wait for all tasks (including the normal one) to complete
     executor.Shutdown();
     EXPECT_EQ(counter.load(), 1);
+}
+
+TEST(BoundedExecutorTest, ReservedCleanupPreservesFifoWhenOrdinaryQueueIsFull) {
+    BoundedExecutor executor(1, 1);
+    std::promise<void> entered, release;
+    auto gate = release.get_future().share();
+    std::vector<int> order;
+    ASSERT_TRUE(executor.Submit([&] { entered.set_value(); gate.wait(); }));
+    entered.get_future().wait();
+    EXPECT_TRUE(executor.Submit([&] { order.push_back(1); }));
+    EXPECT_FALSE(executor.Submit([] {}));
+    EXPECT_TRUE(executor.SubmitReserved([&] { order.push_back(2); }));
+    EXPECT_FALSE(executor.SubmitReserved([] {}));
+    release.set_value(); executor.Shutdown();
+    EXPECT_EQ(order, (std::vector<int>{1, 2}));
 }

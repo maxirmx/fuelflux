@@ -51,8 +51,13 @@ public:
     virtual ~IBackend() = default;
     virtual bool Authorize(const std::string& uid) = 0;
     virtual bool Deauthorize() = 0;
+    // Called on the controller backend worker; completion includes network I/O.
+    virtual bool DeauthorizeAndWait() { return Deauthorize(); }
     virtual bool Refuel(TankNumber tankNumber, Volume volume) = 0;
     virtual bool Intake(TankNumber tankNumber, Volume volume, IntakeDirection direction) = 0;
+    // Controller journals these reports itself; implementations must not persist them.
+    virtual bool RefuelUnpersisted(TankNumber tank, Volume volume) { return Refuel(tank, volume); }
+    virtual bool IntakeUnpersisted(TankNumber tank, Volume volume, IntakeDirection direction) { return Intake(tank, volume, direction); }
     // Valid after a failed Refuel/Intake call on the backend's owning worker.
     virtual bool WasLastReportPersisted() const { return false; }
     virtual bool RefuelPayload(const std::string& payload) = 0;
@@ -91,6 +96,9 @@ public:
 
     bool Authorize(const std::string& uid) override;
     bool Deauthorize() override;
+    bool DeauthorizeAndWait() override;
+    bool RefuelUnpersisted(TankNumber tank, Volume volume) override;
+    bool IntakeUnpersisted(TankNumber tank, Volume volume, IntakeDirection direction) override;
     bool Refuel(TankNumber tankNumber, Volume volume) override;
     bool Intake(TankNumber tankNumber, Volume volume, IntakeDirection direction) override;
     bool WasLastReportPersisted() const override { return lastReportPersisted_; }
@@ -110,6 +118,8 @@ public:
     const std::string& GetControllerUid() const override { return controllerUid_; }
 
 protected:
+    bool RefuelImpl(TankNumber tank, Volume volume, bool persist);
+    bool IntakeImpl(TankNumber tank, Volume volume, IntakeDirection direction, bool persist);
     BackendBase(std::string controllerUid, std::shared_ptr<MessageStorage> storage);
 
     virtual nlohmann::json HttpRequestWrapper(const std::string& endpoint,

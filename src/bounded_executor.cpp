@@ -17,7 +17,7 @@ BoundedExecutor::BoundedExecutor(size_t maxThreads, size_t maxQueueSize)
     } catch (...) {
         // If thread creation fails, clean up already-created threads
         // to avoid std::terminate when joinable threads are destroyed
-        shutdown_.store(true);
+        { std::lock_guard<std::mutex> lock(mutex_); shutdown_.store(true); }
         cv_.notify_all();
         for (auto& worker : workers_) {
             if (worker.joinable()) {
@@ -38,10 +38,21 @@ bool BoundedExecutor::Submit(std::function<void()> task) {
         if (shutdown_.load()) {
             return false;
         }
-        if (tasks_.size() >= maxQueueSize_) {
+        if (tasks_.size() - (reservedQueued_ ? 1 : 0) >= maxQueueSize_) {
             return false;
         }
-        tasks_.push(std::move(task));
+        tasks_.push({std::move(task), false});
+    }
+    cv_.notify_one();
+    return true;
+}
+
+bool BoundedExecutor::SubmitReserved(std::function<void()> task) {
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (shutdown_ || reservedQueued_) return false;
+        tasks_.push({std::move(task), true});
+        reservedQueued_ = true;
     }
     cv_.notify_one();
     return true;
@@ -53,8 +64,10 @@ size_t BoundedExecutor::QueueSize() const {
 }
 
 void BoundedExecutor::Shutdown() {
-    if (shutdown_.exchange(true)) {
-        return;
+    {
+        // Change the wait predicate under its mutex to avoid a lost wakeup.
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (shutdown_.exchange(true)) return;
     }
     cv_.notify_all();
     for (auto& worker : workers_) {
@@ -76,7 +89,8 @@ void BoundedExecutor::WorkerThread() {
             }
             
             if (!tasks_.empty()) {
-                task = std::move(tasks_.front());
+                if (tasks_.front().reserved) reservedQueued_ = false;
+                task = std::move(tasks_.front().function);
                 tasks_.pop();
             }
         }

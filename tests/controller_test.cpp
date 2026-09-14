@@ -58,6 +58,11 @@ struct ControllerTestAccess {
         for (int i = 0; i < 100; ++i) if (!c.backendWorker_.Submit([] {})) return false;
         return true;
     }
+    static bool blockBackend(Controller& c, std::promise<void>& entered, std::shared_future<void> release) {
+        if (!c.backendWorker_.Submit([&entered, release] { entered.set_value(); release.wait(); })) return false;
+        return entered.get_future().wait_for(std::chrono::seconds(2)) == std::future_status::ready;
+    }
+    static std::size_t backendQueue(Controller& c) { return c.backendWorker_.QueueSize(); }
     static std::size_t queuedEvents(Controller& c) {
         std::lock_guard<std::mutex> lock(c.eventQueueMutex_);
         return c.eventQueue_.size();
@@ -4119,7 +4124,7 @@ TEST_F(ControllerTest, StartupMessagesRenderBeforeDisplayWorkerStarts) {
     message.line1 = "Card reader"; controller->showMessage(message);
 }
 
-TEST_F(ControllerTest, ThrowingWasLastReportPersistedStillPersistsTransaction) {
+TEST_F(ControllerTest, ControllerReportsDoNotConsultBackendPersistence) {
     mockBackend->roleId_ = 1;
     mockBackend->allowance_ = 100;
     mockBackend->tanksStorage_ = {{1, 1, "Tank", 100}};
@@ -4128,7 +4133,8 @@ TEST_F(ControllerTest, ThrowingWasLastReportPersistedStillPersistsTransaction) {
     controller->enterVolume(10); controller->synchronize();
     mockFlowMeter->simulateFlow(2.5); controller->synchronize();
     EXPECT_CALL(*mockBackend, Refuel(1, 2.5)).WillOnce(Return(false));
-    EXPECT_CALL(*mockBackend, WasLastReportPersisted()).WillOnce(::testing::Throw(std::runtime_error("status")));
+    EXPECT_CALL(*mockBackend, WasLastReportPersisted()).Times(0);
+    ON_CALL(*mockBackend, IsNetworkError()).WillByDefault(Return(true));
     controller->handleKeyPress(KeyCode::KeyStop); controller->synchronize();
     MessageStorage storage(messageStorageDbPath.string());
     ASSERT_EQ(storage.BacklogCount(), 1);
@@ -4413,11 +4419,22 @@ TEST_F(ControllerTest, SaturatedBackendStillPersistsRefuelOnReservedWorker) {
     mockFlowMeter->currentVolume_ = 2.5;
     std::promise<void> entered, release;
     EXPECT_TRUE(ControllerTestAccess::saturateBackend(*controller, entered, release.get_future().share()));
+    std::thread unblock([&] {
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
+        while (ControllerTestAccess::backendQueue(*controller) != 101 && std::chrono::steady_clock::now() < deadline)
+            std::this_thread::yield();
+        MessageStorage stored(messageStorageDbPath.string());
+        EXPECT_EQ(stored.BacklogCount(), 1);
+        EXPECT_EQ(ControllerTestAccess::backendQueue(*controller), 101u);
+        release.set_value();
+    });
+    EXPECT_CALL(*mockBackend, Deauthorize()).WillOnce([&] { mockBackend->authorized_ = false; return true; });
     EXPECT_CALL(*mockBackend, Refuel(_, _)).Times(0);
     controller->handleKeyPress(KeyCode::KeyStop); controller->synchronize();
     MessageStorage storage(messageStorageDbPath.string());
     EXPECT_EQ(storage.BacklogCount(), 1);
-    release.set_value();
+    unblock.join();
+    EXPECT_FALSE(mockBackend->authorized_);
 }
 
 TEST_F(ControllerTest, SaturatedBackendStillPersistsIntakeOnReservedWorker) {
@@ -4429,11 +4446,22 @@ TEST_F(ControllerTest, SaturatedBackendStillPersistsIntakeOnReservedWorker) {
     controller->handleKeyPress(KeyCode::Key1); controller->handleKeyPress(KeyCode::KeyStart); controller->synchronize();
     std::promise<void> entered, release;
     EXPECT_TRUE(ControllerTestAccess::saturateBackend(*controller, entered, release.get_future().share()));
+    std::thread unblock([&] {
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
+        while (ControllerTestAccess::backendQueue(*controller) != 101 && std::chrono::steady_clock::now() < deadline)
+            std::this_thread::yield();
+        MessageStorage stored(messageStorageDbPath.string());
+        EXPECT_EQ(stored.BacklogCount(), 1);
+        EXPECT_EQ(ControllerTestAccess::backendQueue(*controller), 101u);
+        release.set_value();
+    });
+    EXPECT_CALL(*mockBackend, Deauthorize()).WillOnce([&] { mockBackend->authorized_ = false; return true; });
     EXPECT_CALL(*mockBackend, Intake(_, _, _)).Times(0);
     controller->enterIntakeVolume(12); controller->synchronize();
     MessageStorage storage(messageStorageDbPath.string());
     EXPECT_EQ(storage.BacklogCount(), 1);
-    release.set_value();
+    unblock.join();
+    EXPECT_FALSE(mockBackend->authorized_);
 }
 
 TEST_F(ControllerTest, IntakeCompletionAllowsImmediateNextCardWithRealisticSessionGuard) {
@@ -4562,4 +4590,34 @@ TEST_F(ControllerTest, FailedBacklogWriteStillHasDurableReceiptAndAccounting) {
     createController(); EXPECT_TRUE(controller->initialize());
     MessageStorage storage(messageStorageDbPath.string());
     EXPECT_EQ(storage.BacklogCount(), 1);
+}
+
+TEST_F(ControllerTest, SessionCleanupUsesReservedSlotAndShutdownWaits) {
+    mockBackend->tanksStorage_ = {{1, 1, "Tank", 100}};
+    controller->initialize();
+    controller->handleCardPresented("customer"); controller->synchronize();
+    std::promise<void> entered, release;
+    ASSERT_TRUE(ControllerTestAccess::saturateBackend(*controller, entered, release.get_future().share()));
+    EXPECT_CALL(*mockBackend, Deauthorize()).WillOnce([&] { mockBackend->authorized_ = false; return true; });
+    controller->endCurrentSession();
+    EXPECT_EQ(ControllerTestAccess::backendQueue(*controller), 101u);
+    std::thread unblock([&] { release.set_value(); });
+    controller->shutdown();
+    unblock.join();
+    EXPECT_FALSE(mockBackend->authorized_);
+}
+
+TEST_F(ControllerTest, CoalescedCleanupDoesNotDeauthorizeANewerSession) {
+    mockBackend->tanksStorage_ = {{1, 1, "Tank", 100}};
+    controller->initialize();
+    controller->handleCardPresented("initial"); controller->synchronize();
+    std::promise<void> entered, release;
+    ASSERT_TRUE(ControllerTestAccess::blockBackend(*controller, entered, release.get_future().share()));
+    controller->endCurrentSession();
+    controller->requestAuthorization("discarded");
+    controller->endCurrentSession();
+    controller->requestAuthorization("latest");
+    release.set_value(); controller->synchronize();
+    EXPECT_TRUE(mockBackend->authorized_);
+    EXPECT_EQ(controller->getCurrentUser().uid, "latest");
 }

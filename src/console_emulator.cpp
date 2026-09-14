@@ -324,7 +324,7 @@ void ConsoleCardReader::enableReading(bool enabled) {
 
 void ConsoleCardReader::simulateCardPresented(const UserId& userId) {
     if (!readingEnabled_) {
-        logLine(fmt::format("[CardReader] Reading disabled, ignoring card: {}", userId));
+        logLine("[CardReader] Reading disabled, ignoring card");
         return;
     }
 

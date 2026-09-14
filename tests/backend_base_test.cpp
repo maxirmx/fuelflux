@@ -8,6 +8,8 @@
 #include <gtest/gtest.h>
 
 #include <functional>
+#include <future>
+#include "message_storage.h"
 #include <stdexcept>
 
 using namespace fuelflux;
@@ -27,6 +29,12 @@ public:
         explicitTokenHandler;
 
     std::string asyncToken;
+    void seed(std::shared_ptr<MessageStorage> storage, int role = 1) {
+        storage_ = storage; session_.SetToken("old-token");
+        authorizedUid_ = "customer"; roleId_ = role; allowance_ = 100;
+        fuelTanks_ = {{17, 1, "Tank", 100}};
+    }
+
 
 protected:
     nlohmann::json HttpRequestWrapper(const std::string& endpoint,
@@ -205,4 +213,41 @@ TEST(BackendBaseFetchFuelTanksTest, BadVolumeTypeIsHandledAsFailure) {
 
     EXPECT_TRUE(tanks.empty());
     EXPECT_EQ(backend.GetLastError(), StdBackendError);
+}
+
+TEST(BackendBaseReportingTest, ControllerFailureHasOnlyReceiptPersistence) {
+    for (bool intake : {false, true}) {
+        auto storage = std::make_shared<MessageStorage>(":memory:");
+        TestBackendBase backend("controller"); backend.seed(storage, intake ? 2 : 1);
+        backend.boolTokenHandler = [](const auto&, const auto&, const auto&, bool) {
+            return nlohmann::json{{"CodeError", HttpRequestWrapperErrorCode}, {"TextError", "offline"}};
+        };
+        auto receipt = storage->BeginReceipt("customer", intake ? MessageMethod::Intake : MessageMethod::Refuel, "{}", 5, false);
+        ASSERT_TRUE(receipt);
+        EXPECT_FALSE(intake ? backend.IntakeUnpersisted(1, 5, IntakeDirection::In) : backend.RefuelUnpersisted(1, 5));
+        EXPECT_EQ(storage->BacklogCount(), 0);
+        EXPECT_FALSE(backend.WasLastReportPersisted());
+        // Simulate restart between backend failure and receipt promotion.
+        ASSERT_EQ(storage->PendingReceipts()->size(), 1u);
+        EXPECT_TRUE(storage->RetainReceipt(*receipt, false));
+        EXPECT_TRUE(storage->RetainReceipt(*receipt, false));
+        EXPECT_EQ(storage->BacklogCount(), 1);
+    }
+}
+
+TEST(BackendBaseReportingTest, SerializedDeauthorizationWaitsAndKeepsTokenOnFailure) {
+    auto backend = std::make_shared<TestBackendBase>("controller"); backend->seed(nullptr);
+    std::promise<void> entered, release;
+    auto gate = release.get_future().share();
+    backend->explicitTokenHandler = [&](const auto& endpoint, const auto&, const auto&, const auto& token) {
+        EXPECT_EQ(endpoint, "/api/pump/deauthorize"); EXPECT_EQ(token, "old-token");
+        entered.set_value(); gate.wait();
+        return nlohmann::json{{"CodeError", HttpRequestWrapperErrorCode}};
+    };
+    auto result = std::async(std::launch::async, [&] { return backend->DeauthorizeAndWait(); });
+    EXPECT_EQ(entered.get_future().wait_for(std::chrono::seconds(2)), std::future_status::ready);
+    EXPECT_EQ(result.wait_for(std::chrono::milliseconds(0)), std::future_status::timeout);
+    release.set_value(); EXPECT_FALSE(result.get()); EXPECT_TRUE(backend->IsAuthorized());
+    backend->explicitTokenHandler = [](const auto&, const auto&, const auto&, const auto&) { return nlohmann::json::object(); };
+    EXPECT_TRUE(backend->DeauthorizeAndWait()); EXPECT_FALSE(backend->IsAuthorized());
 }

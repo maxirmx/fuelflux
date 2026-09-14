@@ -180,3 +180,24 @@ change does not provide server-side exactly-once delivery.
 Online intake and refueling clean up backend authorization before completing.
 The next authorization also checks for an uncleared session. Rendering exceptions
 mark the display unready and require successful display reset before new sessions.
+
+
+Controller reports use the backend's unpersisted report methods: only receipt
+promotion inserts backlog/dead-message rows. Legacy callers retain their existing
+backend persistence behavior. This removes the crash window between two separate
+local persistence paths; remote acknowledgement ambiguity remains unchanged.
+
+Controller cleanup uses completion-aware deauthorization on its backend worker.
+A failed request retains the old token so the next authorization must retry cleanup
+first. Session-end cleanup and local-only report cleanup have a coalesced, reserved
+FIFO queue slot and count as pending work through shutdown. The controller loop
+never waits on HTTP; network timeouts still bound each worker attempt. Legacy
+backend users retain the existing asynchronous Deauthorize API.
+Cleanup requests carry session generations; coalesced requests cannot clear a
+newer backend session. Executor shutdown changes its wait predicate under the
+queue mutex before notifying workers, preventing a missed shutdown notification.
+
+During cache population, successful local debits copy the active row to standby
+and mark that UID locally changed. Later rows from the overlapping server snapshot
+cannot overwrite it. Unrelated rows still refresh, and the next population starts
+with a fresh change set. Historical receipt IDs are not reapplied to server values.

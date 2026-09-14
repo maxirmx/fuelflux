@@ -526,13 +526,30 @@ void Controller::startNewSession() {
     postEvent(Event::InputUpdated);
 }
 
+void Controller::requestBackendCleanup(std::uint64_t generation) {
+    assertOwner();
+    cleanupRequestedGeneration_ = std::max(cleanupRequestedGeneration_, generation);
+    if (!backend_ || cleanupPending_) return;
+    cleanupPending_ = true;
+    ++pendingOperations_;
+    const bool submitted = backendWorker_.SubmitReserved([this, generation] {
+        bool ok = false;
+        try { ok = backendSessionGeneration_ > generation || !backend_->IsAuthorized() || backend_->DeauthorizeAndWait(); }
+        catch (...) { LOG_CTRL_WARN("Backend cleanup threw"); }
+        enqueue(WorkComplete{generation, false, ok, false, true});
+    });
+    // This is the only producer of reserved work, coalesced until completion.
+    assert(submitted);
+    if (!submitted) enqueue(WorkComplete{generation, false, false, false, true});
+}
+
 void Controller::endCurrentSession() {
     if (defer(Command{CommandKind::EndSession})) return;
     if (pumpRunning_ || stopping_) { postEvent(Event::CancelPressed); return; }
     if (reporting_) return;
     ++sessionGeneration_;
     const auto backend = sessionAuthorizedFromCache_ ? nullptr : backend_;
-    if (backend) backendWorker_.Submit([backend] { if (backend->IsAuthorized()) (void)backend->Deauthorize(); });
+    if (backend) requestBackendCleanup(sessionGeneration_);
     resetSessionData();
     clearInputSilent();
 }
@@ -624,11 +641,12 @@ void Controller::requestAuthorization(const UserId& userId) {
         try {
             // A previous report's network deauthorization may have failed.
             // Never authorize the next credential against the previous session.
-            if (backend_ && backend_->IsAuthorized() && !backend_->Deauthorize()) {
+            if (backend_ && backend_->IsAuthorized() && !backend_->DeauthorizeAndWait()) {
                 enqueue(std::move(result));
                 return;
             }
             if (backend_ && backend_->Authorize(userId)) {
+                backendSessionGeneration_ = generation;
                 result.user = {userId, static_cast<UserRole>(backend_->GetRoleId()), backend_->GetAllowance(), backend_->GetPrice()};
                 result.tanks = backend_->GetFuelTanks();
                 result.outcome = Event::AuthorizationSuccess;
@@ -895,9 +913,9 @@ void Controller::reportTransaction(const std::string& uid, MessageMethod method,
                     if (!localOnly && !cached && backend_) {
                         auto data = nlohmann::json::parse(payload);
                         delivered = (method == MessageMethod::Refuel
-                            ? backend_->Refuel(data["TankNumber"].get<int>(), volume)
-                            : backend_->Intake(data["TankNumber"].get<int>(), volume,
-                                static_cast<IntakeDirection>(data["Direction"].get<int>()))) || backend_->WasLastReportPersisted();
+                            ? backend_->RefuelUnpersisted(data["TankNumber"].get<int>(), volume)
+                            : backend_->IntakeUnpersisted(data["TankNumber"].get<int>(), volume,
+                                static_cast<IntakeDirection>(data["Direction"].get<int>())));
                         if (!delivered) rejected = !backend_->IsNetworkError();
                     }
                 } catch (...) { LOG_CTRL_ERROR("Backend report failed; retaining receipt locally"); }
@@ -910,10 +928,10 @@ void Controller::reportTransaction(const std::string& uid, MessageMethod method,
             }
         } catch (...) { LOG_CTRL_ERROR("Transaction retention/accounting failed"); }
         if (!localOnly && !cached && backend_) {
-            try { if (backend_->IsAuthorized()) (void)backend_->Deauthorize(); }
+            try { if (backend_->IsAuthorized()) (void)backend_->DeauthorizeAndWait(); }
             catch (...) { LOG_CTRL_ERROR("Report session cleanup failed; next authorization must retry"); }
         }
-        enqueue(WorkComplete{generation, true, ok});
+        enqueue(WorkComplete{generation, true, ok, localOnly && !cached});
     };
     if (!backendWorker_.Submit([work] { work(false); })) {
         // Only one report can be active. This reserved worker has no ordinary

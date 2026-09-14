@@ -112,6 +112,8 @@ bool UserCache::DeductAllowanceOnce(const std::string& receiptId, const std::str
         copy.text(1, uid);
         if (!copy.done()) return false;
     }
-    return transaction.commit();
+    const bool committed = transaction.commit();
+    if (committed && populationInProgress_) populationDebits_.insert(uid);
+    return committed;
 }
 } // namespace fuelflux

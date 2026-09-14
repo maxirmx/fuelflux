@@ -5,6 +5,9 @@
 #include <gtest/gtest.h>
 #include <gmock/gmock.h>
 #include "backend.h"
+#include "logger.h"
+#include <spdlog/sinks/ostream_sink.h>
+#include <sstream>
 #include <httplib.h>
 
 using namespace fuelflux;
@@ -708,4 +711,31 @@ TEST_F(BackendTest, IntakePayloadMapsVisualNumberToId) {
     storedPayload["Direction"] = 1;
     storedPayload["TimeAt"] = 1234567890000LL;
     EXPECT_TRUE(backend.IntakePayload(storedPayload.dump()));
+}
+
+TEST_F(BackendTest, AuthorizationResponseDoesNotLogBearerToken) {
+    setupSuccessfulAuthorizeResponse();
+    setupSuccessfulDeauthorizeResponse();
+    std::ostringstream output;
+    auto sink = std::make_shared<spdlog::sinks::ostream_sink_mt>(output);
+    auto previous = spdlog::get("Backend");
+    struct Restore {
+        std::shared_ptr<spdlog::logger> previous;
+        ~Restore() { spdlog::drop("Backend"); if (previous) spdlog::register_logger(previous); }
+    } restore{previous};
+    spdlog::drop("Backend");
+    auto logger = std::make_shared<spdlog::logger>("Backend", sink);
+    logger->set_level(spdlog::level::debug); spdlog::register_logger(logger);
+    Backend backend(baseAPI, controllerUid);
+    EXPECT_TRUE(backend.Authorize("credential-not-for-logs"));
+    EXPECT_TRUE(backend.DeauthorizeAndWait());
+    mockServer->handleAuthorize = [](const httplib::Request&, httplib::Response& res) {
+        res.set_content("invalid-credential-response", "application/json");
+    };
+    EXPECT_FALSE(backend.Authorize("credential-not-for-logs"));
+    logger->flush();
+    EXPECT_NE(output.str().find("Response status:"), std::string::npos);
+    EXPECT_EQ(output.str().find("test-token-12345"), std::string::npos);
+    EXPECT_EQ(output.str().find("credential-not-for-logs"), std::string::npos);
+    EXPECT_EQ(output.str().find("invalid-credential-response"), std::string::npos);
 }

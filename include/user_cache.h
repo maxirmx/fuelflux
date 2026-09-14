@@ -8,6 +8,7 @@
 #include <mutex>
 #include <string>
 #include <vector>
+#include <unordered_set>
 
 struct sqlite3;
 
@@ -64,6 +65,8 @@ private:
     mutable std::mutex dbMutex_;
     bool activeTableIsA_; // true = table A is active, false = table B is active
     bool populationInProgress_;
+    // Local debits win over overlapping server population entries.
+    std::unordered_set<std::string> populationDebits_;
 };
 
 } // namespace fuelflux

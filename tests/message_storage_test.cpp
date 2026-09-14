@@ -155,8 +155,29 @@ TEST(ReceiptStorageTest, DebitUpdatesPopulationTablesAtomically) {
     ASSERT_TRUE(cache.UpdateEntry("uid", 100, 1));
     ASSERT_TRUE(cache.BeginPopulation());
     ASSERT_TRUE(cache.DeductAllowanceOnce("receipt", "uid", 5));
+    ASSERT_TRUE(cache.AddPopulationEntry("uid", 100, 1)); // delayed stale server batch
     ASSERT_TRUE(cache.CommitPopulation());
     EXPECT_DOUBLE_EQ(cache.GetEntry("uid")->allowance, 95);
     EXPECT_TRUE(cache.DeductAllowanceOnce("receipt", "uid", 5));
     EXPECT_DOUBLE_EQ(cache.GetEntry("uid")->allowance, 95);
+}
+
+TEST(ReceiptStorageTest, PopulationDoesNotReplayDebitsAlreadyIncludedByServer) {
+    UserCache cache(":memory:");
+    ASSERT_TRUE(cache.UpdateEntry("uid", 100, 1));
+    ASSERT_TRUE(cache.BeginPopulation());
+    ASSERT_TRUE(cache.AddPopulationEntry("uid", 100, 1));
+    ASSERT_TRUE(cache.DeductAllowanceOnce("first", "uid", 5));
+    ASSERT_TRUE(cache.DeductAllowanceOnce("second", "uid", 3));
+    ASSERT_TRUE(cache.AddPopulationEntry("uid", 92, 1));
+    ASSERT_TRUE(cache.AddPopulationEntry("other", 200, 2));
+    ASSERT_TRUE(cache.CommitPopulation());
+    EXPECT_DOUBLE_EQ(cache.GetEntry("uid")->allowance, 92);
+    EXPECT_DOUBLE_EQ(cache.GetEntry("other")->allowance, 200);
+    ASSERT_TRUE(cache.BeginPopulation());
+    ASSERT_TRUE(cache.AddPopulationEntry("uid", 92, 1));
+    ASSERT_TRUE(cache.CommitPopulation());
+    EXPECT_DOUBLE_EQ(cache.GetEntry("uid")->allowance, 92);
+    EXPECT_TRUE(cache.DeductAllowanceOnce("first", "uid", 5));
+    EXPECT_DOUBLE_EQ(cache.GetEntry("uid")->allowance, 92);
 }
