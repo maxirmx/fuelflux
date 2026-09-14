@@ -347,7 +347,7 @@ nlohmann::json Backend::HttpRequestWrapper(const std::string& endpoint,
         
         // Compute body string once and reuse for both logging and POST
         std::string bodyStr = requestBody.dump();
-        LOG_BCK_DEBUG("Request: {} {} with body: {}", method, endpoint, bodyStr);
+        LOG_BCK_DEBUG("Request: {} {}", method, endpoint);
 
         // Set URL
         curl_easy_setopt(curl.get(), CURLOPT_URL, url.c_str());
@@ -506,7 +506,7 @@ nlohmann::json Backend::HttpRequestWrapper(const std::string& endpoint,
         
         // Compute body string once and reuse for both logging and POST
         std::string bodyStr = requestBody.dump();
-        LOG_BCK_DEBUG("Request: {} {} with body: {}", method, endpoint, bodyStr);
+        LOG_BCK_DEBUG("Request: {} {}", method, endpoint);
 
         // Set URL
         curl_easy_setopt(curl.get(), CURLOPT_URL, url.c_str());

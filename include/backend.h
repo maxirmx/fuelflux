@@ -53,6 +53,8 @@ public:
     virtual bool Deauthorize() = 0;
     virtual bool Refuel(TankNumber tankNumber, Volume volume) = 0;
     virtual bool Intake(TankNumber tankNumber, Volume volume, IntakeDirection direction) = 0;
+    // Valid after a failed Refuel/Intake call on the backend's owning worker.
+    virtual bool WasLastReportPersisted() const { return false; }
     virtual bool RefuelPayload(const std::string& payload) = 0;
     virtual bool IntakePayload(const std::string& payload) = 0;
     virtual bool IsAuthorized() const = 0;
@@ -91,6 +93,7 @@ public:
     bool Deauthorize() override;
     bool Refuel(TankNumber tankNumber, Volume volume) override;
     bool Intake(TankNumber tankNumber, Volume volume, IntakeDirection direction) override;
+    bool WasLastReportPersisted() const override { return lastReportPersisted_; }
     bool RefuelPayload(const std::string& payload) override;
     bool IntakePayload(const std::string& payload) override;
 
@@ -133,6 +136,7 @@ protected:
 
     std::string controllerUid_;
     std::string authorizedUid_;
+    bool lastReportPersisted_ = false;
     Session session_;
     int roleId_ = 0;
     double allowance_ = 0.0;

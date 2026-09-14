@@ -328,10 +328,9 @@ void ConsoleCardReader::simulateCardPresented(const UserId& userId) {
         return;
     }
 
-    std::lock_guard<std::mutex> lock(callbackMutex_);
-    if (cardPresentedCallback_) {
-        cardPresentedCallback_(userId);
-    }
+    CardPresentedCallback callback;
+    { std::lock_guard<std::mutex> lock(callbackMutex_); callback = cardPresentedCallback_; }
+    if (callback) callback(userId);
 }
 
 // ConsolePump implementation
@@ -388,10 +387,9 @@ void ConsolePump::setPumpStateCallback(PumpStateCallback callback) {
 }
 
 void ConsolePump::notifyStateChange() {
-    std::lock_guard<std::mutex> lock(callbackMutex_);
-    if (pumpStateCallback_) {
-        pumpStateCallback_(isRunning_);
-    }
+    PumpStateCallback callback;
+    { std::lock_guard<std::mutex> lock(callbackMutex_); callback = pumpStateCallback_; }
+    if (callback) callback(isRunning_);
 }
 
 // ConsoleEmulator implementation

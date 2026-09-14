@@ -27,6 +27,13 @@ public:
     virtual void setBacklight(bool enabled) = 0;
 };
 
+struct InputHealth {
+    bool healthy = false;
+    std::chrono::steady_clock::time_point lastSuccessfulIo{};
+    std::uint64_t generation = 0;
+    std::string error;
+};
+
 // Keyboard interface
 class IKeyboard : public IPeripheral {
 public:
@@ -34,6 +41,7 @@ public:
     
     virtual void setKeyPressCallback(KeyPressCallback callback) = 0;
     virtual void enableInput(bool enabled) = 0;
+    virtual std::optional<InputHealth> getInputHealth() const { return std::nullopt; }
 };
 
 // Card reader interface
@@ -43,6 +51,7 @@ public:
     
     virtual void setCardPresentedCallback(CardPresentedCallback callback) = 0;
     virtual void enableReading(bool enabled) = 0;
+    virtual std::optional<InputHealth> getInputHealth() const { return std::nullopt; }
 };
 
 // Pump interface

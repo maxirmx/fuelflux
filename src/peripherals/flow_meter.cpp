@@ -5,6 +5,7 @@
 #include "peripherals/flow_meter.h"
 #include "logger.h"
 #include "timing_config.h"
+#include <stdexcept>
 
 #ifdef TARGET_REAL_FLOW_METER
 #include "hardware/hardware_config.h"
@@ -297,10 +298,8 @@ void HardwareFlowMeter::stopMeasurement() {
             monitorThread_.get_id() != std::this_thread::get_id()) {
             monitorThread_.join();
         }
-        else if (monitorThread_.get_id() == std::this_thread::get_id()) {
-            // Called from within the monitor thread (e.g., via callback) - detach to avoid self-join
-            LOG_PERIPH_WARN("stopMeasurement called from monitor thread - detaching");
-            monitorThread_.detach();
+        else if (monitorThread_.joinable()) {
+            throw std::logic_error("Flow measurement must be stopped outside its callback thread");
         }
 
 #ifdef TARGET_REAL_FLOW_METER

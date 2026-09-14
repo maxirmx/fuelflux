@@ -336,6 +336,7 @@ include_directories(${CMAKE_BINARY_DIR}/include)
 set(LIB_SOURCES
     src/state_machine.cpp
     src/controller.cpp
+    src/controller_events.cpp
     src/logger.cpp
     src/message_storage.cpp
     src/user_cache.cpp
@@ -600,6 +601,7 @@ if(ENABLE_TESTING)
         tests/url_utils_test.cpp
         tests/console_emulator_test.cpp
         tests/keyboard_test.cpp
+        tests/input_recovery_test.cpp
         tests/four_line_display_test.cpp
         tests/flow_meter_test.cpp
         tests/temperature_sensor_test.cpp

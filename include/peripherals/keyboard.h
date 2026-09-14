@@ -5,6 +5,8 @@
 #pragma once
 
 #include "peripheral_interface.h"
+#include "input_health.h"
+#include "key_press_tracker.h"
 
 #include <atomic>
 #include <cstdint>
@@ -21,7 +23,13 @@ namespace fuelflux::peripherals {
 
 class HardwareKeyboard : public IKeyboard {
 public:
+    struct Transport {
+        std::function<void()> open;
+        std::function<PhysicalKey()> scan;
+        std::function<void()> close;
+    };
     HardwareKeyboard();
+    explicit HardwareKeyboard(Transport transport);
     ~HardwareKeyboard() override;
 
     bool initialize() override;
@@ -30,6 +38,7 @@ public:
 
     void setKeyPressCallback(KeyPressCallback callback) override;
     void enableInput(bool enabled) override;
+    std::optional<InputHealth> getInputHealth() const override;
 
 private:
     std::atomic<bool> isConnected_{false};
@@ -37,18 +46,18 @@ private:
     KeyPressCallback keyPressCallback_;
     std::mutex callbackMutex_;
 
-#if defined(KEYBOARD_TYPE_LEGACY) || defined(KEYBOARD_TYPE_VID)
     void pollLoop();
+    Transport transport_;
+    InputHealthTracker health_;
+    bool monitored_ = false;
 
     std::thread pollThread_;
-    std::atomic<bool> shouldStop_{false};
+#if defined(KEYBOARD_TYPE_LEGACY) || defined(KEYBOARD_TYPE_VID)
     std::unique_ptr<hardware::MCP23017> mcp_;
-    std::string i2cDevice_;
-    uint8_t i2cAddress_{};  // Default to 0 for defensive initialization
-    int pollMs_{};          // Default to 0 ms
-    int debounceMs_{};      // Default to 0 ms
-    int releaseMs_{};       // Default to 0 ms
 #endif
+    int pollMs_{10};
+    int debounceMs_{20};
+    int releaseMs_{20};
 };
 
 } // namespace fuelflux::peripherals

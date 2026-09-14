@@ -120,7 +120,7 @@ bool BackendBase::Authorize(const std::string& uid) {
             return false;
         }
 
-        LOG_BCK_INFO("Authorizing card UID: {}", uid);
+        LOG_BCK_INFO("Authorizing presented credential");
 
         nlohmann::json requestBody;
         requestBody["CardUid"] = uid;
@@ -280,6 +280,7 @@ bool BackendBase::Deauthorize() {
 }
 
 bool BackendBase::Refuel(TankNumber tankNumber, Volume volume) {
+    lastReportPersisted_ = false;
     try {
         if (!session_.IsAuthorized()) {
             LOG_BCK_ERROR("Invalid refueling report: backend is not authorized");
@@ -334,9 +335,9 @@ bool BackendBase::Refuel(TankNumber tankNumber, Volume volume) {
             if (storage_ && !authorizedUid_.empty()) {
                 const int errorCode = response.value("CodeError", 0);
                 if (errorCode == HttpRequestWrapperErrorCode) {
-                    storage_->AddBacklog(authorizedUid_, MessageMethod::Refuel, requestBody.dump());
+                    lastReportPersisted_ = storage_->AddBacklog(authorizedUid_, MessageMethod::Refuel, requestBody.dump());
                 } else {
-                    storage_->AddDeadMessage(authorizedUid_, MessageMethod::Refuel, requestBody.dump());
+                    lastReportPersisted_ = storage_->AddDeadMessage(authorizedUid_, MessageMethod::Refuel, requestBody.dump());
                 }
             }
             lastError_ = responseError;
@@ -360,6 +361,7 @@ bool BackendBase::Refuel(TankNumber tankNumber, Volume volume) {
 }
 
 bool BackendBase::Intake(TankNumber tankNumber, Volume volume, IntakeDirection direction) {
+    lastReportPersisted_ = false;
     try {
         if (!session_.IsAuthorized()) {
             LOG_BCK_ERROR("Invalid intake report: backend is not authorized");
@@ -419,9 +421,9 @@ bool BackendBase::Intake(TankNumber tankNumber, Volume volume, IntakeDirection d
             if (storage_ && !authorizedUid_.empty()) {
                 const int errorCode = response.value("CodeError", 0);
                 if (errorCode == HttpRequestWrapperErrorCode) {
-                    storage_->AddBacklog(authorizedUid_, MessageMethod::Intake, requestBody.dump());
+                    lastReportPersisted_ = storage_->AddBacklog(authorizedUid_, MessageMethod::Intake, requestBody.dump());
                 } else {
-                    storage_->AddDeadMessage(authorizedUid_, MessageMethod::Intake, requestBody.dump());
+                    lastReportPersisted_ = storage_->AddDeadMessage(authorizedUid_, MessageMethod::Intake, requestBody.dump());
                 }
             }
             lastError_ = responseError;

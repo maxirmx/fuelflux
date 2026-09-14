@@ -9,9 +9,6 @@
 #include <functional>
 #include <unordered_map>
 #include <memory>
-#include <thread>
-#include <atomic>
-#include <mutex>
 #include <string>
 #include <optional>
 
@@ -38,13 +35,13 @@ public:
     void initialize();
     bool processEvent(Event event);
     void handleKeyPress(KeyCode key);
-    SystemState getCurrentState() const { std::scoped_lock lock(mutex_); return currentState_; }
+    SystemState getCurrentState() const;
     
     // Display management - get display message for current state
     DisplayMessage getDisplayMessage() const;
     
     // State queries
-    bool isInState(SystemState state) const { std::scoped_lock lock(mutex_); return currentState_ == state; }
+    bool isInState(SystemState state) const { return getCurrentState() == state; }
     
     // Reset to initial state
     void reset();
@@ -87,11 +84,9 @@ private:
     // Transition table: (current_state, event) -> (next_state, action)
     std::unordered_map<std::pair<SystemState, Event>, std::pair<SystemState, std::function<void()>>> transitions_;
 
-    // Concurrency
-    mutable std::recursive_mutex mutex_;
-    std::atomic<bool> timeoutThreadRunning_{false};
-    std::thread timeoutThread_;
-    void timeoutThreadFunction();
+    // Runtime observation uses ControllerStatus; fields below are owner-only.
+    friend class Controller;
+    void checkTimeout();
 };
 
 } // namespace fuelflux

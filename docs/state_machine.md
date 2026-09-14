@@ -1,4 +1,4 @@
-﻿# State Machine Documentation
+# State Machine Documentation
 
 ## Overview
 
@@ -701,3 +701,18 @@ PinEntry State → Press: "2", "3", "4" (remaining digits)
 ```
 
 **Note:** In Waiting state, pressing the first digit automatically switches from Command Mode to Key Mode and triggers PIN entry.
+
+
+## Controller ownership and recovery
+
+Runtime transitions are owned by the controller event loop. Raw peripheral inputs
+are copied messages; backend and display work execute outside the loop. Each input
+finishes its internal transition sequence before the next input is handled.
+
+Dispensing now passes through `RefuelingStopping`: pump-off, final measurement,
+then `RefuelDataTransmission`. Input failures use this path and inhibit new sessions
+until recovery; they never automatically resume dispensing. Authorization failure
+screens accept cards immediately, consistent with their displayed prompts.
+
+See [Input recovery and controller ownership](input_recovery.md) for lifecycle,
+message ordering, diagnostics, and hardware release requirements.
