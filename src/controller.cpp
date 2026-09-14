@@ -132,6 +132,7 @@ bool Controller::initialize() {
     isRunning_ = true;
     startDisplayWorker();
     if (!ok) {
+        inputFault_ = true;
         LOG_CTRL_ERROR("Initialization completed with errors");
         stateMachine_.processEvent(Event::Error);
     } else {
@@ -173,13 +174,25 @@ bool Controller::reinitializeDevice() {
     assertOwner();
     // Input devices own their reconnect loops. A reset must never close their
     // handles or join them from the controller loop.
-    if (pumpRunning_ || stopping_ || reporting_ || finalizationFailed_) return false;
+    if (pumpRunning_ || stopping_ || reporting_ || finalizationFailed_ || recoveringPeripherals_) return false;
     endCurrentSession();
     reinitializeDisplay();
-    const bool healthy = (!keyboard_ || keyboard_->isConnected()) &&
-                         (!cardReader_ || cardReader_->isConnected());
-    if (healthy) lastErrorMessage_.clear();
-    return healthy;
+    if (!pumpReady_ || !flowReady_) {
+        recoveringPeripherals_ = true;
+        ++pendingOperations_;
+        const bool pumpReady = pumpReady_, flowReady = flowReady_;
+        if (!flowWorker_.Submit([this, pumpReady, flowReady] {
+            bool pumpOk = pumpReady, flowOk = flowReady;
+            try { if (!pumpOk) { pump_->shutdown(); pumpOk = pump_->initialize(); } }
+            catch (...) { LOG_CTRL_ERROR("Pump recovery failed"); }
+            try { if (!flowOk) { flowMeter_->shutdown(); flowOk = flowMeter_->initialize(); } }
+            catch (...) { LOG_CTRL_ERROR("Flow meter recovery failed"); }
+            enqueue(RecoveryResult{pumpOk, flowOk});
+        })) enqueue(RecoveryResult{pumpReady, flowReady});
+        return false;
+    }
+    checkDeadlines(true);
+    return inputsReady_ && !inputFault_ && displayReady_;
 }
 
 void Controller::run() {
@@ -250,6 +263,8 @@ void Controller::run() {
         for (auto& envelope : eventQueue_)
             if (auto barrier = std::get_if<Barrier>(&envelope.message))
                 barrier->completion->set_value();
+            else if (auto command = std::get_if<Command>(&envelope.message); command && command->completion)
+                command->completion->set_value(false);
         eventQueue_.clear();
     }
     cleanupWorkers();
@@ -320,6 +335,10 @@ std::optional<GpsPosition> Controller::getLastGpsPosition() const {
 // Input handling
 void Controller::processKeyPress(KeyCode key) {
     const auto state = stateMachine_.getCurrentState();
+    if (state == SystemState::Error && key == KeyCode::KeyStop && !shutdownRequested_) {
+        if (reinitializeDevice()) postEvent(Event::ErrorRecovery);
+        return;
+    }
     if (!inputsReady_ || inputFault_ || shutdownRequested_ || state == SystemState::Authorization ||
         state == SystemState::RefuelDataTransmission || state == SystemState::IntakeDataTransmission ||
         state == SystemState::RefuelingStopping) return;
@@ -677,33 +696,43 @@ void Controller::enterVolume(Volume volume) {
 
 // Refueling operations
 bool Controller::canStartRefueling() {
-    healthCheck_ = {};
-    checkDeadlines();
-    return inputsReady_ && !inputFault_ && !shutdownRequested_ && !pumpRunning_ && !stopping_ && !reporting_;
+    checkDeadlines(true);
+    if (stateMachine_.checkTimeout()) return false;
+    return pumpReady_ && flowReady_ && displayReady_ && !recoveringPeripherals_ && inputsReady_ && !inputFault_ && !shutdownRequested_ && !pumpRunning_ && !stopping_ && !reporting_;
 }
 
 void Controller::startRefueling() {
     if (defer(Command{CommandKind::Start})) return;
-    if (!inputsReady_ || inputFault_ || shutdownRequested_ || pumpRunning_ || stopping_ || reporting_) return;
+    if (!pumpReady_ || !flowReady_ || !displayReady_ || recoveringPeripherals_ || !inputsReady_ || inputFault_ || shutdownRequested_ || pumpRunning_ || stopping_ || reporting_) return;
     startAborted_ = false;
     currentRefuelVolume_ = 0;
     ++measurementGeneration_;
-    if (flowMeter_) {
-        const auto generation = measurementGeneration_;
-        flowMeter_->setFlowCallback([this, generation](Volume volume) { enqueue(FlowMessage{volume, generation}); });
-        flowMeter_->resetCounter();
-        flowMeter_->startMeasurement();
-    }
-    if (pump_) {
-        const auto generation = measurementGeneration_;
-        pump_->setPumpStateCallback([this, generation](bool running) { enqueue(PumpMessage{running, generation}); });
-        pump_->start();
-    }
-    pumpRunning_ = pump_ && pump_->isRunning();
-    lastFlowUpdateTime_ = now();
-    if (!pumpRunning_) {
+    try {
+        if (flowMeter_) {
+            const auto generation = measurementGeneration_;
+            flowMeter_->setFlowCallback([this, generation](Volume volume) { enqueue(FlowMessage{volume, generation}); });
+            flowMeter_->resetCounter();
+            flowMeter_->startMeasurement();
+        }
+        if (pump_) {
+            const auto generation = measurementGeneration_;
+            pump_->setPumpStateCallback([this, generation](bool running) { enqueue(PumpMessage{running, generation}); });
+            pump_->start();
+        }
+        pumpRunning_ = pump_ && pump_->isRunning();
+        lastFlowUpdateTime_ = now();
+        if (!pumpRunning_) {
+            startAborted_ = true;
+            lastErrorMessage_ = "Pump failed to start";
+            postEvent(Event::Error);
+            return;
+        }
+    } catch (...) {
         startAborted_ = true;
-        lastErrorMessage_ = "Pump failed to start";
+        lastErrorMessage_ = "Dispensing startup failed";
+        // An adapter can throw after applying its output; conservatively stop it.
+        pumpRunning_ = true;
+        lastFlowUpdateTime_ = now();
         postEvent(Event::Error);
         return;
     }
@@ -713,8 +742,11 @@ void Controller::startRefueling() {
 void Controller::stopRefueling() {
     if (defer(Command{CommandKind::Stop})) return;
     if (stopping_ || reporting_) return;
-    if (pump_) pump_->stop();
-    if (pump_ && pump_->isRunning()) {
+    bool pumpOff = false;
+    try { if (pump_) pump_->stop(); pumpOff = !pump_ || !pump_->isRunning(); }
+    catch (...) { /* Unconfirmed pump-off uses the rate-limited fault path below. */ }
+    if (!pumpOff) {
+        pumpRunning_ = true;
         lastErrorMessage_ = "Ошибка остановки насоса";
         inputFault_ = true;
         finalizationFailed_ = true;
@@ -904,8 +936,17 @@ void Controller::enableCardReading(bool enabled) {
 }
 
 bool Controller::setFlowMeterSimulationEnabled(bool enabled) {
-    if (defer(Command{CommandKind::Simulation, enabled ? 1.0 : 0.0})) return true;
-    if (pumpRunning_ || stopping_) return false;
+    if (!onOwnerThread()) {
+        std::unique_lock<std::mutex> lifecycle(lifecycleMutex_);
+        if (!loopActive_ || !acceptingBarriers_) return false;
+        Command command{CommandKind::Simulation, enabled ? 1.0 : 0.0};
+        command.completion = std::make_shared<std::promise<bool>>();
+        auto result = command.completion->get_future();
+        enqueue(std::move(command));
+        lifecycle.unlock();
+        return result.get();
+    }
+    if (pumpRunning_ || stopping_ || recoveringPeripherals_ || !flowReady_ || shutdownRequested_) return false;
     if (!flowMeter_) {
         LOG_CTRL_WARN("Cannot toggle flow meter simulation: flow meter not configured");
         return false;
@@ -1119,7 +1160,8 @@ void Controller::resetSessionData() {
 
 bool Controller::initializePeripherals() {
     bool ok = true;
-    if (display_ && !display_->initialize()) {
+    displayReady_ = !display_ || display_->initialize();
+    if (!displayReady_) {
         LOG_CTRL_ERROR("Failed to initialize display");
         lastErrorMessage_ = "Ошибка дисплея";
         ok = false;
@@ -1141,7 +1183,8 @@ bool Controller::initializePeripherals() {
         ok = false;
     }
 
-    if (pump_ && !pump_->initialize()) {
+    pumpReady_ = !pump_ || pump_->initialize();
+    if (!pumpReady_) {
         LOG_CTRL_ERROR("Failed to initialize pump");
         if (lastErrorMessage_.empty()) {
             lastErrorMessage_ = "Ошибка насоса";
@@ -1149,7 +1192,8 @@ bool Controller::initializePeripherals() {
         ok = false;
     }
 
-    if (flowMeter_ && !flowMeter_->initialize()) {
+    flowReady_ = !flowMeter_ || flowMeter_->initialize();
+    if (!flowReady_) {
         LOG_CTRL_ERROR("Failed to initialize flow meter");
         if (lastErrorMessage_.empty()) {
             lastErrorMessage_ = "Ошибка расходомера";
@@ -1170,9 +1214,9 @@ bool Controller::initializePeripherals() {
     }
 
     if (!ok) {
-        // Cleanup any peripherals that were successfully initialized
-        LOG_CTRL_WARN("Initialization failed, cleaning up partially initialized peripherals");
-        shutdownPeripherals();
+        // Keep healthy dependencies and input recovery workers alive. Required
+        // failures inhibit dispensing until their owner worker reinitializes them.
+        LOG_CTRL_WARN("Initialization incomplete; required-device recovery needed");
         if (lastErrorMessage_.empty()) {
             lastErrorMessage_ = "Критическая ошибка инициализации";
         }

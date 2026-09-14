@@ -30,6 +30,7 @@ SystemState StateMachine::getCurrentState() const {
 }
 
 void StateMachine::initialize() {
+    timeoutPending_ = false;
     controller_->assertOwner();
     {
         currentState_ = SystemState::Waiting;
@@ -62,6 +63,7 @@ void StateMachine::handleKeyPress(KeyCode key) {
 }
 
 bool StateMachine::processEvent(Event event) {
+    if (event == Event::Timeout) timeoutPending_ = false;
     controller_->assertOwner();
     if (!controller_) {
         LOG_SM_ERROR("Controller is null, cannot process event {}", static_cast<int>(event));
@@ -165,6 +167,7 @@ bool StateMachine::processEvent(Event event) {
 }
 
 void StateMachine::reset() {
+    timeoutPending_ = false;
     controller_->assertOwner();
     {
         currentState_ = SystemState::Waiting;
@@ -888,16 +891,19 @@ void StateMachine::updateActivityTime() {
     lastActivityTime_ = controller_->now();
 }
 
-void StateMachine::checkTimeout() {
+bool StateMachine::checkTimeout() {
+    if (timeoutPending_) return true;
     controller_->assertOwner();
     const auto state = getCurrentState();
-    if (!isTimeoutEnabled() || state == SystemState::RefuelingStopping) return;
+    if (!isTimeoutEnabled() || state == SystemState::RefuelingStopping) return false;
     const auto duration = state == SystemState::CalibrationSaved
         ? timing::kCalibrationSavedDisplayDuration : TIMEOUT_DURATION;
     if (controller_->now() - lastActivityTime_ >= duration) {
         lastActivityTime_ = controller_->now();
+        timeoutPending_ = true;
         controller_->postEvent(Event::Timeout);
     }
+    return timeoutPending_;
 }
 
 } // namespace fuelflux

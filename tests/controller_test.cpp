@@ -5,6 +5,7 @@
 #include <gtest/gtest.h>
 #include <gmock/gmock.h>
 #include <array>
+#include <algorithm>
 #include <condition_variable>
 #include <filesystem>
 #include <random>
@@ -39,6 +40,15 @@ struct ControllerTestAccess {
         return c.eventCv_.wait_for(lock, std::chrono::seconds(2), [&] {
             return std::any_of(c.eventQueue_.begin(), c.eventQueue_.end(), [](const auto& e) {
                 return std::holds_alternative<Controller::Barrier>(e.message);
+            });
+        });
+    }
+    static bool waitForSimulation(Controller& c) {
+        std::unique_lock<std::mutex> lock(c.eventQueueMutex_);
+        return c.eventCv_.wait_for(lock, std::chrono::seconds(2), [&] {
+            return std::any_of(c.eventQueue_.begin(), c.eventQueue_.end(), [](const auto& e) {
+                auto command = std::get_if<Controller::Command>(&e.message);
+                return command && command->completion;
             });
         });
     }
@@ -234,13 +244,16 @@ public:
     
     std::atomic<Volume> currentVolume_{0.0};
     FlowCallback storedCallback;
+    std::function<void()> onStart;
+    std::atomic<bool> measuring{false};
     
     void startMeasurement() override {
-        // Nothing to do in mock
+        measuring = true;
+        if (onStart) onStart();
     }
     
     void stopMeasurement() override {
-        // Nothing to do in mock
+        measuring = false;
     }
     
     void resetCounter() override {
@@ -4146,4 +4159,169 @@ TEST_F(ControllerTest, DisplayWorkerCoalescesPendingFrames) {
     message.line1 = "latest"; controller->showMessage(message);
     release.set_value();
     controller->shutdown(); // Drains the final frame and joins the display worker.
+}
+
+TEST_F(ControllerTest, StartupPumpFailureKeepsInputsAliveAndResetRecovers) {
+    EXPECT_CALL(*mockPump, initialize()).WillOnce(Return(false)).WillOnce(Return(true));
+    EXPECT_CALL(*mockKeyboard, shutdown()).Times(0);
+    EXPECT_CALL(*mockCardReader, shutdown()).Times(0);
+    EXPECT_FALSE(controller->initialize());
+    controller->synchronize();
+    EXPECT_EQ(controller->getStatus().state, SystemState::Error);
+    EXPECT_FALSE(controller->reinitializeDevice());
+    controller->synchronize();
+    EXPECT_EQ(controller->getStatus().state, SystemState::Waiting);
+    ::testing::Mock::VerifyAndClearExpectations(mockKeyboard);
+    ::testing::Mock::VerifyAndClearExpectations(mockCardReader);
+}
+
+TEST_F(ControllerTest, StartupFlowFailureCannotRecoverUntilInitializationSucceeds) {
+    EXPECT_CALL(*mockFlowMeter, initialize()).WillOnce(Return(false)).WillOnce(Return(false)).WillOnce(Return(true));
+    EXPECT_FALSE(controller->initialize());
+    EXPECT_FALSE(controller->reinitializeDevice());
+    controller->synchronize();
+    EXPECT_EQ(controller->getStatus().state, SystemState::Error);
+    controller->handleCardPresented("card"); controller->synchronize();
+    EXPECT_TRUE(controller->getCurrentUser().uid.empty());
+    EXPECT_FALSE(mockPump->isRunning());
+    EXPECT_FALSE(controller->reinitializeDevice());
+    controller->synchronize();
+    EXPECT_EQ(controller->getStatus().state, SystemState::Waiting);
+}
+
+TEST_F(ControllerTest, StartupDisplayFailureRequiresSuccessfulDisplayReset) {
+    EXPECT_CALL(*mockDisplay, initialize()).WillOnce(Return(false)).WillOnce(Return(true));
+    EXPECT_FALSE(controller->initialize());
+    std::thread runner([&] { controller->run(); });
+    controller->handleKeyPress(KeyCode::KeyStop);
+    EXPECT_TRUE(waitForState(SystemState::Waiting));
+    controller->shutdown(); runner.join();
+}
+
+TEST_F(ControllerTest, MeasurementStartupExceptionFinalizesWithoutReportingZeroDelivery) {
+    mockBackend->roleId_ = 1;
+    mockBackend->allowance_ = 100;
+    mockBackend->tanksStorage_ = {{1, 1, "Tank", 100}};
+    controller->initialize();
+    controller->handleCardPresented("customer"); controller->synchronize();
+    mockFlowMeter->onStart = [] { throw std::runtime_error("thread startup"); };
+    EXPECT_CALL(*mockBackend, Refuel(_, _)).Times(0);
+    controller->enterVolume(10); controller->synchronize();
+    EXPECT_FALSE(mockFlowMeter->measuring);
+    EXPECT_FALSE(mockPump->isRunning());
+    EXPECT_NE(controller->getStatus().state, SystemState::Refueling);
+}
+
+TEST_F(ControllerTest, PumpStartupExceptionStopsOutputAndRetainsMeasuredDelivery) {
+    mockBackend->roleId_ = 1;
+    mockBackend->allowance_ = 100;
+    mockBackend->tanksStorage_ = {{1, 1, "Tank", 100}};
+    controller->initialize();
+    controller->handleCardPresented("customer"); controller->synchronize();
+    mockPump->onStart = [&] {
+        mockPump->running_ = true;
+        mockFlowMeter->currentVolume_ = 0.25;
+        throw std::runtime_error("after output enabled");
+    };
+    EXPECT_CALL(*mockBackend, Refuel(1, 0.25)).WillOnce(Return(true));
+    controller->enterVolume(10); controller->synchronize();
+    EXPECT_FALSE(mockPump->isRunning());
+    EXPECT_FALSE(mockFlowMeter->measuring);
+}
+
+TEST_F(ControllerTest, PendingVolumeEntryTimeoutPreventsPumpStart) {
+    controller->shutdown();
+    auto time = std::chrono::steady_clock::now();
+    createController(std::chrono::seconds(30), ControllerRuntimeOptions{false, [&] { return time; }});
+    mockBackend->roleId_ = 1;
+    mockBackend->allowance_ = 100;
+    mockBackend->tanksStorage_ = {{1, 1, "Tank", 100}};
+    controller->initialize();
+    controller->handleCardPresented("customer"); controller->synchronize();
+    controller->enterVolume(10); // Queues VolumeEntered before the deadline check.
+    time += std::chrono::seconds(31);
+    EXPECT_CALL(*mockBackend, Refuel(_, _)).Times(0);
+    controller->synchronize();
+    EXPECT_FALSE(mockPump->isRunning());
+    EXPECT_FALSE(mockFlowMeter->measuring);
+    EXPECT_EQ(controller->getStatus().state, SystemState::Waiting);
+}
+
+TEST_F(ControllerTest, FirstHealthyKeyIsAcceptedBeforePeriodicHealthCheck) {
+    controller->shutdown();
+    const auto time = std::chrono::steady_clock::now();
+    createController(std::chrono::seconds(30), ControllerRuntimeOptions{false, [time] { return time; }});
+    mockKeyboard->healthForTest = InputHealth{false, time, 0, {}, true};
+    controller->initialize(); controller->synchronize();
+    mockKeyboard->healthForTest = InputHealth{true, time, 1, {}, false};
+    mockKeyboard->simulateKeyPress(KeyCode::Key1); controller->synchronize();
+    EXPECT_EQ(controller->getCurrentInput(), "1");
+    EXPECT_EQ(controller->getStatus().state, SystemState::PinEntry);
+}
+
+TEST_F(ControllerTest, FirstCardAfterBothInputsRecoverIsAcceptedImmediately) {
+    controller->shutdown();
+    const auto time = std::chrono::steady_clock::now();
+    createController(std::chrono::seconds(30), ControllerRuntimeOptions{false, [time] { return time; }});
+    mockBackend->roleId_ = 1;
+    mockBackend->allowance_ = 100;
+    mockBackend->tanksStorage_ = {{1, 1, "Tank", 100}};
+    mockKeyboard->healthForTest = InputHealth{false, time, 0, {}, true};
+    controller->initialize(); controller->synchronize();
+    mockKeyboard->healthForTest = InputHealth{true, time, 1, {}, false};
+    controller->handleCardPresented("customer"); controller->synchronize();
+    EXPECT_EQ(controller->getStatus().state, SystemState::VolumeEntry);
+}
+
+TEST_F(ControllerTest, SimulationCommandReturnsOwnerRejection) {
+    controller->initialize();
+    controller->handleKeyPress(KeyCode::Key1);
+    std::thread runner([&] { controller->run(); });
+    EXPECT_TRUE(waitForState(SystemState::PinEntry));
+    // MockFlowMeter does not support hardware simulation. Acceptance is not success.
+    EXPECT_FALSE(controller->setFlowMeterSimulationEnabled(true));
+    controller->shutdown(); runner.join();
+}
+
+TEST_F(ControllerTest, ShutdownCancelsQueuedSimulationWithFalseResult) {
+    controller->initialize();
+    std::promise<void> entered, release;
+    auto gate = release.get_future().share();
+    std::atomic<bool> first{true};
+    EXPECT_CALL(*mockCardReader, enableReading(_)).WillRepeatedly([&](bool) {
+        if (first.exchange(false)) {
+            controller->shutdown();
+            entered.set_value(); gate.wait();
+        }
+    });
+    controller->handleKeyPress(KeyCode::Key1);
+    std::thread runner([&] { controller->run(); });
+    EXPECT_EQ(entered.get_future().wait_for(std::chrono::seconds(2)), std::future_status::ready);
+    auto result = std::async(std::launch::async, [&] { return controller->setFlowMeterSimulationEnabled(true); });
+    EXPECT_TRUE(ControllerTestAccess::waitForSimulation(*controller));
+    release.set_value();
+    EXPECT_EQ(result.wait_for(std::chrono::seconds(2)), std::future_status::ready);
+    EXPECT_FALSE(result.get());
+    runner.join();
+}
+
+TEST_F(ControllerTest, DelayedPeripheralRecoveryKeepsLoopResponsiveAndShutdownWaits) {
+    std::promise<void> entered, release;
+    auto gate = release.get_future().share();
+    EXPECT_CALL(*mockFlowMeter, initialize()).WillOnce(Return(false)).WillOnce([&] {
+        entered.set_value(); gate.wait(); return true;
+    });
+    EXPECT_FALSE(controller->initialize());
+    std::thread runner([&] { controller->run(); });
+    controller->handleKeyPress(KeyCode::KeyStop);
+    EXPECT_EQ(entered.get_future().wait_for(std::chrono::seconds(2)), std::future_status::ready);
+    controller->handleCardPresented("card");
+    controller->synchronize(); // Recovery is still blocked; the owner must progress.
+    EXPECT_EQ(controller->getStatus().state, SystemState::Error);
+    EXPECT_TRUE(controller->getCurrentUser().uid.empty());
+    auto stopped = std::async(std::launch::async, [&] { controller->shutdown(); });
+    EXPECT_EQ(stopped.wait_for(std::chrono::milliseconds(20)), std::future_status::timeout);
+    release.set_value();
+    EXPECT_EQ(stopped.wait_for(std::chrono::seconds(2)), std::future_status::ready);
+    stopped.get(); runner.join();
 }

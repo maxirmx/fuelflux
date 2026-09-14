@@ -616,6 +616,11 @@ if(ENABLE_TESTING)
 
     # Create test executable
     add_executable(fuelflux_tests ${TEST_SOURCES})
+    if(MSVC)
+        # Google Mock's template-heavy controller regressions exceed COFF's
+        # default section limit in debug builds.
+        target_compile_options(fuelflux_tests PRIVATE /bigobj)
+    endif()
 
     # Link test executable with library and Google Test
     target_link_libraries(fuelflux_tests

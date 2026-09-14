@@ -121,3 +121,26 @@ the lifecycle lock. Queued barriers behind shutdown complete against the final
 snapshot; trailing commands are canceled. Calls during cleanup or after shutdown
 return without posting a barrier. A barrier is not a worker-cleanup completion
 signal: use shutdown/run completion for dependency lifetime coordination.
+
+## Required-device recovery and command completion
+
+A required peripheral's startup failure leaves the controller in Error. Healthy
+peripherals and the keyboard/card recovery workers remain alive. STOP in Error
+retries failed pump/flow initialization on the flow-control worker and schedules
+display reset on the display worker. New sessions stay inhibited until all required
+initializations succeed and both configured inputs are healthy. Shutdown waits for
+an in-progress recovery before destroying its dependencies.
+
+Input delivery refreshes aggregate health before applying the message, so the
+first healthy key/card need not wait for the periodic health check. This does not
+bypass another device's fault or unfinished transaction finalization.
+
+An expired or already-pending inactivity timeout rejects entry into Refueling.
+Exceptions during measurement/pump startup command pump-off and finalize the
+measurement, including when an adapter throws after enabling output. Zero-volume
+aborts do not create a refuel report; measured delivery is retained. Pump-off
+exceptions keep the retry path active.
+
+The off-owner simulation API waits for the queued command's actual result. It
+returns false when unsupported, inhibited, or canceled by shutdown. Only the
+caller waits; the controller event loop does not wait on a completion future.

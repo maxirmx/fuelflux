@@ -264,6 +264,9 @@ class Controller {
     bool inputFault_ = false;
     bool inputsReady_ = true;
     bool startAborted_ = false;
+    bool pumpReady_ = true, flowReady_ = true;
+    bool recoveringPeripherals_ = false;
+    std::atomic<bool> displayReady_{true};
     bool finalizationFailed_ = false;
     bool pumpOffFailed_ = false;
     std::chrono::steady_clock::time_point healthCheck_{};
@@ -292,6 +295,7 @@ class Controller {
         bool cached = false;
     };
     struct WorkComplete { std::uint64_t generation; bool report = false; bool ok = true; };
+    struct RecoveryResult { bool pumpReady; bool flowReady; };
     struct CalibrationResult { std::uint64_t generation; double value; bool saved; };
     enum class CommandKind { Shutdown, Reset, Simulation, Clear, ClearSilent,
         ShowError, EndSession, SelectTank, EnterVolume, Authorize, StartSession, Digit,
@@ -302,11 +306,12 @@ class Controller {
         CommandKind kind;
         double value;
         std::string text;
+        std::shared_ptr<std::promise<bool>> completion;
     };
     struct Barrier { std::shared_ptr<std::promise<void>> completion; };
     using Message = std::variant<Event, KeyMessage, CardMessage, PumpMessage,
         FlowMessage, FinalFlow, AuthorizationResult, WorkComplete, CalibrationResult,
-        Command, Barrier>;
+        Command, Barrier, RecoveryResult>;
     struct Envelope { Message message; std::chrono::steady_clock::time_point posted; };
     std::deque<Envelope> eventQueue_;
     std::queue<Event> internalEvents_;
@@ -315,7 +320,7 @@ class Controller {
     void enqueue(Message message);
     void dispatch(Message message);
     void publishStatus();
-    void checkDeadlines();
+    void checkDeadlines(bool forceHealth = false);
     void processKeyPress(KeyCode key);
     void processCardPresented(const UserId& uid);
     void processPumpStateChanged(bool running);

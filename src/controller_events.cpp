@@ -108,12 +108,21 @@ void Controller::dispatch(Message message) {
     assertOwner();
     std::visit([this](auto&& value) {
         using T = std::decay_t<decltype(value)>;
-        if constexpr (std::is_same_v<T, Event>) postEvent(value);
+        if constexpr (std::is_same_v<T, RecoveryResult>) {
+            --pendingOperations_;
+            recoveringPeripherals_ = false;
+            pumpReady_ = value.pumpReady;
+            flowReady_ = value.flowReady;
+            checkDeadlines(true);
+        }
+        else if constexpr (std::is_same_v<T, Event>) postEvent(value);
         else if constexpr (std::is_same_v<T, KeyMessage>) {
+            checkDeadlines(true);
             const auto health = keyboard_ ? keyboard_->getInputHealth() : std::nullopt;
             if (!value.generation || (health && health->generation == value.generation && health->healthy)) processKeyPress(value.key);
         }
         else if constexpr (std::is_same_v<T, CardMessage>) {
+            checkDeadlines(true);
             const auto health = cardReader_ ? cardReader_->getInputHealth() : std::nullopt;
             if (!value.generation || (health && health->generation == value.generation && health->healthy)) processCardPresented(value.uid);
         }
@@ -169,7 +178,13 @@ void Controller::dispatch(Message message) {
                 if (pumpRunning_ && !stopping_) postEvent(Event::CancelPressed);
                 break;
             case CommandKind::Reset: (void)reinitializeDevice(); break;
-            case CommandKind::Simulation: (void)setFlowMeterSimulationEnabled(value.value != 0); break;
+            case CommandKind::Simulation: {
+                bool applied = false;
+                try { if (!shutdownRequested_) applied = setFlowMeterSimulationEnabled(value.value != 0); }
+                catch (...) { LOG_CTRL_ERROR("Simulation command failed"); }
+                if (value.completion) value.completion->set_value(applied);
+                break;
+            }
             case CommandKind::Clear: clearInput(); break;
             case CommandKind::ClearSilent: clearInputSilent(); break;
             case CommandKind::ShowError: showError(value.text); break;
@@ -190,7 +205,7 @@ void Controller::dispatch(Message message) {
     }, std::move(message));
 }
 
-void Controller::checkDeadlines() {
+void Controller::checkDeadlines(bool forceHealth) {
     assertOwner();
     const auto now = this->now();
     if (pumpRunning_ && !stopping_ && now - lastFlowUpdateTime_ >= noFlowCancelTimeout_) {
@@ -198,7 +213,7 @@ void Controller::checkDeadlines() {
         postEvent(Event::CancelNoFuel);
     }
     if (!inputFault_ && !shutdownRequested_) stateMachine_.checkTimeout();
-    if (now - healthCheck_ < timing::kEventLoopWaitInterval) return;
+    if (!forceHealth && now - healthCheck_ < timing::kEventLoopWaitInterval) return;
     healthCheck_ = now;
     if (pumpOffFailed_ && !stopping_) stopRefueling();
     inputsReady_ = true;
@@ -214,9 +229,10 @@ void Controller::checkDeadlines() {
     };
     const bool keyboardOk = healthy(keyboard_);
     const bool cardOk = healthy(cardReader_);
-    if ((!keyboardOk || !cardOk) && !inputFault_) {
+    const bool requiredReady = pumpReady_ && flowReady_ && displayReady_ && !recoveringPeripherals_;
+    if ((!keyboardOk || !cardOk || !requiredReady) && !inputFault_) {
         inputFault_ = true;
-        lastErrorMessage_ = !keyboardOk ? "Ошибка клавиатуры" : "Ошибка считывателя";
+        lastErrorMessage_ = !keyboardOk ? "Ошибка клавиатуры" : !cardOk ? "Ошибка считывателя" : "Ошибка инициализации оборудования";
         LOG_CTRL_ERROR("Input fault: keyboard={}, card={}; stopping dispensing", keyboardOk, cardOk);
         if (pumpRunning_) postEvent(Event::CancelPressed);
         else if (!stopping_ && !reporting_) {
@@ -226,7 +242,7 @@ void Controller::checkDeadlines() {
         showError(lastErrorMessage_);
     }
     if (inputFault_ && !stopping_ && !reporting_ && !pumpRunning_ && pendingOperations_ == 0 && !finalizationFailed_) {
-        if (inputsReady_ && keyboardOk && cardOk && !shutdownRequested_) {
+        if (requiredReady && inputsReady_ && keyboardOk && cardOk && !shutdownRequested_) {
             inputFault_ = false;
             endCurrentSession();
             lastErrorMessage_.clear();
@@ -253,9 +269,9 @@ void Controller::startDisplayWorker() {
                 reset = displayReset_; displayReset_ = false;
             }
             try {
-                if (reset) { display_->shutdown(); if (!display_->initialize()) { LOG_CTRL_ERROR("Display reset failed"); continue; } if (!message) message = getStatus().display; }
-                if (message) display_->showMessage(*message);
-            } catch (const std::exception& e) { LOG_CTRL_ERROR("Display worker failed: {}", e.what()); }
+                if (reset) { display_->shutdown(); displayReady_ = display_->initialize(); if (!displayReady_) { LOG_CTRL_ERROR("Display reset failed"); continue; } if (!message) message = getStatus().display; }
+                if (message && displayReady_) display_->showMessage(*message);
+            } catch (const std::exception& e) { if (reset) displayReady_ = false; LOG_CTRL_ERROR("Display worker failed: {}", e.what()); }
         }
     });
 }

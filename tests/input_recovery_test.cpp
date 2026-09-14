@@ -4,6 +4,8 @@
 #include <condition_variable>
 #include <mutex>
 #include <atomic>
+#include <chrono>
+#include <stdexcept>
 
 using namespace fuelflux::peripherals;
 namespace {

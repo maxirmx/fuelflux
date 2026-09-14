@@ -86,7 +86,8 @@ private:
 
     // Runtime observation uses ControllerStatus; fields below are owner-only.
     friend class Controller;
-    void checkTimeout();
+    bool checkTimeout();
+    bool timeoutPending_ = false;
 };
 
 } // namespace fuelflux
