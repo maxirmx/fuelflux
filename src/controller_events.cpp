@@ -64,6 +64,7 @@ void Controller::handleFlowUpdate(Volume volume) { enqueue(FlowMessage{volume, g
 void Controller::synchronize() {
     if (owner_ == this) return;
     std::unique_lock<std::mutex> lifecycle(lifecycleMutex_);
+    if (cleanupDone_ || (loopActive_ && !acceptingBarriers_)) return;
     if (!loopActive_) {
         assert(onOwnerThread());
         struct RestoreOwner {
@@ -96,11 +97,11 @@ void Controller::synchronize() {
         publishStatus();
         return;
     }
-    lifecycle.unlock();
     if (owner_ == this) return;
     auto promise = std::make_shared<std::promise<void>>();
     auto future = promise->get_future();
     enqueue(Barrier{promise});
+    lifecycle.unlock();
     future.get();
 }
 void Controller::dispatch(Message message) {
@@ -200,9 +201,14 @@ void Controller::checkDeadlines() {
     if (now - healthCheck_ < timing::kEventLoopWaitInterval) return;
     healthCheck_ = now;
     if (pumpOffFailed_ && !stopping_) stopRefueling();
-    auto healthy = [now](const auto& device) {
+    inputsReady_ = true;
+    auto healthy = [this, now](const auto& device) {
         if (!device) return true;
         auto health = device->getInputHealth();
+        if (health && health->initializing) {
+            inputsReady_ = false;
+            return now - health->lastSuccessfulIo <= timing::kInputStallTimeout;
+        }
         return device->isConnected() && (!health ||
             (health->healthy && now - health->lastSuccessfulIo <= timing::kInputStallTimeout));
     };
@@ -220,7 +226,7 @@ void Controller::checkDeadlines() {
         showError(lastErrorMessage_);
     }
     if (inputFault_ && !stopping_ && !reporting_ && !pumpRunning_ && pendingOperations_ == 0 && !finalizationFailed_) {
-        if (keyboardOk && cardOk && !shutdownRequested_) {
+        if (inputsReady_ && keyboardOk && cardOk && !shutdownRequested_) {
             inputFault_ = false;
             endCurrentSession();
             lastErrorMessage_.clear();
@@ -234,6 +240,7 @@ void Controller::checkDeadlines() {
 
 void Controller::startDisplayWorker() {
     if (!display_ || displayThread_.joinable()) return;
+    displayWorkerStarted_ = true;
     displayThread_ = std::thread([this] {
         for (;;) {
             std::optional<DisplayMessage> message;

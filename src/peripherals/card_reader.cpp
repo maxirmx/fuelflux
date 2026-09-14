@@ -108,7 +108,7 @@ void HardwareCardReader::setCardPresentedCallback(CardPresentedCallback callback
 }
 void HardwareCardReader::enableReading(bool enabled) { readingEnabled_ = enabled; }
 void HardwareCardReader::pollingLoop() {
-    auto delay = std::chrono::seconds(1);
+    auto delay = timing::kInputRetryInitial;
     auto nextDelivery = std::chrono::steady_clock::time_point{};
     while (!health_.stopped()) {
         try {
@@ -125,7 +125,7 @@ void HardwareCardReader::pollingLoop() {
                 LOG_INFO("NFC communication available");
             }
             health_.success();
-            delay = std::chrono::seconds(1);
+            delay = timing::kInputRetryInitial;
             const auto now = std::chrono::steady_clock::now();
             if (result.status > 0 && readingEnabled_ && now >= nextDelivery && !health_.stopped()) {
                 CardPresentedCallback callback;
@@ -134,10 +134,10 @@ void HardwareCardReader::pollingLoop() {
 #ifdef TARGET_REAL_CARD_READER
                 nextDelivery = now + kReadCooldown;
 #else
-                nextDelivery = now + std::chrono::seconds(1);
+                nextDelivery = now + timing::kCardDeliveryCooldown;
 #endif
             }
-            health_.wait(std::chrono::milliseconds(50));
+            health_.wait(timing::kCardPollInterval);
         } catch (const std::exception& error) {
             isConnected_ = false;
             health_.failure(error.what());

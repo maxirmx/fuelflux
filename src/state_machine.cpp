@@ -77,7 +77,7 @@ bool StateMachine::processEvent(Event event) {
         controller_->discardPendingInputUpdatedEvents();
     }
 
-    // Do not call checkTimeout() here - timeout is handled asynchronously by the timeout thread.
+    // The controller owner checks deadlines between external messages.
 
     // Only the controller owner executes transitions.
     std::function<void()> action;
@@ -96,6 +96,11 @@ bool StateMachine::processEvent(Event event) {
         action = it->second.second;
         previousState_ = fromState;
     }
+
+    // Validate before entering Refueling: an aborted entry must not use the
+    // stop/report path with cleared session data.
+    if (toState == SystemState::Refueling && fromState != toState &&
+        !controller_->canStartRefueling()) return false;
 
     // Only call action if state actually changes
     bool stateChanged = (fromState != toState);

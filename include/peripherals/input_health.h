@@ -10,7 +10,13 @@ namespace fuelflux::peripherals {
 // Device-local state only. No controller callbacks or business decisions here.
 class InputHealthTracker {
 public:
-    void start() { stopped_ = false; }
+    void start() {
+        std::lock_guard<std::mutex> lock(mutex_);
+        stopped_ = false;
+        health_.healthy = false;
+        health_.initializing = true;
+        health_.lastSuccessfulIo = std::chrono::steady_clock::now();
+    }
     void stop() { stopped_ = true; cv_.notify_all(); }
     bool stopped() const { return stopped_.load(); }
     bool wait(std::chrono::milliseconds duration) {
@@ -21,6 +27,7 @@ public:
         std::lock_guard<std::mutex> lock(mutex_);
         ++health_.generation;
         health_.healthy = true;
+        health_.initializing = false;
         health_.error.clear();
         health_.lastSuccessfulIo = std::chrono::steady_clock::now();
     }
@@ -31,6 +38,7 @@ public:
     void failure(const std::string& error) {
         std::lock_guard<std::mutex> lock(mutex_);
         health_.healthy = false;
+        health_.initializing = false;
         health_.error = error;
     }
     InputHealth snapshot() const {

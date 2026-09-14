@@ -20,6 +20,7 @@ The FuelFlux controller uses a Mealy state machine to manage the fuel dispensing
 | `TankSelection` | User is selecting a fuel tank |
 | `VolumeEntry` | Customer is entering the desired fuel volume |
 | `Refueling` | Fuel is being dispensed |
+| `RefuelingStopping` | Pump-off confirmation and final measurement before reporting |
 | `RefuelDataTransmission` | Refuel transaction is being transmitted to backend |
 | `RefuelingComplete` | Refueling operation has completed |
 | `IntakeDirectionSelection` | Operator is selecting intake direction (In/Out) |
@@ -125,7 +126,7 @@ reporting, offline backlog storage, and allowance deduction.
    - **Completion Options:**
      - Target volume reached: Pump stops automatically
      - User presses 'B' (Stop/Cancel): Pump stops
-     - Both trigger: Event: `RefuelingStopped` → State: `RefuelDataTransmission`
+     - Both trigger: Event: `RefuelingStopped` → State: `RefuelingStopping` → final measurement → `RefuelDataTransmission`
 
 6. **Refuel Data Transmission**
    - Transaction is logged to backend asynchronously
@@ -321,7 +322,7 @@ The 'B' key (Stop/Cancel) is active in most states and handles different operati
 | `NotAuthorized` | Return to `Waiting` |
 | `TankSelection` | Cancel selection, return to `Waiting` |
 | `VolumeEntry` | Cancel entry, return to `Waiting` |
-| `Refueling` | Stop pump, transition to `RefuelDataTransmission` |
+| `Refueling` | Confirm pump-off and final measurement in `RefuelingStopping`, then report |
 | `RefuelDataTransmission` | No effect (cannot cancel during transmission) |
 | `RefuelingComplete` | Return to `Waiting` |
 | `IntakeDirectionSelection` | Cancel intake, return to `Waiting` |
@@ -644,13 +645,13 @@ Example test scenarios:
 
 ### Thread Safety
 
-- State machine uses `std::recursive_mutex` for thread-safe state access
+- The controller event loop exclusively owns state-machine mutation; readers use copied status snapshots
 - Event processing is serialized through the controller's event queue
-- Timeout checking runs in a separate thread
+- The controller checks deadlines between external messages, including under sustained traffic
 
 ### Activity Time Updates
 
-The state machine updates `lastActivityTime_` on every event processed. This timestamp is used by the timeout thread to detect inactivity.
+The state machine updates `lastActivityTime_` on every event processed. The controller owner uses this timestamp to detect inactivity.
 
 ### Event Queue
 
@@ -659,7 +660,7 @@ The controller maintains an event queue that allows asynchronous event posting:
 controller->postEvent(Event::Timeout);
 ```
 
-This ensures thread-safe event delivery from peripheral callbacks and the timeout thread.
+Peripheral callbacks enqueue copied, typed messages. Internal transitions drain before the next external message; timeout events originate on the controller owner.
 
 ## Key Codes for Keyboard Input
 

@@ -99,3 +99,25 @@ Hardware checks still required before deployment:
 
 This change addresses established ownership and silent-error defects. The exact
 cause of the original field incident remains unconfirmed without field evidence.
+
+## Startup, aborted starts, and shutdown barriers
+
+Input workers publish an initializing state before their first open/poll. New
+sessions remain inhibited until all configured inputs are ready. Initialization
+becomes a fault on an explicit I/O error or expiration of the stall deadline.
+Startup progress messages render synchronously before the display worker starts.
+
+Health is checked before entering Refueling. A rejected entry cannot report a
+cleared session. A failed pump start still confirms pump-off and finalizes the
+measurement: zero delivery aborts without a refuel report, while measured delivery
+is retained through the normal reporting path. Backend exceptions leave local
+storage fallback reachable for both refueling and intake. An unknown backend
+outcome uses the existing backlog retry semantics; this does not introduce backend
+idempotency or eliminate delivery ambiguity.
+
+The event-loop exit path joins workers and shuts down peripherals even when
+shutdown originates on the owner. Barrier admission and loop termination share
+the lifecycle lock. Queued barriers behind shutdown complete against the final
+snapshot; trailing commands are canceled. Calls during cleanup or after shutdown
+return without posting a barrier. A barrier is not a worker-cleanup completion
+signal: use shutdown/run completion for dependency lifetime coordination.

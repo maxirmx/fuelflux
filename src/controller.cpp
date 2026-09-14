@@ -131,35 +131,41 @@ bool Controller::initialize() {
     // All peripheral operations check for null/connected status before use.
     isRunning_ = true;
     startDisplayWorker();
-    publishStatus();
     if (!ok) {
         LOG_CTRL_ERROR("Initialization completed with errors");
         stateMachine_.processEvent(Event::Error);
     } else {
         LOG_CTRL_INFO("Initialization complete");
     }
+    publishStatus();
     return ok;
 }
 
 void Controller::shutdown() {
     if (owner_ == this) { enqueue(Command{CommandKind::Shutdown}); return; }
     std::unique_lock<std::mutex> cleanup(shutdownMutex_);
-    if (cleanupDone_.exchange(true)) return;
     std::unique_lock<std::mutex> lifecycle(lifecycleMutex_);
+    lifecycleStopping_ = true;
     if (loopActive_.load()) {
         enqueue(Command{CommandKind::Shutdown});
         lifecycleCv_.wait(lifecycle, [this] { return !loopActive_.load(); });
     }
+    if (cleanupDone_) return;
     const bool finalizeSynchronously = isRunning_ && (pumpRunning_ || stopping_ || reporting_ || pendingOperations_);
     lifecycle.unlock();
     if (finalizeSynchronously) { enqueue(Command{CommandKind::Shutdown}); synchronize(); }
     isRunning_ = false;
+    cleanupWorkers();
+}
+
+void Controller::cleanupWorkers() {
     // Workers retain their dependencies until every outstanding task has exited.
     backendWorker_.Shutdown();
     flowWorker_.Shutdown();
     stopDisplayWorker();
     if (cacheManager_) cacheManager_->Stop();
     shutdownPeripherals();
+    cleanupDone_ = true;
 }
 
 bool Controller::reinitializeDevice() {
@@ -179,7 +185,8 @@ bool Controller::reinitializeDevice() {
 void Controller::run() {
     {
         std::lock_guard<std::mutex> lock(lifecycleMutex_);
-        if (!isRunning_ || cleanupDone_ || loopActive_.exchange(true)) return;
+        if (!isRunning_ || cleanupDone_ || lifecycleStopping_ || loopActive_.exchange(true)) return;
+        acceptingBarriers_ = true;
     }
     owner_ = this;
     LOG_CTRL_INFO("Controller event loop started");
@@ -214,7 +221,7 @@ void Controller::run() {
         if (next) {
             const auto started = std::chrono::steady_clock::now();
             const auto age = std::chrono::duration_cast<std::chrono::milliseconds>(started - next->posted);
-            if (age > std::chrono::seconds(1) && started - lastQueueWarning_ >= timing::kDiagnosticInterval) {
+            if (age > timing::kQueueAgeWarning && started - lastQueueWarning_ >= timing::kDiagnosticInterval) {
                 lastQueueWarning_ = started;
                 LOG_CTRL_WARN("Controller message age: {} ms", age.count());
             }
@@ -226,19 +233,32 @@ void Controller::run() {
                 else postEvent(Event::Error);
             }
             const auto duration = std::chrono::steady_clock::now() - started;
-            if (duration > std::chrono::milliseconds(100) && started - lastHandlerWarning_ >= timing::kDiagnosticInterval) {
+            if (duration > timing::kSlowHandlerWarning && started - lastHandlerWarning_ >= timing::kDiagnosticInterval) {
                 lastHandlerWarning_ = started;
                 LOG_CTRL_WARN("Slow controller handler: {} ms", std::chrono::duration_cast<std::chrono::milliseconds>(duration).count());
             }
         }
     }
     publishStatus();
+    {
+        // Close barrier admission atomically with draining accepted waiters.
+        // Shutdown cancels trailing commands; barriers observe the final snapshot.
+        std::lock_guard<std::mutex> lifecycle(lifecycleMutex_);
+        acceptingBarriers_ = false;
+        lifecycleStopping_ = true;
+        std::lock_guard<std::mutex> queue(eventQueueMutex_);
+        for (auto& envelope : eventQueue_)
+            if (auto barrier = std::get_if<Barrier>(&envelope.message))
+                barrier->completion->set_value();
+        eventQueue_.clear();
+    }
+    cleanupWorkers();
     owner_ = nullptr;
     {
         std::lock_guard<std::mutex> lock(lifecycleMutex_);
         loopActive_ = false;
+        lifecycleCv_.notify_all();
     }
-    lifecycleCv_.notify_all();
 }
 
 void Controller::postEvent(Event event) {
@@ -300,7 +320,7 @@ std::optional<GpsPosition> Controller::getLastGpsPosition() const {
 // Input handling
 void Controller::processKeyPress(KeyCode key) {
     const auto state = stateMachine_.getCurrentState();
-    if (inputFault_ || shutdownRequested_ || state == SystemState::Authorization ||
+    if (!inputsReady_ || inputFault_ || shutdownRequested_ || state == SystemState::Authorization ||
         state == SystemState::RefuelDataTransmission || state == SystemState::IntakeDataTransmission ||
         state == SystemState::RefuelingStopping) return;
     
@@ -379,7 +399,7 @@ void Controller::dispatchKeyPress(KeyCode key) {
 
 void Controller::processCardPresented(const UserId& userId) {
     const auto state = stateMachine_.getCurrentState();
-    if (inputFault_ || shutdownRequested_ || (state != SystemState::Waiting &&
+    if (!inputsReady_ || inputFault_ || shutdownRequested_ || (state != SystemState::Waiting &&
         state != SystemState::NotAuthorized && state != SystemState::CannotAuthorize &&
         state != SystemState::RefuelingComplete && state != SystemState::IntakeComplete)) return;
     LOG_CTRL_DEBUG("Card event accepted");
@@ -422,6 +442,11 @@ void Controller::reinitializeDisplay() {
 
 void Controller::showMessage(DisplayMessage message) {
     if (!display_) return;
+    // Startup is synchronous until ownership transfers to the display worker.
+    if (std::this_thread::get_id() == setupThread_ && !displayWorkerStarted_) {
+        display_->showMessage(message);
+        return;
+    }
     sendDisplay(std::move(message));
 }
 
@@ -651,11 +676,16 @@ void Controller::enterVolume(Volume volume) {
 }
 
 // Refueling operations
-void Controller::startRefueling() {
-    if (defer(Command{CommandKind::Start})) return;
+bool Controller::canStartRefueling() {
     healthCheck_ = {};
     checkDeadlines();
-    if (inputFault_ || shutdownRequested_ || pumpRunning_ || stopping_ || reporting_) return;
+    return inputsReady_ && !inputFault_ && !shutdownRequested_ && !pumpRunning_ && !stopping_ && !reporting_;
+}
+
+void Controller::startRefueling() {
+    if (defer(Command{CommandKind::Start})) return;
+    if (!inputsReady_ || inputFault_ || shutdownRequested_ || pumpRunning_ || stopping_ || reporting_) return;
+    startAborted_ = false;
     currentRefuelVolume_ = 0;
     ++measurementGeneration_;
     if (flowMeter_) {
@@ -672,6 +702,7 @@ void Controller::startRefueling() {
     pumpRunning_ = pump_ && pump_->isRunning();
     lastFlowUpdateTime_ = now();
     if (!pumpRunning_) {
+        startAborted_ = true;
         lastErrorMessage_ = "Pump failed to start";
         postEvent(Event::Error);
         return;
@@ -713,6 +744,10 @@ void Controller::finishStopping(const FinalFlow& result) {
         return;
     }
     currentRefuelVolume_ = std::max(currentRefuelVolume_, result.volume * calibrationCoefficient_);
+    if (startAborted_ && currentRefuelVolume_ == 0) {
+        postEvent(Event::Error);
+        return;
+    }
     if (stateMachine_.getCurrentState() == SystemState::RefuelingStopping)
         postEvent(Event::RefuelingStopped);
     else completeRefueling();
@@ -777,12 +812,19 @@ void Controller::logRefuelTransaction(const RefuelTransaction& transaction) {
         bool retained = false;
         nlohmann::json payload{{"TankNumber", transaction.tankNumber}, {"FuelVolume", transaction.volume},
             {"TimeAt", std::chrono::duration_cast<std::chrono::milliseconds>(transaction.timestamp.time_since_epoch()).count()}};
+        bool rejected = false;
         try {
             if (!cached && backend_) {
                 retained = backend_->Refuel(transaction.tankNumber, transaction.volume) || backend_->WasLastReportPersisted();
+                if (!retained) rejected = !backend_->IsNetworkError();
             }
+        } catch (const std::exception& e) {
+            LOG_CTRL_ERROR("Refuel backend failed: {}", e.what());
+            // Unknown delivery outcome: retain for retry under existing backlog semantics.
+        }
+        try {
             if (!retained && messageStorage_) {
-                retained = !cached && backend_ && !backend_->IsNetworkError()
+                retained = rejected
                     ? messageStorage_->AddDeadMessage(transaction.userId, MessageMethod::Refuel, payload.dump())
                     : messageStorage_->AddBacklog(transaction.userId, MessageMethod::Refuel, payload.dump());
             }
@@ -806,12 +848,19 @@ void Controller::logIntakeTransaction(const IntakeTransaction& transaction) {
         nlohmann::json payload{{"TankNumber", transaction.tankNumber}, {"IntakeVolume", transaction.volume},
             {"Direction", static_cast<int>(transaction.direction)},
             {"TimeAt", std::chrono::duration_cast<std::chrono::milliseconds>(transaction.timestamp.time_since_epoch()).count()}};
+        bool rejected = false;
         try {
             if (!cached && backend_) {
                 retained = backend_->Intake(transaction.tankNumber, transaction.volume, transaction.direction) || backend_->WasLastReportPersisted();
+                if (!retained) rejected = !backend_->IsNetworkError();
             }
+        } catch (const std::exception& e) {
+            LOG_CTRL_ERROR("Intake backend failed: {}", e.what());
+            // Unknown delivery outcome: retain for retry under existing backlog semantics.
+        }
+        try {
             if (!retained && messageStorage_) {
-                retained = !cached && backend_ && !backend_->IsNetworkError()
+                retained = rejected
                     ? messageStorage_->AddDeadMessage(transaction.operatorId, MessageMethod::Intake, payload.dump())
                     : messageStorage_->AddBacklog(transaction.operatorId, MessageMethod::Intake, payload.dump());
             }

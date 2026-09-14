@@ -112,7 +112,7 @@ void HardwareKeyboard::enableInput(bool enabled) { inputEnabled_ = enabled; }
 void HardwareKeyboard::pollLoop() {
     KeyPressTracker tracker(std::chrono::milliseconds(KEYBOARD_LONG_PRESS_MS),
         std::chrono::milliseconds(debounceMs_), std::chrono::milliseconds(releaseMs_));
-    auto delay = std::chrono::seconds(1);
+    auto delay = timing::kInputRetryInitial;
     bool requireRelease = true;
     while (!health_.stopped()) {
         try {
@@ -122,7 +122,7 @@ void HardwareKeyboard::pollLoop() {
                 (void)transport_.scan();
                 health_.connected();
                 isConnected_ = true;
-                delay = std::chrono::seconds(1);
+                delay = timing::kInputRetryInitial;
                 tracker.reset(); requireRelease = true;
                 LOG_INFO("Keyboard communication available");
             }

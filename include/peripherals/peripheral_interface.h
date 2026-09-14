@@ -7,6 +7,7 @@
 #include "../types.h"
 #include <functional>
 #include <optional>
+#include <cstdint>
 
 namespace fuelflux::peripherals {
 
@@ -32,6 +33,7 @@ struct InputHealth {
     std::chrono::steady_clock::time_point lastSuccessfulIo{};
     std::uint64_t generation = 0;
     std::string error;
+    bool initializing = false;
 };
 
 // Keyboard interface

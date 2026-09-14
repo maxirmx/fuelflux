@@ -188,6 +188,7 @@ class Controller {
 
   private:
     friend class StateMachine;
+    friend struct ControllerTestAccess;
 
     // Core components
     ControllerId controllerId_;
@@ -243,6 +244,10 @@ class Controller {
     std::mutex shutdownMutex_;
     std::condition_variable lifecycleCv_;
     bool shutdownRequested_ = false;
+    bool acceptingBarriers_ = false; // Protected by lifecycleMutex_.
+    bool lifecycleStopping_ = false; // Prevent run() starting during synchronous cleanup.
+    void cleanupWorkers();
+    bool canStartRefueling();
     std::atomic<bool> cleanupDone_{false};
     inline static thread_local Controller* owner_ = nullptr;
     const std::thread::id setupThread_ = std::this_thread::get_id();
@@ -257,6 +262,8 @@ class Controller {
     bool reporting_ = false;
     std::optional<std::uint64_t> reportedSession_;
     bool inputFault_ = false;
+    bool inputsReady_ = true;
+    bool startAborted_ = false;
     bool finalizationFailed_ = false;
     bool pumpOffFailed_ = false;
     std::chrono::steady_clock::time_point healthCheck_{};
@@ -265,6 +272,7 @@ class Controller {
     std::condition_variable displayCv_;
     std::optional<DisplayMessage> pendingDisplay_;
     bool displayReset_ = false, displayStopping_ = false;
+    std::atomic<bool> displayWorkerStarted_{false};
     std::thread displayThread_;
 
     std::string lastErrorMessage_;
