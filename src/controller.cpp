@@ -669,7 +669,7 @@ void Controller::requestAuthorization(const UserId& userId) {
                     }
                 }
             } else result.outcome = Event::AuthorizationDenied;
-        } catch (const std::exception& e) { LOG_CTRL_ERROR("Authorization worker failed: {}", e.what()); }
+        } catch (...) { LOG_CTRL_ERROR("Authorization worker failed with unknown exception"); }
         enqueue(std::move(result));
     };
     if (!backendWorker_.Submit(work)) enqueue(AuthorizationResult{generation});
