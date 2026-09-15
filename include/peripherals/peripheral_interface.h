@@ -7,6 +7,7 @@
 #include "../types.h"
 #include <functional>
 #include <optional>
+#include <cstdint>
 
 namespace fuelflux::peripherals {
 
@@ -27,6 +28,14 @@ public:
     virtual void setBacklight(bool enabled) = 0;
 };
 
+struct InputHealth {
+    bool healthy = false;
+    std::chrono::steady_clock::time_point lastSuccessfulIo{};
+    std::uint64_t generation = 0;
+    std::string error;
+    bool initializing = false;
+};
+
 // Keyboard interface
 class IKeyboard : public IPeripheral {
 public:
@@ -34,6 +43,7 @@ public:
     
     virtual void setKeyPressCallback(KeyPressCallback callback) = 0;
     virtual void enableInput(bool enabled) = 0;
+    virtual std::optional<InputHealth> getInputHealth() const { return std::nullopt; }
 };
 
 // Card reader interface
@@ -43,6 +53,7 @@ public:
     
     virtual void setCardPresentedCallback(CardPresentedCallback callback) = 0;
     virtual void enableReading(bool enabled) = 0;
+    virtual std::optional<InputHealth> getInputHealth() const { return std::nullopt; }
 };
 
 // Pump interface
@@ -60,13 +71,17 @@ public:
 class IFlowMeter : public IPeripheral {
 public:
     using FlowCallback = std::function<void(Volume currentVolume)>;
+    using MeasurementFaultCallback = std::function<void()>;
     
-    virtual void startMeasurement() = 0;
+    // Returns only after measurement is armed and observations can be accepted.
+    // A false result means the pump must not be enabled.
+    virtual bool startMeasurement() = 0;
     virtual void stopMeasurement() = 0;
     virtual void resetCounter() = 0;
     virtual Volume getCurrentVolume() const = 0;
     virtual Volume getTotalVolume() const = 0;
     virtual void setFlowCallback(FlowCallback callback) = 0;
+    virtual void setMeasurementFaultCallback(MeasurementFaultCallback callback) = 0;
 };
 
 // Temperature sensor interface

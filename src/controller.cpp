@@ -1,4 +1,4 @@
-﻿// Copyright (C) 2025, 2026 Maxim [maxirmx] Samsonov (www.sw.consulting)
+// Copyright (C) 2025, 2026 Maxim [maxirmx] Samsonov (www.sw.consulting)
 // All rights reserved.
 // This file is a part of fuelflux application
 
@@ -55,9 +55,11 @@ Controller::Controller(ControllerId controllerId,
 Controller::Controller(ControllerId controllerId,
                        std::shared_ptr<IBackend> backend,
                        std::chrono::seconds noFlowCancelTimeout,
-                       ControllerPersistencePaths persistencePaths)
+                       ControllerPersistencePaths persistencePaths,
+                       ControllerRuntimeOptions options)
     : controllerId_(std::move(controllerId))
     , stateMachine_(this)
+    , options_(std::move(options))
     , backend_(backend ? std::move(backend) : CreateDefaultBackend())
     , selectedTank_(0)
     , enteredVolume_(0.0)
@@ -108,6 +110,11 @@ bool Controller::initialize() {
 
     lastErrorMessage_.clear();
     bool ok = initializePeripherals();
+    if (!reconcileReceipts()) {
+        finalizationFailed_ = true;
+        lastErrorMessage_ = "Unfinished transaction accounting requires recovery";
+        ok = false;
+    }
     
     // Setup peripheral callbacks
     setupPeripheralCallbacks();
@@ -116,7 +123,7 @@ bool Controller::initialize() {
     stateMachine_.initialize();
     
     // Start cache manager (non-blocking)
-    if (cacheManager_) {
+    if (cacheManager_ && options_.startCacheSynchronization && !finalizationFailed_) {
         if (cacheManager_->Start()) {
             LOG_CTRL_INFO("Cache manager started successfully");
         } else {
@@ -128,142 +135,182 @@ bool Controller::initialize() {
     // the controller to run in Error state and wait for reinitialization.
     // All peripheral operations check for null/connected status before use.
     isRunning_ = true;
-    startNoFlowMonitorThread();
+    startDisplayWorker();
     if (!ok) {
+        inputFault_ = true;
         LOG_CTRL_ERROR("Initialization completed with errors");
         stateMachine_.processEvent(Event::Error);
     } else {
         LOG_CTRL_INFO("Initialization complete");
     }
+    publishStatus();
     return ok;
 }
 
 void Controller::shutdown() {
-    LOG_CTRL_INFO("Shutting down...");
-    
-    // Stop cache manager first
-    if (cacheManager_) {
-        cacheManager_->Stop();
-        LOG_CTRL_INFO("Cache manager stopped");
+    if (owner_ == this) { enqueue(Command{CommandKind::Shutdown}); return; }
+    std::unique_lock<std::mutex> cleanup(shutdownMutex_);
+    std::unique_lock<std::mutex> lifecycle(lifecycleMutex_);
+    lifecycleStopping_ = true;
+    shutdownDriver_ = std::this_thread::get_id();
+    if (loopActive_.load()) {
+        enqueue(Command{CommandKind::Shutdown});
+        lifecycleCv_.wait(lifecycle, [this] { return !loopActive_.load(); });
     }
-    
-    if (isRunning_) {
-        isRunning_ = false;
-        stopNoFlowMonitorThread();
-        eventCv_.notify_all();
-        
-        // Wait for the event loop thread to actually exit
-        // The thread checks isRunning_ at the top of the loop and the 
-        // condition variable wait has a kEventLoopWaitInterval timeout, so this waits up to kShutdownDeadline
-        const auto deadline = std::chrono::steady_clock::now() + timing::kShutdownDeadline;
-        while (!threadExited_ && std::chrono::steady_clock::now() < deadline) {
-            std::this_thread::sleep_for(timing::kEventLoopIdleSleep);
-        }
-        
-        if (!threadExited_) {
-            LOG_CTRL_ERROR("Thread shutdown timeout - thread did not exit within 2 seconds");
-        }
-    
-        // Shutdown peripherals
-        shutdownPeripherals();
+    if (cleanupDone_) return;
+    const bool finalizeSynchronously = isRunning_;
+    lifecycle.unlock();
+    if (finalizeSynchronously) { enqueue(Command{CommandKind::Shutdown}); synchronize(); }
+    isRunning_ = false;
+    closeIngress();
+    cleanupWorkers();
+}
+
+bool Controller::shutdownFinalized() {
+    if (stopping_ || reporting_ || pendingOperations_) return false;
+    bool outputActive = pumpRunning_ || pumpOffFailed_;
+    try { outputActive = outputActive || (pump_ && pump_->isRunning()); }
+    catch (...) { outputActive = true; }
+    if (outputActive || measurementActive_) {
+        stopRefueling();
+        return false; // Re-evaluate only after stop/final-measurement processing.
     }
-    LOG_CTRL_INFO("Shutdown complete");
+    return true;
+}
+
+void Controller::closeIngress() {
+    std::lock_guard<std::mutex> lifecycle(lifecycleMutex_);
+    acceptingBarriers_ = false;
+    lifecycleStopping_ = true;
+    std::lock_guard<std::mutex> queue(eventQueueMutex_);
+    ingressClosed_ = true;
+    for (auto& envelope : eventQueue_) {
+        if (auto barrier = std::get_if<Barrier>(&envelope.message)) barrier->completion->set_value();
+        if (auto command = std::get_if<Command>(&envelope.message); command && command->completion) command->completion->set_value(false);
+    }
+    eventQueue_.clear();
+}
+
+void Controller::cleanupWorkers() {
+    // Workers retain their dependencies until every outstanding task has exited.
+    backendWorker_.Shutdown();
+    flowWorker_.Shutdown();
+    persistenceWorker_.Shutdown();
+    stopDisplayWorker();
+    if (cacheManager_) cacheManager_->Stop();
+    shutdownPeripherals();
+    cleanupDone_ = true;
 }
 
 bool Controller::reinitializeDevice() {
-    LOG_CTRL_WARN("Reinitializing device after error");
-    lastErrorMessage_.clear();
-
-    // Temporarily clear event queue to drop any pending events from old peripherals
-    // but do NOT stop the event loop - we need it to process the ErrorRecovery event
-    {
-        std::lock_guard<std::mutex> lock(eventQueueMutex_);
-        std::queue<Event> emptyQueue;
-        std::swap(eventQueue_, emptyQueue);
+    if (owner_ != this) {
+        std::lock_guard<std::mutex> lifecycle(lifecycleMutex_);
+        if (lifecycleStopping_ || cleanupDone_) return false;
+        if (!onOwnerThread()) return enqueue(Command{CommandKind::Reset});
     }
-
-    // Shutdown old peripherals
-    shutdownPeripherals();
-
-    // Reinitialize peripherals and callbacks
-    bool ok = initializePeripherals();
-    if (ok) {
-        setupPeripheralCallbacks();
+    if (shutdownRequested_ || cleanupDone_) return false;
+    assertOwner();
+    // Input devices own their reconnect loops. A reset must never close their
+    // handles or join them from the controller loop.
+    if (finalizationFailed_ && pendingTransaction_ && !pendingTransaction_->receiptId && !reporting_ &&
+        !pumpRunning_ && !stopping_) {
+        reporting_ = true;
+        submitReceiptPreparation();
+        return false;
     }
-
-    resetSessionData();
-    // Clear input without triggering display update
-    currentInput_.clear();
-
-    if (ok) {
-        LOG_CTRL_INFO("Device reinitialization complete");
-    } else {
-        LOG_CTRL_ERROR("Device reinitialization failed");
+    if (pumpRunning_ || stopping_ || reporting_ || finalizationFailed_ || recoveringPeripherals_) return false;
+    endCurrentSession();
+    reinitializeDisplay();
+    if (!pumpReady_ || !flowReady_) {
+        recoveringPeripherals_ = true;
+        ++pendingOperations_;
+        const bool pumpReady = pumpReady_, flowReady = flowReady_;
+        if (!flowWorker_.Submit([this, pumpReady, flowReady] {
+            bool pumpOk = pumpReady, flowOk = flowReady;
+            try { if (!pumpOk) { pump_->shutdown(); pumpOk = pump_->initialize(); } }
+            catch (...) { LOG_CTRL_ERROR("Pump recovery failed"); }
+            try { if (!flowOk) { flowMeter_->shutdown(); flowOk = flowMeter_->initialize(); } }
+            catch (...) { LOG_CTRL_ERROR("Flow meter recovery failed"); }
+            enqueue(RecoveryResult{pumpOk, flowOk});
+        })) enqueue(RecoveryResult{pumpReady, flowReady});
+        return false;
     }
-    return ok;
+    checkDeadlines(true);
+    return inputsReady_ && !inputFault_ && displayReady_;
 }
 
 void Controller::run() {
-    LOG_CTRL_INFO("Starting main loop");
-    
-    // Reset the flag at the start of the run loop
-    threadExited_ = false;
-    
+    {
+        std::lock_guard<std::mutex> lock(lifecycleMutex_);
+        if (!isRunning_ || cleanupDone_ || lifecycleStopping_ || loopActive_.exchange(true)) return;
+        acceptingBarriers_ = true;
+    }
+    owner_ = this;
+    LOG_CTRL_INFO("Controller event loop started");
     while (isRunning_) {
-        bool haveEvent = false;
-        Event event = Event::Timeout; // initialize but treat as invalid until popped
+        checkDeadlines();
+        while (!internalEvents_.empty()) {
+            const auto event = internalEvents_.front();
+            internalEvents_.pop();
+            if (event == Event::DisplayReset) reinitializeDisplay();
+            else stateMachine_.processEvent(event);
+        }
+        publishStatus();
+        if (shutdownRequested_ && shutdownFinalized()) {
+            isRunning_ = false;
+            break;
+        }
+        std::optional<Envelope> next;
         {
             std::unique_lock<std::mutex> lock(eventQueueMutex_);
-            if (eventQueue_.empty()) {
-                // wait for an event or timeout periodically to allow shutdown
-                eventCv_.wait_for(lock, timing::kEventLoopWaitInterval, [this] { return !eventQueue_.empty() || !isRunning_; });
-            }
+            eventCv_.wait_for(lock, timing::kEventLoopWaitInterval,
+                [this] { return !eventQueue_.empty(); });
             if (!eventQueue_.empty()) {
-                event = eventQueue_.front();
-                eventQueue_.pop();
-                haveEvent = true;
+                next = std::move(eventQueue_.front());
+                eventQueue_.pop_front();
             }
         }
-
-        if (haveEvent) {
-            // Handle DisplayReset event in the controller thread to avoid race conditions.
-            // This event bypasses the state machine because display reset is a hardware
-            // operation that doesn't affect logical state transitions. The state machine
-            // state is preserved across display resets, and the display simply shows the
-            // same state information after reinitialization. This design keeps display
-            // hardware management separate from business logic.
-            if (event == Event::DisplayReset) {
-                reinitializeDisplay();
-            } else {
-                stateMachine_.processEvent(event);
+        if (next) {
+            const auto started = std::chrono::steady_clock::now();
+            const auto age = std::chrono::duration_cast<std::chrono::milliseconds>(started - next->posted);
+            if (age > timing::kQueueAgeWarning && started - lastQueueWarning_ >= timing::kDiagnosticInterval) {
+                lastQueueWarning_ = started;
+                LOG_CTRL_WARN("Controller message age: {} ms", age.count());
             }
-        } else {
-            // Small sleep to avoid busy loop when no events are present
-            std::this_thread::sleep_for(timing::kEventLoopIdleSleep);
+            try { dispatch(std::move(next->message)); }
+            catch (const std::exception& error) {
+                LOG_CTRL_ERROR("Controller handler failed: {}", error.what());
+                inputFault_ = true;
+                if (pumpRunning_) postEvent(Event::CancelPressed);
+                else postEvent(Event::Error);
+            }
+            const auto duration = std::chrono::steady_clock::now() - started;
+            if (duration > timing::kSlowHandlerWarning && started - lastHandlerWarning_ >= timing::kDiagnosticInterval) {
+                lastHandlerWarning_ = started;
+                LOG_CTRL_WARN("Slow controller handler: {} ms", std::chrono::duration_cast<std::chrono::milliseconds>(duration).count());
+            }
         }
     }
-    
-    // Signal that thread has exited the main loop
-    threadExited_ = true;
-    LOG_CTRL_INFO("Main loop stopped");
-}
-
-// Allow other threads to post events into controller's loop
-void Controller::postEvent(Event event) {
+    publishStatus();
+    closeIngress();
+    cleanupWorkers();
+    owner_ = nullptr;
     {
-        std::lock_guard<std::mutex> lock(eventQueueMutex_);
-        eventQueue_.push(event);
+        std::lock_guard<std::mutex> lock(lifecycleMutex_);
+        loopActive_ = false;
+        lifecycleCv_.notify_all();
     }
-    eventCv_.notify_one();
 }
 
-// Remove any consecutive InputUpdated events at the front of the queue,
-// leaving the first non-InputUpdated event (if any) untouched.
+void Controller::postEvent(Event event) {
+    if (owner_ == this) internalEvents_.push(event);
+    else enqueue(event);
+}
+
 void Controller::discardPendingInputUpdatedEvents() {
-    std::lock_guard<std::mutex> lock(eventQueueMutex_);
-    while (!eventQueue_.empty() && eventQueue_.front() == Event::InputUpdated) {
-        eventQueue_.pop();
-    }
+    assertOwner();
+    while (!internalEvents_.empty() && internalEvents_.front() == Event::InputUpdated)
+        internalEvents_.pop();
 }
 
 // Peripheral setters
@@ -312,8 +359,15 @@ std::optional<GpsPosition> Controller::getLastGpsPosition() const {
 }
 
 // Input handling
-void Controller::handleKeyPress(KeyCode key) {
-    LOG_CTRL_DEBUG("Key pressed: {}", static_cast<int>(key));
+void Controller::processKeyPress(KeyCode key) {
+    const auto state = stateMachine_.getCurrentState();
+    if (state == SystemState::Error && key == KeyCode::KeyStop && !shutdownRequested_) {
+        if (reinitializeDevice()) postEvent(Event::ErrorRecovery);
+        return;
+    }
+    if (!inputsReady_ || inputFault_ || shutdownRequested_ || reporting_ || state == SystemState::Authorization ||
+        state == SystemState::RefuelDataTransmission || state == SystemState::IntakeDataTransmission ||
+        state == SystemState::RefuelingStopping) return;
     
     // Reset inactivity timer on any key press
     stateMachine_.updateActivityTime();
@@ -388,69 +442,32 @@ void Controller::dispatchKeyPress(KeyCode key) {
     }
 }
 
-void Controller::handleCardPresented(const UserId& userId) {
-    LOG_CTRL_INFO("Card presented: {}", userId);
+void Controller::processCardPresented(const UserId& userId) {
+    const auto state = stateMachine_.getCurrentState();
+    if (!inputsReady_ || inputFault_ || shutdownRequested_ || reporting_ || (state != SystemState::Waiting &&
+        state != SystemState::NotAuthorized && state != SystemState::CannotAuthorize &&
+        state != SystemState::RefuelingComplete && state != SystemState::IntakeComplete)) return;
+    LOG_CTRL_DEBUG("Card event accepted");
     // Store the user ID and let state machine handle authorization
     maximumVolumePreset_.reset();
     currentInput_ = userId;
     postEvent(Event::CardPresented);
 }
 
-void Controller::handlePumpStateChanged(bool isRunning) {
-    LOG_CTRL_INFO("Pump state changed: {}", isRunning ? "Running" : "Stopped");
-    
-    if (isRunning) {
-        {
-            std::lock_guard<std::mutex> lock(noFlowMonitorMutex_);
-            pumpRunning_ = true;
-            noFlowCancelPosted_ = false;
-            lastFlowUpdateTime_ = std::chrono::steady_clock::now();
-        }
-
-        if (flowMeter_) {
-            flowMeter_->resetCounter();
-            flowMeter_->startMeasurement();
-            
-            // HardwareFlowMeter with simulation mode enabled will automatically
-            // generate flow without needing explicit simulateFlow() call
-            LOG_CTRL_DEBUG("Flow meter measurement started");
-        }
-        refuelStartTime_ = std::chrono::steady_clock::now();
-    } else if (!isRunning) {
-        {
-            std::lock_guard<std::mutex> lock(noFlowMonitorMutex_);
-            pumpRunning_ = false;
-            noFlowCancelPosted_ = false;
-        }
-
-        if (flowMeter_) {
-            flowMeter_->stopMeasurement();
-        }
-        postEvent(Event::RefuelingStopped);
-    }
+void Controller::processPumpStateChanged(bool running) {
+    if (!running && pumpRunning_ && !stopping_) postEvent(Event::CancelPressed);
 }
 
-void Controller::handleFlowUpdate(Volume currentVolume) {
-    const Volume scaledVolume = currentVolume * calibrationCoefficient_;
-    currentRefuelVolume_ = scaledVolume;
-
-    {
-        std::lock_guard<std::mutex> lock(noFlowMonitorMutex_);
-        lastFlowUpdateTime_ = std::chrono::steady_clock::now();
-    }
-    
-    // Check if target volume reached — runs on every tick to minimize overfill.
-    if (targetRefuelVolume_ > 0.0 && scaledVolume >= targetRefuelVolume_) {
-        if (pump_) {
-            pump_->stop();
-        }
-    }
-    
-    // Throttle display/UI updates: post InputUpdated at most once per callback
-    // interval to avoid saturating the event queue at high pulse rates.
-    auto now = std::chrono::steady_clock::now();
-    if ((now - lastFlowCallbackTime_) >= timing::kFlowDisplayRefreshInterval) {
-        lastFlowCallbackTime_ = now;
+void Controller::processFlowUpdate(Volume volume) {
+    if (!pumpRunning_ || stopping_) return;
+    const auto scaled = volume * calibrationCoefficient_;
+    if (!std::isfinite(scaled) || scaled < currentRefuelVolume_) return;
+    if (scaled > currentRefuelVolume_) lastFlowUpdateTime_ = now();
+    currentRefuelVolume_ = scaled;
+    if (targetRefuelVolume_ > 0 && scaled >= targetRefuelVolume_) postEvent(Event::CancelPressed);
+    const auto observed = now();
+    if (observed - lastFlowCallbackTime_ >= timing::kFlowDisplayRefreshInterval) {
+        lastFlowCallbackTime_ = observed;
         postEvent(Event::InputUpdated);
     }
 }
@@ -460,29 +477,27 @@ void Controller::updateDisplay() {
     if (!display_) return;
 
     DisplayMessage message = stateMachine_.getDisplayMessage();
-    display_->showMessage(message);
+    sendDisplay(std::move(message));
 }
 
 void Controller::reinitializeDisplay() {
-    LOG_CTRL_INFO("Display reset requested");
-    if (display_) {
-        display_->shutdown();
-        if (display_->initialize()) {
-            updateDisplay();
-            LOG_CTRL_INFO("Display reinitialized successfully");
-        } else {
-            LOG_CTRL_ERROR("Failed to reinitialize display");
-        }
-    }
+    { std::lock_guard<std::mutex> lock(displayMutex_); displayReset_ = true; }
+    displayCv_.notify_one();
 }
 
 void Controller::showMessage(DisplayMessage message) {
     if (!display_) return;
-    display_->showMessage(message);
+    // Startup is synchronous until ownership transfers to the display worker.
+    if (std::this_thread::get_id() == setupThread_ && !displayWorkerStarted_) {
+        display_->showMessage(message);
+        return;
+    }
+    sendDisplay(std::move(message));
 }
 
 
 void Controller::showError(const std::string& message) {
+    if (defer(Command{CommandKind::ShowError, 0, message})) return;
     lastErrorMessage_ = message;
     if (display_) {
         DisplayMessage errorMsg;
@@ -509,38 +524,58 @@ void Controller::showMessage(const std::string& line1, const std::string& line2,
 
 // Session management
 void Controller::startNewSession() {
+    if (defer(Command{CommandKind::StartSession})) return;
+    if (pumpRunning_ || stopping_ || reporting_ || inputFault_ || finalizationFailed_) return;
+    ++sessionGeneration_;
     resetSessionData();
     clearInput();
     postEvent(Event::InputUpdated);
 }
 
+void Controller::requestBackendCleanup(std::uint64_t generation) {
+    assertOwner();
+    cleanupRequestedGeneration_ = std::max(cleanupRequestedGeneration_, generation);
+    if (!backend_ || cleanupPending_) return;
+    cleanupPending_ = true;
+    ++pendingOperations_;
+    const bool submitted = backendWorker_.SubmitReserved([this, generation] {
+        bool ok = false;
+        try { ok = backendSessionGeneration_ > generation || !backend_->IsAuthorized() || backend_->DeauthorizeAndWait(); }
+        catch (...) { LOG_CTRL_WARN("Backend cleanup threw"); }
+        enqueue(WorkComplete{generation, false, ok, false, true});
+    });
+    // This is the only producer of reserved work, coalesced until completion.
+    assert(submitted);
+    if (!submitted) enqueue(WorkComplete{generation, false, false, false, true});
+}
+
 void Controller::endCurrentSession() {
+    if (defer(Command{CommandKind::EndSession})) return;
+    if (pumpRunning_ || stopping_) { postEvent(Event::CancelPressed); return; }
+    if (reporting_) return;
+    ++sessionGeneration_;
+    const auto backend = sessionAuthorizedFromCache_ ? nullptr : backend_;
+    if (backend) requestBackendCleanup(sessionGeneration_);
     resetSessionData();
     clearInputSilent();
-    if (pump_ && pump_->isRunning()) {
-        pump_->stop();
-    }
-    if (flowMeter_) {
-        flowMeter_->stopMeasurement();
-    }
-    if (!sessionAuthorizedFromCache_ && backend_ && backend_->IsAuthorized()) {
-        (void)backend_->Deauthorize();
-    }
 }
 
 void Controller::clearInput() {
+    if (defer(Command{CommandKind::Clear})) return;
     maximumVolumePreset_.reset();
     currentInput_.clear();
     postEvent(Event::InputUpdated);
 }
 
 void Controller::clearInputSilent() {
+    if (defer(Command{CommandKind::ClearSilent})) return;
     maximumVolumePreset_.reset();
     currentInput_.clear();
     // No updateDisplay() call - avoid overwriting error messages
 }
 
 void Controller::addDigitToInput(char digit) {
+    if (defer(Command{CommandKind::Digit, static_cast<double>(digit)})) return;
     maximumVolumePreset_.reset();
     const auto state = stateMachine_.getCurrentState();
     if (state == SystemState::CalibrationPasswordEntry) {
@@ -567,6 +602,7 @@ void Controller::addDigitToInput(char digit) {
 }
 
 void Controller::removeLastDigit() {
+    if (defer(Command{CommandKind::RemoveDigit})) return;
     maximumVolumePreset_.reset();
     const auto state = stateMachine_.getCurrentState();
     if (state == SystemState::CalibrationPasswordEntry) {
@@ -587,6 +623,7 @@ void Controller::removeLastDigit() {
 }
 
 void Controller::setMaxValue() {
+    if (defer(Command{CommandKind::Max})) return;
     const Volume effectiveMaximum = getEffectiveMaximumVolume();
     if (effectiveMaximum > 0.0) {
         maximumVolumePreset_ = effectiveMaximum;
@@ -601,84 +638,46 @@ void Controller::setMaxValue() {
 
 // Authorization
 void Controller::requestAuthorization(const UserId& userId) {
-    if (!backend_) {
-        showError("Backend unavailable");
-        postEvent(Event::AuthorizationFailed);
-        return;
-    }
-
-    // This method handles the actual authorization for both card and PIN
-    if (backend_->Authorize(userId)) {
-        sessionAuthorizedFromCache_ = false;
-        currentUser_.uid = userId;
-        currentUser_.role = static_cast<UserRole>(backend_->GetRoleId());
-        currentUser_.allowance = backend_->GetAllowance();
-        currentUser_.price = backend_->GetPrice();
-
-        availableTanks_.clear();
-        cachedFuelTanks_.clear();
-        for (const auto& tank : backend_->GetFuelTanks()) {
-            TankInfo info;
-            info.number = tank.visualNumberTank;
-            availableTanks_.push_back(info);
-            cachedFuelTanks_.push_back(tank);
-        }
-        
-        // Update cache with authorization data
-        if (cacheManager_) {
-            cacheManager_->UpdateCacheEntry(userId, currentUser_.allowance, 
-                                           static_cast<int>(currentUser_.role));
-        }
-        
-        // Post event instead of processing it directly to maintain sequential event processing
-        postEvent(Event::AuthorizationSuccess);
-    } else {
-        // Check if it's a network error
-        bool isNetworkError = backend_->IsNetworkError();
-        
-        // Try cache fallback if network error and cache is available
-        if (isNetworkError && userCache_ && messageStorage_) {
-            auto cached = userCache_->GetEntry(userId);
-            if (cached.has_value()) {
-                sessionAuthorizedFromCache_ = true;
-                currentUser_.uid = cached->uid;
-                currentUser_.role = static_cast<UserRole>(cached->roleId);
-                currentUser_.allowance = cached->allowance;
-                currentUser_.price = 0.0;
-                availableTanks_.clear();
-                cachedFuelTanks_.clear();
-                const auto cachedTanks = userCache_->GetTanks();
-                for (const auto& tank : cachedTanks) {
-                    TankInfo info;
-                    info.number = tank.visualNumberTank;
-                    availableTanks_.push_back(info);
-
-                    BackendTankInfo cachedInfo;
-                    cachedInfo.idTank = tank.idTank;
-                    cachedInfo.visualNumberTank = tank.visualNumberTank;
-                    cachedInfo.nameTank = tank.nameTank;
-                    cachedInfo.volume = tank.volume;
-                    cachedFuelTanks_.push_back(cachedInfo);
-                }
-                LOG_CTRL_WARN("Authorized user {} from cache due to backend network error", userId);
-                postEvent(Event::AuthorizationSuccess);
+    if (defer(Command{CommandKind::Authorize, 0, userId})) return;
+    if (inputFault_ || shutdownRequested_ || pumpRunning_ || stopping_ || reporting_) return;
+    const auto generation = ++sessionGeneration_;
+    ++pendingOperations_;
+    const auto work = [this, userId, generation] {
+        AuthorizationResult result{generation};
+        try {
+            // A previous report's network deauthorization may have failed.
+            // Never authorize the next credential against the previous session.
+            if (backend_ && backend_->IsAuthorized() && !backend_->DeauthorizeAndWait()) {
+                enqueue(std::move(result));
                 return;
             }
-        }
-        
-        // Post appropriate failure event
-        if (isNetworkError) {
-            // Network error (with or without cache) - cannot authorize
-            postEvent(Event::AuthorizationFailed);
-        } else {
-            // Not a network error - authorization denied
-            postEvent(Event::AuthorizationDenied);
-        }
-    }
+            if (backend_ && backend_->Authorize(userId)) {
+                backendSessionGeneration_ = generation;
+                result.user = {userId, static_cast<UserRole>(backend_->GetRoleId()), backend_->GetAllowance(), backend_->GetPrice()};
+                result.tanks = backend_->GetFuelTanks();
+                result.outcome = Event::AuthorizationSuccess;
+                if (cacheManager_) cacheManager_->UpdateCacheEntry(userId, result.user.allowance, static_cast<int>(result.user.role));
+            } else if (backend_ && backend_->IsNetworkError()) {
+                if (userCache_ && messageStorage_) {
+                    auto cached = userCache_->GetEntry(userId);
+                    if (cached) {
+                        result.cached = true;
+                        result.user = {cached->uid, static_cast<UserRole>(cached->roleId), cached->allowance, 0.0};
+                        for (const auto& tank : userCache_->GetTanks())
+                            result.tanks.push_back({tank.idTank, tank.visualNumberTank, tank.nameTank, tank.volume});
+                        result.outcome = Event::AuthorizationSuccess;
+                    }
+                }
+            } else result.outcome = Event::AuthorizationDenied;
+        } catch (...) { LOG_CTRL_ERROR("Authorization worker failed with unknown exception"); }
+        enqueue(std::move(result));
+    };
+    if (!backendWorker_.Submit(work)) enqueue(AuthorizationResult{generation});
 }
 
 // Tank operations
 void Controller::selectTank(TankNumber tankNumber) {
+    if (defer(Command{CommandKind::SelectTank, static_cast<double>(tankNumber)})) return;
     if (isTankValid(tankNumber)) {
         selectedTank_ = tankNumber;
         
@@ -691,7 +690,7 @@ void Controller::selectTank(TankNumber tankNumber) {
 }
 
 bool Controller::isTankValid(TankNumber tankNumber) const {
-    for (const auto& tank : availableTanks_) {
+    for (const auto& tank : getAvailableTanks()) {
         if (tank.number == tankNumber) {
             return true;
         }
@@ -700,23 +699,8 @@ bool Controller::isTankValid(TankNumber tankNumber) const {
 }
 
 Volume Controller::getTankVolume(TankNumber tankNumber) const {
-    if (sessionAuthorizedFromCache_) {
-        for (const auto& tank : cachedFuelTanks_) {
-            if (tank.visualNumberTank == tankNumber) {
-                return tank.volume;
-            }
-        }
-        return 0.0;
-    }
-
-    if (backend_) {
-        const auto& tanks = backend_->GetFuelTanks();
-        for (const auto& tank : tanks) {
-            if (tank.visualNumberTank == tankNumber) {
-                return tank.volume;
-            }
-        }
-    }
+    const auto tanks = onOwnerThread() ? cachedFuelTanks_ : getStatus().tankDetails;
+    for (const auto& tank : tanks) if (tank.visualNumberTank == tankNumber) return tank.volume;
     return 0.0;
 }
 
@@ -731,6 +715,7 @@ Volume Controller::getEffectiveMaximumVolume() const {
 
 // Volume/Amount operations
 void Controller::enterVolume(Volume volume) {
+    if (defer(Command{CommandKind::EnterVolume, volume})) return;
     // Validate volume
     if (volume <= 0.0) {
         clearInput();
@@ -760,53 +745,182 @@ void Controller::enterVolume(Volume volume) {
 }
 
 // Refueling operations
+bool Controller::canStartRefueling() {
+    checkDeadlines(true);
+    if (stateMachine_.checkTimeout()) return false;
+    return pumpReady_ && flowReady_ && displayReady_ && !recoveringPeripherals_ &&
+        inputsReady_ && !inputFault_ && !shutdownRequested_ && !pumpRunning_ &&
+        !measurementArming_ && !stopping_ && !reporting_;
+}
+
 void Controller::startRefueling() {
-    currentRefuelVolume_ = 0.0;
-    if (pump_) {
-        pump_->start();
+    if (defer(Command{CommandKind::Start})) return;
+    if (!pumpReady_ || !flowReady_ || !displayReady_ || recoveringPeripherals_ ||
+        !inputsReady_ || inputFault_ || shutdownRequested_ || pumpRunning_ ||
+        measurementArming_ || stopping_ || reporting_) return;
+    startAborted_ = false;
+    measurementActive_ = true;
+    measurementArming_ = true;
+    currentRefuelVolume_ = 0;
+    ++measurementGeneration_;
+    const auto generation = measurementGeneration_;
+    ++pendingOperations_;
+    if (!flowWorker_.Submit([this, generation] {
+        bool armed = !flowMeter_;
+        try {
+            if (!flowMeter_) {
+                enqueue(FlowArmResult{generation, true});
+                return;
+            }
+            flowMeter_->setFlowCallback([this, generation](Volume volume) {
+                enqueue(FlowMessage{volume, generation});
+            });
+            flowMeter_->setMeasurementFaultCallback([this, generation] {
+                enqueue(FlowFault{generation});
+            });
+            flowMeter_->resetCounter();
+            armed = flowMeter_->startMeasurement();
+        } catch (...) {
+            LOG_CTRL_ERROR("Flow meter arming failed");
+        }
+        enqueue(FlowArmResult{generation, armed});
+    })) enqueue(FlowArmResult{generation, false});
+}
+
+void Controller::finishFlowArming(const FlowArmResult& result) {
+    if (result.generation != measurementGeneration_ || !measurementArming_) return;
+    measurementArming_ = false;
+    if (!result.ok) {
+        startAborted_ = true;
+        flowReady_ = false;
+        inputFault_ = true;
+        lastErrorMessage_ = "Ошибка расходомера";
+        LOG_CTRL_ERROR("Dispensing inhibited: flow meter failed to arm");
+        postEvent(Event::Error);
+        return;
+    }
+
+    if (stopping_ || shutdownRequested_ || inputFault_ ||
+        stateMachine_.getCurrentState() != SystemState::Refueling) {
+        startAborted_ = true;
+        return;
+    }
+
+    try {
+        if (pump_) {
+            const auto generation = measurementGeneration_;
+            pump_->setPumpStateCallback([this, generation](bool running) {
+                enqueue(PumpMessage{running, generation});
+            });
+            pump_->start();
+        }
+        pumpRunning_ = pump_ && pump_->isRunning();
+        lastFlowUpdateTime_ = now();
+        if (!pumpRunning_) {
+            startAborted_ = true;
+            lastErrorMessage_ = "Pump failed to start";
+            postEvent(Event::Error);
+            return;
+        }
+    } catch (...) {
+        startAborted_ = true;
+        lastErrorMessage_ = "Dispensing startup failed";
+        // An adapter can throw after applying its output; conservatively stop it.
+        pumpRunning_ = true;
+        lastFlowUpdateTime_ = now();
+        postEvent(Event::Error);
+        return;
     }
     postEvent(Event::RefuelingStarted);
 }
 
-void Controller::stopRefueling() {
-    if (pump_) {
-        pump_->stop();
+void Controller::processFlowFault(const FlowFault& fault) {
+    if (fault.generation != measurementGeneration_) return;
+    flowReady_ = false;
+    inputFault_ = true;
+    lastErrorMessage_ = "Ошибка расходомера";
+    if (measurementArming_) {
+        measurementArming_ = false;
+        startAborted_ = true;
     }
-    postEvent(Event::RefuelingStopped);
+    LOG_CTRL_ERROR("Flow meter monitoring failed; stopping dispensing");
+    if (!stopping_) postEvent(Event::Error);
+}
+
+void Controller::stopRefueling() {
+    if (defer(Command{CommandKind::Stop})) return;
+    if (stopping_ || reporting_) return;
+    bool pumpOff = false;
+    try { if (pump_) pump_->stop(); pumpOff = !pump_ || !pump_->isRunning(); }
+    catch (...) { /* Unconfirmed pump-off uses the rate-limited fault path below. */ }
+    if (!pumpOff) {
+        pumpRunning_ = true;
+        lastErrorMessage_ = "Ошибка остановки насоса";
+        inputFault_ = true;
+        finalizationFailed_ = true;
+        if (!pumpOffFailed_) LOG_CTRL_ERROR("Pump-off failed; dispensing not finalized; retrying");
+        pumpOffFailed_ = true;
+        return;
+    }
+    pumpRunning_ = false;
+    if (pumpOffFailed_) { pumpOffFailed_ = false; finalizationFailed_ = false; }
+    stopping_ = true;
+    const auto generation = measurementGeneration_;
+    if (!flowWorker_.Submit([this, generation] {
+        try {
+            if (flowMeter_) flowMeter_->stopMeasurement();
+            enqueue(FinalFlow{flowMeter_ ? flowMeter_->getCurrentVolume() : 0.0, generation, true});
+        } catch (...) { enqueue(FinalFlow{0, generation, false}); }
+    })) enqueue(FinalFlow{0, generation, false});
+}
+
+void Controller::finishStopping(const FinalFlow& result) {
+    if (result.generation != measurementGeneration_ || !stopping_) return;
+    stopping_ = false;
+    if (!result.ok) {
+        finalizationFailed_ = true;
+        lastErrorMessage_ = "Ошибка расходомера";
+        postEvent(Event::Error);
+        return;
+    }
+    const bool reportMeasurement = measurementActive_;
+    measurementActive_ = false;
+    if (!reportMeasurement) return; // An unexpected idle output has no sale attached.
+    currentRefuelVolume_ = std::max(currentRefuelVolume_, result.volume * calibrationCoefficient_);
+    if (startAborted_ && currentRefuelVolume_ == 0) {
+        postEvent(Event::Error);
+        return;
+    }
+    completeRefueling();
 }
 
 void Controller::completeRefueling() {
-    // Log the transaction
-    RefuelTransaction transaction;
-    transaction.userId = currentUser_.uid;
-    transaction.tankNumber = selectedTank_;
-    transaction.volume = currentRefuelVolume_;
-    transaction.totalAmount = currentRefuelVolume_ * currentUser_.price;
-    transaction.timestamp = std::chrono::system_clock::now();
-    
+    assertOwner();
+    if (stopping_ || reporting_ || finalizationFailed_) return;
+    RefuelTransaction transaction{currentUser_.uid, selectedTank_, currentRefuelVolume_,
+        currentRefuelVolume_ * currentUser_.price, std::chrono::system_clock::now()};
     logRefuelTransaction(transaction);
-    
-    // After completing refuel, deauthorize the user to close the session
-    // Do not reset session data here so the final pumped volume remains visible
-    if (!sessionAuthorizedFromCache_ && backend_ && backend_->IsAuthorized()) {
-        (void)backend_->Deauthorize();
-    }
 }
 
 // Fuel intake operations
 void Controller::startFuelIntake() {
+    if (defer(Command{CommandKind::IntakeStart})) return;
     // For operators - fuel intake operation
     postEvent(Event::IntakeSelected);
 }
 
 void Controller::enterIntakeVolume(Volume volume) {
+    if (defer(Command{CommandKind::IntakeVolume, volume})) return;
     if (volume <= 0.0) {
         clearInput();
         return;
     }
 
     enteredVolume_ = volume;
-    postEvent(Event::IntakeVolumeEntered);
+    if (stateMachine_.getCurrentState() == SystemState::IntakeVolumeEntry)
+        completeIntakeOperation();
+    else
+        postEvent(Event::IntakeVolumeEntered);
 }
 
 void Controller::selectIntakeDirection(IntakeDirection direction) {
@@ -829,59 +943,134 @@ void Controller::completeIntakeOperation() {
 }
 
 // Transaction logging
-void Controller::logRefuelTransaction(const RefuelTransaction& transaction) {
-    if (sessionAuthorizedFromCache_ && messageStorage_) {
-        const auto timestampMs = std::chrono::duration_cast<std::chrono::milliseconds>(
-            transaction.timestamp.time_since_epoch()).count();
+bool Controller::reconcileReceipts() {
+    if (!messageStorage_) return false;
+    auto receipts = messageStorage_->PendingReceipts();
+    if (!receipts) return false;
+    bool ok = true;
+    for (const auto& receipt : *receipts) {
+        // A crash can leave an unknown delivery outcome. Preserve existing
+        // backlog retry semantics; the backend wire format has no idempotency key.
+        if (!receipt.retained && !messageStorage_->RetainReceipt(receipt.id, false)) ok = false;
+        if (!receipt.accounted && (!userCache_ ||
+            !userCache_->DeductAllowanceOnce(receipt.id, receipt.message.uid, receipt.volume) ||
+            !messageStorage_->AccountReceipt(receipt.id))) ok = false;
+    }
+    return ok;
+}
 
-        nlohmann::json payload;
-        payload["TankNumber"] = transaction.tankNumber;
-        payload["FuelVolume"] = transaction.volume;
-        payload["TimeAt"] = timestampMs;
+void Controller::reportTransaction(const std::string& uid, MessageMethod method,
+    const std::string& payload, double volume, bool deduct, bool cached) {
+    assertOwner();
+    if (reporting_ || reportedSession_ == sessionGeneration_) return;
+    reportedSession_ = sessionGeneration_;
+    reporting_ = true;
+    pendingTransaction_ = PendingTransaction{sessionGeneration_, uid, method, payload, volume,
+        deduct, cached, std::nullopt};
+    submitReceiptPreparation();
+}
 
-        const bool stored = messageStorage_->AddBacklog(transaction.userId, MessageMethod::Refuel, payload.dump());
-        if (!stored) {
-            LOG_CTRL_ERROR("Failed to save offline refuel report to backlog for user {}", transaction.userId);
-        }
+void Controller::submitReceiptPreparation() {
+    assertOwner();
+    if (!reporting_ || !pendingTransaction_ || pendingTransaction_->receiptId) return;
+    ++pendingOperations_;
+    const auto transaction = *pendingTransaction_;
+    const bool submitted = persistenceWorker_.Submit([this, transaction] {
+        std::optional<std::string> receipt;
+        try {
+            if (messageStorage_) receipt = messageStorage_->BeginReceipt(transaction.uid, transaction.method,
+                transaction.payload, transaction.volume, transaction.deduct);
+        } catch (...) { LOG_CTRL_ERROR("Transaction receipt creation failed"); }
+        enqueue(ReceiptPrepared{transaction.generation, std::move(receipt)});
+    });
+    if (!submitted) enqueue(ReceiptPrepared{transaction.generation, std::nullopt});
+}
 
-        if (cacheManager_ && currentUser_.role == UserRole::Customer) {
-            cacheManager_->DeductAllowance(transaction.userId, transaction.volume);
-        }
+void Controller::finishReceiptPreparation(ReceiptPrepared result) {
+    assertOwner();
+    if (!pendingTransaction_ || result.generation != sessionGeneration_ ||
+        result.generation != pendingTransaction_->generation) return;
+    if (!result.receiptId) {
+        reporting_ = false;
+        finalizationFailed_ = true;
+        inputFault_ = true;
+        lastErrorMessage_ = "Ошибка записи операции";
+        LOG_CTRL_ERROR("Transaction receipt was not made durable; keeping the operation in memory");
+        postEvent(Event::Error);
         return;
     }
 
-    if (backend_) {
-        (void)backend_->Refuel(transaction.tankNumber, transaction.volume);
-        
-        // Deduct allowance from cache for customers (RoleId==1)
-        // Do this even if refuel fails, but check we're not processing backlog
-        if (cacheManager_ && currentUser_.role == UserRole::Customer) {
-            cacheManager_->DeductAllowance(transaction.userId, transaction.volume);
-        }
+    pendingTransaction_->receiptId = std::move(result.receiptId);
+    const auto state = stateMachine_.getCurrentState();
+    if (pendingTransaction_->method == MessageMethod::Refuel && state == SystemState::RefuelingStopping) {
+        postEvent(Event::RefuelingStopped);
+    } else if (pendingTransaction_->method == MessageMethod::Intake && state == SystemState::IntakeVolumeEntry) {
+        postEvent(Event::IntakeVolumeEntered);
+    } else if (state == SystemState::Error && finalizationFailed_) {
+        // A storage reset retried the in-memory transaction. Keep the error
+        // screen/inhibition active until reporting and accounting also succeed.
+        transmitPreparedTransaction();
+    } else {
+        // Public transaction helpers are also used by maintenance/tests outside
+        // the interactive state path. They still obey the durable-first rule.
+        transmitPreparedTransaction();
     }
 }
 
-void Controller::logIntakeTransaction(const IntakeTransaction& transaction) {
-    if (sessionAuthorizedFromCache_ && messageStorage_) {
-        const auto timestampMs = std::chrono::duration_cast<std::chrono::milliseconds>(
-            transaction.timestamp.time_since_epoch()).count();
-
-        nlohmann::json payload;
-        payload["TankNumber"] = transaction.tankNumber;
-        payload["IntakeVolume"] = transaction.volume;
-        payload["Direction"] = static_cast<int>(transaction.direction);
-        payload["TimeAt"] = timestampMs;
-
-        const bool stored = messageStorage_->AddBacklog(transaction.operatorId, MessageMethod::Intake, payload.dump());
-        if (!stored) {
-            LOG_CTRL_ERROR("Failed to save offline intake report to backlog for user {}", transaction.operatorId);
+void Controller::transmitPreparedTransaction() {
+    assertOwner();
+    if (!reporting_ || !pendingTransaction_ || !pendingTransaction_->receiptId) return;
+    const auto transaction = *pendingTransaction_;
+    const auto work = [this, transaction](bool localOnly) {
+        bool ok = false;
+        try {
+            bool delivered = false, rejected = false;
+            try {
+                if (!localOnly && !transaction.cached && backend_) {
+                    auto data = nlohmann::json::parse(transaction.payload);
+                    delivered = (transaction.method == MessageMethod::Refuel
+                        ? backend_->RefuelUnpersisted(data["TankNumber"].get<int>(), transaction.volume)
+                        : backend_->IntakeUnpersisted(data["TankNumber"].get<int>(), transaction.volume,
+                            static_cast<IntakeDirection>(data["Direction"].get<int>())));
+                    if (!delivered) rejected = !backend_->IsNetworkError();
+                }
+            } catch (...) { LOG_CTRL_ERROR("Backend report failed; retaining receipt locally"); }
+            const bool retained = messageStorage_ &&
+                messageStorage_->RetainReceipt(*transaction.receiptId, delivered, rejected);
+            // Even if backlog insertion failed, the receipt itself is durable.
+            // Atomically pair the debit with its receipt ID in the cache DB.
+            const bool accounted = !transaction.deduct || (userCache_ &&
+                userCache_->DeductAllowanceOnce(*transaction.receiptId, transaction.uid, transaction.volume) &&
+                messageStorage_->AccountReceipt(*transaction.receiptId));
+            ok = retained && accounted;
+        } catch (...) { LOG_CTRL_ERROR("Transaction retention/accounting failed"); }
+        if (!localOnly && !transaction.cached && backend_) {
+            try { if (backend_->IsAuthorized()) (void)backend_->DeauthorizeAndWait(); }
+            catch (...) { LOG_CTRL_ERROR("Report session cleanup failed; next authorization must retry"); }
         }
-        return;
+        enqueue(WorkComplete{transaction.generation, true, ok, localOnly && !transaction.cached});
+    };
+    ++pendingOperations_;
+    if (!backendWorker_.Submit([work] { work(false); })) {
+        // The receipt already exists, so local fallback only promotes it to the
+        // backlog and performs accounting; it never creates a second receipt.
+        if (!persistenceWorker_.Submit([work] { work(true); }))
+            enqueue(WorkComplete{transaction.generation, true, false});
     }
+}
 
-    if (backend_) {
-        (void)backend_->Intake(transaction.tankNumber, transaction.volume, transaction.direction);
-    }
+void Controller::logRefuelTransaction(const RefuelTransaction& transaction) {
+    nlohmann::json payload{{"TankNumber", transaction.tankNumber}, {"FuelVolume", transaction.volume},
+        {"TimeAt", std::chrono::duration_cast<std::chrono::milliseconds>(transaction.timestamp.time_since_epoch()).count()}};
+    reportTransaction(transaction.userId, MessageMethod::Refuel, payload.dump(), transaction.volume,
+        currentUser_.role == UserRole::Customer, sessionAuthorizedFromCache_);
+}
+
+void Controller::logIntakeTransaction(const IntakeTransaction& transaction) {
+    nlohmann::json payload{{"TankNumber", transaction.tankNumber}, {"IntakeVolume", transaction.volume},
+        {"Direction", static_cast<int>(transaction.direction)},
+        {"TimeAt", std::chrono::duration_cast<std::chrono::milliseconds>(transaction.timestamp.time_since_epoch()).count()}};
+    reportTransaction(transaction.operatorId, MessageMethod::Intake, payload.dump(), transaction.volume, false, sessionAuthorizedFromCache_);
 }
 
 // Utility functions
@@ -919,6 +1108,18 @@ void Controller::enableCardReading(bool enabled) {
 }
 
 bool Controller::setFlowMeterSimulationEnabled(bool enabled) {
+    if (!onOwnerThread()) {
+        std::unique_lock<std::mutex> lifecycle(lifecycleMutex_);
+        if (!loopActive_ || !acceptingBarriers_) return false;
+        Command command{CommandKind::Simulation, enabled ? 1.0 : 0.0};
+        command.completion = std::make_shared<std::promise<bool>>();
+        auto result = command.completion->get_future();
+        enqueue(std::move(command));
+        lifecycle.unlock();
+        return result.get();
+    }
+    if (pumpRunning_ || measurementArming_ || stopping_ || recoveringPeripherals_ ||
+        !flowReady_ || shutdownRequested_) return false;
     if (!flowMeter_) {
         LOG_CTRL_WARN("Cannot toggle flow meter simulation: flow meter not configured");
         return false;
@@ -937,31 +1138,22 @@ bool Controller::setFlowMeterSimulationEnabled(bool enabled) {
 void Controller::setupPeripheralCallbacks() {
     if (keyboard_) {
         keyboard_->setKeyPressCallback([this](KeyCode key) {
-            handleKeyPress(key);
+            const auto health = keyboard_->getInputHealth();
+            enqueue(KeyMessage{key, health ? health->generation : 0});
         });
         keyboard_->enableInput(true);
     }
     
     if (cardReader_) {
         cardReader_->setCardPresentedCallback([this](const UserId& userId) {
-            handleCardPresented(userId);
+            const auto health = cardReader_->getInputHealth();
+            enqueue(CardMessage{userId, health ? health->generation : 0});
         });
         // Card reading is disabled by default - state machine will enable it
         // only when in Waiting or PinEntry states
         cardReader_->enableReading(false);
     }
     
-    if (pump_) {
-        pump_->setPumpStateCallback([this](bool isRunning) {
-            handlePumpStateChanged(isRunning);
-        });
-    }
-    
-    if (flowMeter_) {
-        flowMeter_->setFlowCallback([this](Volume current) {
-            handleFlowUpdate(current);
-        });
-    }
 }
 
 void Controller::processNumericInput() {
@@ -1079,18 +1271,13 @@ void Controller::saveCalibrationCoefficient() {
     }
 
     const double coefficient = static_cast<double>(thousandths) / 1000.0;
-    if (!messageStorage_ || !messageStorage_->SetCalibrationCoefficient(coefficient)) {
-        calibrationInputError_ = CalibrationInputError::SaveFailed;
-        postEvent(Event::InputUpdated);
-        return;
-    }
-
-    calibrationCoefficient_ = coefficient;
-    calibrationInputError_ = CalibrationInputError::None;
-    calibrationInputOverflow_ = false;
-    clearInputSilent();
-    LOG_CTRL_INFO("Flow calibration coefficient saved: {:.3f}", calibrationCoefficient_);
-    postEvent(Event::CalibrationCoefficientSaved);
+    const auto generation = sessionGeneration_;
+    ++pendingOperations_;
+    if (!backendWorker_.Submit([this, generation, coefficient] {
+        bool saved = false;
+        try { saved = messageStorage_ && messageStorage_->SetCalibrationCoefficient(coefficient); } catch (...) {}
+        enqueue(CalibrationResult{generation, coefficient, saved});
+    })) enqueue(CalibrationResult{generation, coefficient, false});
 }
 
 std::string Controller::formatCalibrationCoefficient(double coefficient) const {
@@ -1146,7 +1333,8 @@ void Controller::resetSessionData() {
 
 bool Controller::initializePeripherals() {
     bool ok = true;
-    if (display_ && !display_->initialize()) {
+    displayReady_ = !display_ || display_->initialize();
+    if (!displayReady_) {
         LOG_CTRL_ERROR("Failed to initialize display");
         lastErrorMessage_ = "Ошибка дисплея";
         ok = false;
@@ -1168,7 +1356,8 @@ bool Controller::initializePeripherals() {
         ok = false;
     }
 
-    if (pump_ && !pump_->initialize()) {
+    pumpReady_ = !pump_ || pump_->initialize();
+    if (!pumpReady_) {
         LOG_CTRL_ERROR("Failed to initialize pump");
         if (lastErrorMessage_.empty()) {
             lastErrorMessage_ = "Ошибка насоса";
@@ -1176,7 +1365,8 @@ bool Controller::initializePeripherals() {
         ok = false;
     }
 
-    if (flowMeter_ && !flowMeter_->initialize()) {
+    flowReady_ = !flowMeter_ || flowMeter_->initialize();
+    if (!flowReady_) {
         LOG_CTRL_ERROR("Failed to initialize flow meter");
         if (lastErrorMessage_.empty()) {
             lastErrorMessage_ = "Ошибка расходомера";
@@ -1197,9 +1387,9 @@ bool Controller::initializePeripherals() {
     }
 
     if (!ok) {
-        // Cleanup any peripherals that were successfully initialized
-        LOG_CTRL_WARN("Initialization failed, cleaning up partially initialized peripherals");
-        shutdownPeripherals();
+        // Keep healthy dependencies and input recovery workers alive. Required
+        // failures inhibit dispensing until their owner worker reinitializes them.
+        LOG_CTRL_WARN("Initialization incomplete; required-device recovery needed");
         if (lastErrorMessage_.empty()) {
             lastErrorMessage_ = "Критическая ошибка инициализации";
         }
@@ -1216,46 +1406,6 @@ void Controller::shutdownPeripherals() {
     if (flowMeter_) flowMeter_->shutdown();
     if (temperatureSensor_) temperatureSensor_->shutdown();
     if (gpsReceiver_) gpsReceiver_->shutdown();
-}
-
-void Controller::startNoFlowMonitorThread() {
-    stopNoFlowMonitorThread();
-
-    noFlowMonitorRunning_.store(true);
-    noFlowMonitorThread_ = std::thread(&Controller::noFlowMonitorThreadFunction, this);
-}
-
-void Controller::stopNoFlowMonitorThread() {
-    noFlowMonitorRunning_.store(false);
-    if (noFlowMonitorThread_.joinable()) {
-        noFlowMonitorThread_.join();
-    }
-}
-
-void Controller::noFlowMonitorThreadFunction() {
-    LOG_CTRL_DEBUG("No-flow monitor thread started");
-    while (noFlowMonitorRunning_.load()) {
-        std::this_thread::sleep_for(timing::kNoFlowMonitorInterval);
-
-        bool shouldCancel = false;
-        {
-            std::lock_guard<std::mutex> lock(noFlowMonitorMutex_);
-            if (pumpRunning_ && !noFlowCancelPosted_) {
-                const auto elapsed = std::chrono::steady_clock::now() - lastFlowUpdateTime_;
-                if (elapsed >= noFlowCancelTimeout_) {
-                    noFlowCancelPosted_ = true;
-                    shouldCancel = true;
-                }
-            }
-        }
-
-        if (shouldCancel && stateMachine_.getCurrentState() == SystemState::Refueling) {
-            LOG_CTRL_WARN("Pump is running without flow for {} seconds, cancelling refueling",
-                          noFlowCancelTimeout_.count());
-            postEvent(Event::CancelNoFuel);
-        }
-    }
-    LOG_CTRL_DEBUG("No-flow monitor thread stopped");
 }
 
 } // namespace fuelflux

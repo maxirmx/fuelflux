@@ -41,6 +41,8 @@ UserCache::UserCache(const std::string& dbPath)
     // Create metadata table to track which table is active
     Execute("CREATE TABLE IF NOT EXISTS user_cache_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);");
     
+    Execute("CREATE TABLE IF NOT EXISTS allowance_receipts (id TEXT PRIMARY KEY);");
+
     // Initialize metadata if it doesn't exist
     std::lock_guard<std::mutex> lock(dbMutex_);
     sqlite3_stmt* stmt = nullptr;
@@ -241,6 +243,7 @@ bool UserCache::DeductAllowance(const std::string& uid, double amount) {
         }
     }
 
+    if (success && populationInProgress_) populationDebits_.insert(uid);
     return success;
 }
 
@@ -336,6 +339,7 @@ bool UserCache::BeginPopulation() {
         return false;
     }
 
+    populationDebits_.clear();
     populationInProgress_ = true;
     return true;
 }
@@ -345,6 +349,9 @@ bool UserCache::AddPopulationEntry(const std::string& uid, double allowance, int
     if (!db_ || !populationInProgress_) {
         return false;
     }
+    // The debit already copied the active value to standby. A server batch
+    // fetched before that debit must not replace it, nor reapply the debit.
+    if (populationDebits_.count(uid)) return true;
 
     std::string sql = "INSERT OR REPLACE INTO " + GetStandbyTableName() + " (uid, allowance, role_id) VALUES (?, ?, ?);";
     sqlite3_stmt* stmt = nullptr;

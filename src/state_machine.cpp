@@ -20,25 +20,22 @@ StateMachine::StateMachine(Controller* controller)
     , lastActivityTime_(std::chrono::steady_clock::now())
 {
     setupTransitions();
-    // Start timeout thread
-    timeoutThreadRunning_.store(true);
-    timeoutThread_ = std::thread(&StateMachine::timeoutThreadFunction, this);
 }
 
-StateMachine::~StateMachine() {
-    // Stop timeout thread
-    timeoutThreadRunning_.store(false);
-    if (timeoutThread_.joinable()) {
-        timeoutThread_.join();
-    }
+StateMachine::~StateMachine() = default;
+
+SystemState StateMachine::getCurrentState() const {
+    if (!controller_->onOwnerThread()) return controller_->getStatus().state;
+    return currentState_;
 }
 
 void StateMachine::initialize() {
+    timeoutPending_ = false;
+    controller_->assertOwner();
     {
-        std::scoped_lock lock(mutex_);
         currentState_ = SystemState::Waiting;
         previousState_ = SystemState::Waiting;
-        lastActivityTime_ = std::chrono::steady_clock::now();
+        lastActivityTime_ = controller_->now();
     }
 
     if (controller_) {
@@ -50,6 +47,7 @@ void StateMachine::initialize() {
 }
 
 void StateMachine::handleKeyPress(KeyCode key) {
+    controller_->assertOwner();
     if (!controller_) {
         LOG_SM_ERROR("Controller is null, cannot process key {}", static_cast<int>(key));
         return;
@@ -65,6 +63,8 @@ void StateMachine::handleKeyPress(KeyCode key) {
 }
 
 bool StateMachine::processEvent(Event event) {
+    if (event == Event::Timeout) timeoutPending_ = false;
+    controller_->assertOwner();
     if (!controller_) {
         LOG_SM_ERROR("Controller is null, cannot process event {}", static_cast<int>(event));
         return false;
@@ -79,14 +79,13 @@ bool StateMachine::processEvent(Event event) {
         controller_->discardPendingInputUpdatedEvents();
     }
 
-    // Do not call checkTimeout() here - timeout is handled asynchronously by the timeout thread.
+    // The controller owner checks deadlines between external messages.
 
-    // Lookup transition under lock and extract action and target state, then invoke without holding lock
+    // Only the controller owner executes transitions.
     std::function<void()> action;
     SystemState fromState;
     SystemState toState;
     {
-        std::scoped_lock lock(mutex_);
         fromState = currentState_;
         auto key = std::make_pair(fromState, event);
         auto it = transitions_.find(key);
@@ -100,14 +99,18 @@ bool StateMachine::processEvent(Event event) {
         previousState_ = fromState;
     }
 
+    // Validate before entering Refueling: an aborted entry must not use the
+    // stop/report path with cleared session data.
+    if (toState == SystemState::Refueling && fromState != toState &&
+        !controller_->canStartRefueling()) return false;
+
     // Only call action if state actually changes
     bool stateChanged = (fromState != toState);
     
-    // Update state and activity time under lock
+    // Publish state only through controller snapshots after processing.
     {
-        std::scoped_lock lock(mutex_);
         currentState_ = toState;
-        lastActivityTime_ = std::chrono::steady_clock::now();
+        lastActivityTime_ = controller_->now();
     }
 
     // Determine if display should be updated before or after the transition action
@@ -125,6 +128,8 @@ bool StateMachine::processEvent(Event event) {
         // so NFC reading should be disabled to avoid interference.
         bool cardReadingEnabled = (
             toState == SystemState::Waiting ||
+            toState == SystemState::NotAuthorized ||
+            toState == SystemState::CannotAuthorize ||
             toState == SystemState::RefuelingComplete ||
             toState == SystemState::IntakeComplete
             );
@@ -162,11 +167,12 @@ bool StateMachine::processEvent(Event event) {
 }
 
 void StateMachine::reset() {
+    timeoutPending_ = false;
+    controller_->assertOwner();
     {
-        std::scoped_lock lock(mutex_);
         currentState_ = SystemState::Waiting;
         previousState_ = SystemState::Waiting;
-        lastActivityTime_ = std::chrono::steady_clock::now();
+        lastActivityTime_ = controller_->now();
     }
 
     if (controller_) {
@@ -374,16 +380,20 @@ void StateMachine::setupTransitions() {
     transitions_[{SystemState::Refueling, Event::VolumeEntered}]       = {SystemState::Refueling,         noOp};
     transitions_[{SystemState::Refueling, Event::AmountEntered}]       = {SystemState::Refueling,         noOp};
     transitions_[{SystemState::Refueling, Event::RefuelingStarted}]    = {SystemState::Refueling,         noOp};
-    transitions_[{SystemState::Refueling, Event::RefuelingStopped}]    = {SystemState::RefuelDataTransmission, [this]() { doRefuelingDataTransmission(); }};
+    transitions_[{SystemState::Refueling, Event::RefuelingStopped}]    = {SystemState::RefuelingStopping, [this]() { onCancelRefueling(); }};
     transitions_[{SystemState::Refueling, Event::DataTransmissionComplete}] = {SystemState::Refueling,    noOp};
     transitions_[{SystemState::Refueling, Event::IntakeSelected}]      = {SystemState::Refueling,         noOp};
     transitions_[{SystemState::Refueling, Event::IntakeDirectionSelected}] = {SystemState::Refueling,     noOp};
     transitions_[{SystemState::Refueling, Event::IntakeVolumeEntered}] = {SystemState::Refueling,         noOp};
     transitions_[{SystemState::Refueling, Event::IntakeComplete}]      = {SystemState::Refueling,         noOp};
-    transitions_[{SystemState::Refueling, Event::CancelPressed}]       = {SystemState::RefuelDataTransmission, [this]() { onCancelRefueling(); doRefuelingDataTransmission(); }};
+    transitions_[{SystemState::Refueling, Event::CancelPressed}]       = {SystemState::RefuelingStopping, [this]() { onCancelRefueling(); }};
     transitions_[{SystemState::Refueling, Event::Timeout}]             = {SystemState::Refueling,         noOp};
-    transitions_[{SystemState::Refueling, Event::Error}]               = {SystemState::Error,             noOp};
+    transitions_[{SystemState::Refueling, Event::Error}]               = {SystemState::RefuelingStopping, [this]() { controller_->inputFault_ = true; onCancelRefueling(); }};
     transitions_[{SystemState::Refueling, Event::ErrorRecovery}]       = {SystemState::Refueling,         noOp};
+
+    transitions_[{SystemState::RefuelingStopping, Event::RefuelingStopped}] = {SystemState::RefuelDataTransmission, [this]() { doRefuelingDataTransmission(); }};
+    transitions_[{SystemState::RefuelingStopping, Event::Error}] = {SystemState::Error, noOp};
+    transitions_[{SystemState::RefuelingStopping, Event::InputUpdated}] = {SystemState::RefuelingStopping, noOp};
 
     // From RefuelDataTransmission state
     transitions_[{SystemState::RefuelDataTransmission, Event::CardPresented}]       = {SystemState::RefuelDataTransmission,  noOp};
@@ -543,8 +553,8 @@ void StateMachine::setupTransitions() {
 
 
 DisplayMessage StateMachine::getDisplayMessage() const {
+    if (!controller_->onOwnerThread()) return controller_->getStatus().display;
     DisplayMessage message;
-    std::scoped_lock lock(mutex_);
     const auto& keyboardUi = peripherals::configuredKeyboardUiProfile();
     
     if (!controller_) {
@@ -666,6 +676,7 @@ DisplayMessage StateMachine::getDisplayMessage() const {
             message.line4 = std::string(keyboardUi.refuelingStop);
             break;
 
+        case SystemState::RefuelingStopping:
         case SystemState::RefuelDataTransmission:
             message.line1 = "Передача данных...";
             message.line2 = controller_->formatVolume(controller_->getCurrentRefuelVolume());
@@ -759,12 +770,12 @@ void StateMachine::onAuthorizationSuccess() {
 }
 
 void StateMachine::doRefuelingDataTransmission() {
-    // Execute refuel backend operation and log transaction
+    // The receipt was committed while RefuelingStopping was still active.
+    // Only the network/reporting phase begins in DataTransmission.
     // Do not clear session data here - keep the displayed pumped volume visible.
     // The session is cleaned up on timeout or other user interactions.
     if (controller_) {
-        controller_->completeRefueling();
-        controller_->postEvent(Event::DataTransmissionComplete);
+        controller_->transmitPreparedTransaction();
     }
 }
 
@@ -810,11 +821,10 @@ void StateMachine::onIntakeVolumeEntered() {
     LOG_SM_INFO("Intake volume entered");
     if (controller_) {
         controller_->clearInput();  // Clear after intake volume entry
-        // Execute intake backend operation and log transaction
+        // Receipt creation completed before entering DataTransmission.
         // Do not clear session data here - keep the intake values visible.
         // The session is cleaned up on timeout or other user interactions.
-        controller_->completeIntakeOperation();
-        controller_->postEvent(Event::DataTransmissionComplete);
+        controller_->transmitPreparedTransaction();
     }
 }
 
@@ -868,7 +878,6 @@ void StateMachine::onCalibrationCoefficientSaved() {
 }
 
 bool StateMachine::isTimeoutEnabled() const {
-    std::scoped_lock lock(mutex_);
     return currentState_ != SystemState::Waiting && 
            currentState_ != SystemState::Refueling &&
            currentState_ != SystemState::Authorization &&
@@ -877,55 +886,23 @@ bool StateMachine::isTimeoutEnabled() const {
 }
 
 void StateMachine::updateActivityTime() {
-    std::scoped_lock lock(mutex_);
-    lastActivityTime_ = std::chrono::steady_clock::now();
+    controller_->assertOwner();
+    lastActivityTime_ = controller_->now();
 }
 
-void StateMachine::timeoutThreadFunction() {
-    LOG_SM_DEBUG("Timeout thread started");
-    
-    while (timeoutThreadRunning_.load()) {
-        std::this_thread::sleep_for(timing::kTimeoutThreadPollInterval);
-
-        bool shouldTrigger = false;
-        SystemState stateCopy;
-        std::chrono::steady_clock::time_point lastActivityCopy;
-        {
-            std::scoped_lock lock(mutex_);
-            stateCopy = currentState_;
-            lastActivityCopy = lastActivityTime_;
-        }
-
-        // If timeouts are disabled for this state, skip checking (no lock held here)
-        // Waiting, Refueling, Authorization, and data transmission states have timeout checking disabled here.
-        // These states involve blocking backend operations or don't require timeout.
-        if (stateCopy == SystemState::Waiting ||
-            stateCopy == SystemState::Refueling ||
-            stateCopy == SystemState::Authorization ||
-            stateCopy == SystemState::RefuelDataTransmission ||
-            stateCopy == SystemState::IntakeDataTransmission) {
-            continue;
-        }
-
-        auto now = std::chrono::steady_clock::now();
-        auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - lastActivityCopy);
-        const auto timeoutDuration = stateCopy == SystemState::CalibrationSaved
-            ? timing::kCalibrationSavedDisplayDuration
-            : TIMEOUT_DURATION;
-        if (elapsed >= timeoutDuration) {
-            shouldTrigger = true;
-        }
-
-        if (shouldTrigger) {
-            LOG_SM_INFO("Timeout triggered after {} seconds of inactivity", elapsed.count());
-            // Post timeout to controller's event queue instead of calling state machine directly
-            if (controller_) {
-                controller_->postEvent(Event::Timeout);
-            }
-        }
+bool StateMachine::checkTimeout() {
+    if (timeoutPending_) return true;
+    controller_->assertOwner();
+    const auto state = getCurrentState();
+    if (!isTimeoutEnabled() || state == SystemState::RefuelingStopping) return false;
+    const auto duration = state == SystemState::CalibrationSaved
+        ? timing::kCalibrationSavedDisplayDuration : TIMEOUT_DURATION;
+    if (controller_->now() - lastActivityTime_ >= duration) {
+        lastActivityTime_ = controller_->now();
+        timeoutPending_ = true;
+        controller_->postEvent(Event::Timeout);
     }
-    
-    LOG_SM_DEBUG("Timeout thread stopped");
+    return timeoutPending_;
 }
 
 } // namespace fuelflux

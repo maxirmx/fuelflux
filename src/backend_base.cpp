@@ -120,7 +120,7 @@ bool BackendBase::Authorize(const std::string& uid) {
             return false;
         }
 
-        LOG_BCK_INFO("Authorizing card UID: {}", uid);
+        LOG_BCK_INFO("Authorizing presented credential");
 
         nlohmann::json requestBody;
         requestBody["CardUid"] = uid;
@@ -210,6 +210,21 @@ bool BackendBase::Authorize(const std::string& uid) {
     }
 }
 
+bool BackendBase::DeauthorizeAndWait() {
+    if (!session_.IsAuthorized()) return true;
+    try {
+        const auto response = HttpRequestWrapper("/api/pump/deauthorize", "POST", nlohmann::json::object(), session_.GetToken());
+        if (IsErrorResponse(response, nullptr)) return false;
+        session_.Clear();
+        roleId_ = 0; allowance_ = 0; price_ = 0;
+        fuelTanks_.clear(); authorizedUid_.clear(); lastError_.clear();
+        return true;
+    } catch (...) {
+        LOG_BCK_WARN("Serialized deauthorization failed");
+        return false;
+    }
+}
+
 bool BackendBase::Deauthorize() {
     try {
         if (!session_.IsAuthorized()) {
@@ -279,7 +294,10 @@ bool BackendBase::Deauthorize() {
     }
 }
 
-bool BackendBase::Refuel(TankNumber tankNumber, Volume volume) {
+bool BackendBase::Refuel(TankNumber tankNumber, Volume volume) { return RefuelImpl(tankNumber, volume, true); }
+bool BackendBase::RefuelUnpersisted(TankNumber tankNumber, Volume volume) { return RefuelImpl(tankNumber, volume, false); }
+bool BackendBase::RefuelImpl(TankNumber tankNumber, Volume volume, bool persist) {
+    lastReportPersisted_ = false;
     try {
         if (!session_.IsAuthorized()) {
             LOG_BCK_ERROR("Invalid refueling report: backend is not authorized");
@@ -331,12 +349,12 @@ bool BackendBase::Refuel(TankNumber tankNumber, Volume volume) {
         std::string responseError;
         if (IsErrorResponse(response, &responseError)) {
             LOG_BCK_ERROR("Failed to send refueling report: {}", responseError);
-            if (storage_ && !authorizedUid_.empty()) {
+            if (persist && storage_ && !authorizedUid_.empty()) {
                 const int errorCode = response.value("CodeError", 0);
                 if (errorCode == HttpRequestWrapperErrorCode) {
-                    storage_->AddBacklog(authorizedUid_, MessageMethod::Refuel, requestBody.dump());
+                    lastReportPersisted_ = storage_->AddBacklog(authorizedUid_, MessageMethod::Refuel, requestBody.dump());
                 } else {
-                    storage_->AddDeadMessage(authorizedUid_, MessageMethod::Refuel, requestBody.dump());
+                    lastReportPersisted_ = storage_->AddDeadMessage(authorizedUid_, MessageMethod::Refuel, requestBody.dump());
                 }
             }
             lastError_ = responseError;
@@ -359,7 +377,10 @@ bool BackendBase::Refuel(TankNumber tankNumber, Volume volume) {
     }
 }
 
-bool BackendBase::Intake(TankNumber tankNumber, Volume volume, IntakeDirection direction) {
+bool BackendBase::Intake(TankNumber tankNumber, Volume volume, IntakeDirection direction) { return IntakeImpl(tankNumber, volume, direction, true); }
+bool BackendBase::IntakeUnpersisted(TankNumber tankNumber, Volume volume, IntakeDirection direction) { return IntakeImpl(tankNumber, volume, direction, false); }
+bool BackendBase::IntakeImpl(TankNumber tankNumber, Volume volume, IntakeDirection direction, bool persist) {
+    lastReportPersisted_ = false;
     try {
         if (!session_.IsAuthorized()) {
             LOG_BCK_ERROR("Invalid intake report: backend is not authorized");
@@ -416,12 +437,12 @@ bool BackendBase::Intake(TankNumber tankNumber, Volume volume, IntakeDirection d
         std::string responseError;
         if (IsErrorResponse(response, &responseError)) {
             LOG_BCK_ERROR("Failed to send fuel intake report: {}", responseError);
-            if (storage_ && !authorizedUid_.empty()) {
+            if (persist && storage_ && !authorizedUid_.empty()) {
                 const int errorCode = response.value("CodeError", 0);
                 if (errorCode == HttpRequestWrapperErrorCode) {
-                    storage_->AddBacklog(authorizedUid_, MessageMethod::Intake, requestBody.dump());
+                    lastReportPersisted_ = storage_->AddBacklog(authorizedUid_, MessageMethod::Intake, requestBody.dump());
                 } else {
-                    storage_->AddDeadMessage(authorizedUid_, MessageMethod::Intake, requestBody.dump());
+                    lastReportPersisted_ = storage_->AddDeadMessage(authorizedUid_, MessageMethod::Intake, requestBody.dump());
                 }
             }
             lastError_ = responseError;

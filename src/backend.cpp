@@ -347,7 +347,7 @@ nlohmann::json Backend::HttpRequestWrapper(const std::string& endpoint,
         
         // Compute body string once and reuse for both logging and POST
         std::string bodyStr = requestBody.dump();
-        LOG_BCK_DEBUG("Request: {} {} with body: {}", method, endpoint, bodyStr);
+        LOG_BCK_DEBUG("Request: {} {}", method, endpoint);
 
         // Set URL
         curl_easy_setopt(curl.get(), CURLOPT_URL, url.c_str());
@@ -443,7 +443,7 @@ nlohmann::json Backend::HttpRequestWrapper(const std::string& endpoint,
         long httpCode = 0;
         curl_easy_getinfo(curl.get(), CURLINFO_RESPONSE_CODE, &httpCode);
         
-        LOG_BCK_DEBUG("Response status: {} body: {}", httpCode, responseBody);
+        LOG_BCK_DEBUG("Response status: {}", httpCode);
 
         // Check HTTP status code
         if (httpCode >= 200 && httpCode < 300) {
@@ -458,8 +458,8 @@ nlohmann::json Backend::HttpRequestWrapper(const std::string& endpoint,
                 try {
                     responseJson = nlohmann::json::parse(responseBody);
                 }
-                catch (const std::exception& e) {
-                    LOG_BCK_ERROR("Failed to parse response JSON: {}", e.what());
+                catch (const std::exception&) {
+                    LOG_BCK_ERROR("Failed to parse response JSON");
                     networkError_ = true;
                     return BuildWrapperErrorResponse();
                 }
@@ -506,7 +506,7 @@ nlohmann::json Backend::HttpRequestWrapper(const std::string& endpoint,
         
         // Compute body string once and reuse for both logging and POST
         std::string bodyStr = requestBody.dump();
-        LOG_BCK_DEBUG("Request: {} {} with body: {}", method, endpoint, bodyStr);
+        LOG_BCK_DEBUG("Request: {} {}", method, endpoint);
 
         // Set URL
         curl_easy_setopt(curl.get(), CURLOPT_URL, url.c_str());
@@ -599,7 +599,7 @@ nlohmann::json Backend::HttpRequestWrapper(const std::string& endpoint,
         long httpCode = 0;
         curl_easy_getinfo(curl.get(), CURLINFO_RESPONSE_CODE, &httpCode);
         
-        LOG_BCK_DEBUG("Response status: {} body: {}", httpCode, responseBody);
+        LOG_BCK_DEBUG("Response status: {}", httpCode);
 
         // Check HTTP status code
         if (httpCode >= 200 && httpCode < 300) {
@@ -614,8 +614,8 @@ nlohmann::json Backend::HttpRequestWrapper(const std::string& endpoint,
                 try {
                     responseJson = nlohmann::json::parse(responseBody);
                 }
-                catch (const std::exception& e) {
-                    LOG_BCK_ERROR("Failed to parse response JSON: {}", e.what());
+                catch (const std::exception&) {
+                    LOG_BCK_ERROR("Failed to parse response JSON");
                     networkError_ = true;
                     return BuildWrapperErrorResponse();
                 }

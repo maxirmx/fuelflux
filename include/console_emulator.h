@@ -76,7 +76,7 @@ public:
 
 private:
     bool isConnected_;
-    bool readingEnabled_;
+    std::atomic<bool> readingEnabled_;
     CardPresentedCallback cardPresentedCallback_;
     mutable std::mutex callbackMutex_;
 };

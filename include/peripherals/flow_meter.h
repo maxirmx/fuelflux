@@ -12,6 +12,11 @@
 #include <chrono>
 #include <mutex>
 
+#ifdef TARGET_REAL_FLOW_METER
+struct gpiod_chip;
+struct gpiod_line;
+#endif
+
 namespace fuelflux::peripherals {
 
 // Flow meter implementation: 
@@ -28,12 +33,13 @@ public:
     bool isConnected() const override;
 
     // IFlowMeter interface
-    void startMeasurement() override;
+    bool startMeasurement() override;
     void stopMeasurement() override;
     void resetCounter() override;
     Volume getCurrentVolume() const override;
     Volume getTotalVolume() const override;
     void setFlowCallback(FlowCallback callback) override;
+    void setMeasurementFaultCallback(MeasurementFaultCallback callback) override;
 
     // Runtime simulation mode for real flow meter builds.
     // Returns false when simulation mode is not supported by the current build.
@@ -42,7 +48,8 @@ public:
 
 private:
 #ifdef TARGET_REAL_FLOW_METER
-    void monitorThread(std::chrono::steady_clock::time_point blankingDeadline);
+    void monitorThread(gpiod_chip* chip, gpiod_line* line,
+                       std::chrono::steady_clock::time_point blankingDeadline);
 #endif
 
     std::atomic<bool> m_connected;
@@ -51,6 +58,7 @@ private:
     Volume m_totalVolume;
     mutable std::mutex m_volumeMutex;  // Protects m_currentVolume and m_totalVolume
     FlowCallback m_callback;
+    MeasurementFaultCallback measurementFaultCallback_;
     
     std::thread monitorThread_;
     std::atomic<bool> stopMonitoring_;

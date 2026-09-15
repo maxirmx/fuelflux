@@ -5,6 +5,8 @@
 #include "peripherals/flow_meter.h"
 #include "logger.h"
 #include "timing_config.h"
+#include <stdexcept>
+#include <utility>
 
 #ifdef TARGET_REAL_FLOW_METER
 #include "hardware/hardware_config.h"
@@ -87,11 +89,8 @@ bool HardwareFlowMeter::initialize() {
 }
 
 void HardwareFlowMeter::shutdown() {
-    if (!m_connected) {
-        return;
-    }
-
-    LOG_PERIPH_INFO("Shutting down flow meter hardware...");
+    if (m_connected || m_measuring.load(std::memory_order_acquire) || monitorThread_.joinable())
+        LOG_PERIPH_INFO("Shutting down flow meter hardware...");
     stopMeasurement();
     m_connected = false;
 }
@@ -102,35 +101,9 @@ bool HardwareFlowMeter::isConnected() const {
 
 #ifdef TARGET_REAL_FLOW_METER
 void HardwareFlowMeter::monitorThread(
+    gpiod_chip* chip,
+    gpiod_line* line,
     std::chrono::steady_clock::time_point blankingDeadline) {
-    // Open GPIO chip for this thread
-    errno = 0;
-    struct gpiod_chip* chip = gpiod_chip_open(gpioChip_.c_str());
-    if (!chip) {
-        LOG_PERIPH_ERROR("Monitor thread: Failed to open GPIO chip {}: {} (errno={})", 
-                       gpioChip_, std::strerror(errno), errno);
-        return;
-    }
-
-    // Get GPIO line
-    errno = 0;
-    struct gpiod_line* line = gpiod_chip_get_line(chip, gpioPin_);
-    if (!line) {
-        LOG_PERIPH_ERROR("Monitor thread: Failed to get GPIO line {}: {} (errno={})", 
-                       gpioPin_, std::strerror(errno), errno);
-        gpiod_chip_close(chip);
-        return;
-    }
-
-    // Request falling edge events (assuming active-low pulses like in reference)
-    errno = 0;
-    if (gpiod_line_request_falling_edge_events(line, "fuelflux-flowmeter-monitor") != 0) {
-        LOG_PERIPH_ERROR("Monitor thread: Failed to request falling edge events: {} (errno={})", 
-                        std::strerror(errno), errno);
-        gpiod_chip_close(chip);
-        return;
-    }
-
     LOG_PERIPH_INFO("Flow meter monitoring thread started (startup blanking={} ms)",
                     timing::kFlowMeterStartupBlankingInterval.count());
 
@@ -139,6 +112,7 @@ void HardwareFlowMeter::monitorThread(
     constexpr long kPollTimeoutNs = std::chrono::duration_cast<std::chrono::nanoseconds>(
         timing::kFlowMeterSimTickInterval).count();
     uint64_t lastReportedPulseCount = pulseCount_.load(std::memory_order_relaxed);
+    bool failed = false;
 
     while (!stopMonitoring_.load(std::memory_order_acquire)) {
         struct timespec timeout;
@@ -150,6 +124,7 @@ void HardwareFlowMeter::monitorThread(
         if (rc < 0) {
             LOG_PERIPH_ERROR("Flow meter event wait failed: {} (errno={})", 
                            std::strerror(errno), errno);
+            failed = true;
             break;
         }
 
@@ -160,7 +135,7 @@ void HardwareFlowMeter::monitorThread(
             uint64_t blankedBatchCount = 0;
             struct timespec zeroTimeout = {0, 0};
 
-            do {
+            for (;;) {
                 errno = 0;
                 if (gpiod_line_event_read(line, &ev) == 0) {
                     if (std::chrono::steady_clock::now() < blankingDeadline) {
@@ -171,9 +146,20 @@ void HardwareFlowMeter::monitorThread(
                 } else {
                     LOG_PERIPH_ERROR("Failed to read flow meter event: {} (errno={})", 
                                    std::strerror(errno), errno);
+                    failed = true;
                     break;
                 }
-            } while (gpiod_line_event_wait(line, &zeroTimeout) == 1);
+                errno = 0;
+                const int more = gpiod_line_event_wait(line, &zeroTimeout);
+                if (more < 0) {
+                    LOG_PERIPH_ERROR("Flow meter event drain failed: {} (errno={})",
+                                     std::strerror(errno), errno);
+                    failed = true;
+                    break;
+                }
+                if (more == 0) break;
+            }
+            if (failed) break;
 
             if (batchCount > 0) {
                 pulseCount_.fetch_add(batchCount, std::memory_order_relaxed);
@@ -200,15 +186,29 @@ void HardwareFlowMeter::monitorThread(
     // Clean up
     gpiod_line_release(line);
     gpiod_chip_close(chip);
+
+    if (failed && !stopMonitoring_.load(std::memory_order_acquire)) {
+        m_connected.store(false, std::memory_order_release);
+        try {
+            if (measurementFaultCallback_) measurementFaultCallback_();
+        } catch (...) {
+            LOG_PERIPH_ERROR("Flow meter fault callback failed");
+        }
+    }
 }
 #endif
 
-void HardwareFlowMeter::startMeasurement() {
+bool HardwareFlowMeter::startMeasurement() {
     if (!m_connected) {
         LOG_PERIPH_ERROR("Cannot start measurement - not connected");
-        return;
+        return false;
     }
     
+    if (monitorThread_.joinable() && !m_measuring.load(std::memory_order_acquire)) {
+        LOG_PERIPH_ERROR("Cannot start measurement - previous monitor has not been joined");
+        return false;
+    }
+
     if (!m_measuring.load(std::memory_order_acquire)) {
         LOG_PERIPH_INFO("Starting flow measurement...");
         {
@@ -278,18 +278,62 @@ void HardwareFlowMeter::startMeasurement() {
         }
 #ifdef TARGET_REAL_FLOW_METER
         else {
+            // The controller calls this method on its flow worker. Acquire and
+            // subscribe to GPIO here so success means observations can be accepted.
+            errno = 0;
+            struct gpiod_chip* chip = gpiod_chip_open(gpioChip_.c_str());
+            if (!chip) {
+                LOG_PERIPH_ERROR("Failed to open GPIO chip {} for measurement: {} (errno={})",
+                                 gpioChip_, std::strerror(errno), errno);
+                m_measuring.store(false, std::memory_order_release);
+                m_connected.store(false, std::memory_order_release);
+                return false;
+            }
+
+            errno = 0;
+            struct gpiod_line* line = gpiod_chip_get_line(chip, gpioPin_);
+            if (!line) {
+                LOG_PERIPH_ERROR("Failed to get GPIO line {} for measurement: {} (errno={})",
+                                 gpioPin_, std::strerror(errno), errno);
+                gpiod_chip_close(chip);
+                m_measuring.store(false, std::memory_order_release);
+                m_connected.store(false, std::memory_order_release);
+                return false;
+            }
+
+            errno = 0;
+            if (gpiod_line_request_falling_edge_events(line, "fuelflux-flowmeter-monitor") != 0) {
+                LOG_PERIPH_ERROR("Failed to request flow meter edge events: {} (errno={})",
+                                 std::strerror(errno), errno);
+                gpiod_line_release(line);
+                gpiod_chip_close(chip);
+                m_measuring.store(false, std::memory_order_release);
+                m_connected.store(false, std::memory_order_release);
+                return false;
+            }
+
             pulseCount_.store(0, std::memory_order_relaxed);
             const auto blankingDeadline = std::chrono::steady_clock::now() +
                 timing::kFlowMeterStartupBlankingInterval;
-            monitorThread_ = std::thread(
-                &HardwareFlowMeter::monitorThread, this, blankingDeadline);
+            try {
+                monitorThread_ = std::thread(
+                    &HardwareFlowMeter::monitorThread, this, chip, line, blankingDeadline);
+            } catch (...) {
+                gpiod_line_release(line);
+                gpiod_chip_close(chip);
+                m_measuring.store(false, std::memory_order_release);
+                stopMonitoring_.store(true, std::memory_order_release);
+                throw;
+            }
         }
 #endif
     }
+    return true;
 }
 
 void HardwareFlowMeter::stopMeasurement() {
-    if (m_measuring.load(std::memory_order_acquire)) {
+    const bool wasMeasuring = m_measuring.load(std::memory_order_acquire);
+    if (wasMeasuring || monitorThread_.joinable()) {
         LOG_PERIPH_INFO("Stopping flow measurement...");
         
         stopMonitoring_.store(true, std::memory_order_release);
@@ -297,11 +341,11 @@ void HardwareFlowMeter::stopMeasurement() {
             monitorThread_.get_id() != std::this_thread::get_id()) {
             monitorThread_.join();
         }
-        else if (monitorThread_.get_id() == std::this_thread::get_id()) {
-            // Called from within the monitor thread (e.g., via callback) - detach to avoid self-join
-            LOG_PERIPH_WARN("stopMeasurement called from monitor thread - detaching");
-            monitorThread_.detach();
+        else if (monitorThread_.joinable()) {
+            throw std::logic_error("Flow measurement must be stopped outside its callback thread");
         }
+
+        if (!wasMeasuring) return;
 
 #ifdef TARGET_REAL_FLOW_METER
         uint64_t pulses = pulseCount_.load(std::memory_order_acquire);
@@ -365,6 +409,10 @@ Volume HardwareFlowMeter::getTotalVolume() const {
 
 void HardwareFlowMeter::setFlowCallback(FlowCallback callback) {
     m_callback = callback;
+}
+
+void HardwareFlowMeter::setMeasurementFaultCallback(MeasurementFaultCallback callback) {
+    measurementFaultCallback_ = std::move(callback);
 }
 
 bool HardwareFlowMeter::setSimulationEnabled(bool enabled) {

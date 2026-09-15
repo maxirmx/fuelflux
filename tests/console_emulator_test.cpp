@@ -566,3 +566,20 @@ TEST_F(ConsoleEmulatorTest, ProcessCommandFlowSimWithoutHandlerDoesNotCrash) {
     EXPECT_NO_THROW(emulator->processCommand("flow_sim on"));
 }
 #endif
+
+TEST_F(ConsoleEmulatorTest, ConcurrentCardDeliveryAndEnableChanges) {
+    ConsoleCardReader reader;
+    reader.initialize();
+    std::atomic<int> delivered{0};
+    reader.setCardPresentedCallback([&](const UserId&) { ++delivered; });
+    std::promise<void> start;
+    auto gate = start.get_future().share();
+    std::thread toggler([&] { gate.wait(); for (int i = 0; i < 1000; ++i) reader.enableReading(i % 2 == 0); });
+    std::thread producer([&] { gate.wait(); for (int i = 0; i < 1000; ++i) reader.simulateCardPresented("test"); });
+    start.set_value(); toggler.join(); producer.join();
+    reader.enableReading(false);
+    const auto before = delivered.load(); reader.simulateCardPresented("test");
+    EXPECT_EQ(delivered.load(), before);
+    reader.enableReading(true); reader.simulateCardPresented("test");
+    EXPECT_EQ(delivered.load(), before + 1);
+}

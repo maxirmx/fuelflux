@@ -461,8 +461,13 @@ TEST_F(FlowMeterSimulationTest, ShutdownWorks) {
     EXPECT_FALSE(flowMeter->isConnected());
 }
 
+TEST(FlowMeterTest, StartWithoutInitializationReportsNotArmed) {
+    HardwareFlowMeter flowMeter;
+    EXPECT_FALSE(flowMeter.startMeasurement());
+}
+
 TEST_F(FlowMeterSimulationTest, CanStartStopMeasurement) {
-    flowMeter->startMeasurement();
+    EXPECT_EQ(flowMeter->startMeasurement(), gpioAvailable);
     // Basic operation should work without crashing
     flowMeter->stopMeasurement();
     EXPECT_TRUE(true);

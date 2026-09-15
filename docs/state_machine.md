@@ -1,4 +1,4 @@
-﻿# State Machine Documentation
+# State Machine Documentation
 
 ## Overview
 
@@ -20,6 +20,7 @@ The FuelFlux controller uses a Mealy state machine to manage the fuel dispensing
 | `TankSelection` | User is selecting a fuel tank |
 | `VolumeEntry` | Customer is entering the desired fuel volume |
 | `Refueling` | Fuel is being dispensed |
+| `RefuelingStopping` | Pump-off confirmation and final measurement before reporting |
 | `RefuelDataTransmission` | Refuel transaction is being transmitted to backend |
 | `RefuelingComplete` | Refueling operation has completed |
 | `IntakeDirectionSelection` | Operator is selecting intake direction (In/Out) |
@@ -119,13 +120,17 @@ reporting, offline backlog storage, and allowance deduction.
    - If valid: Event: `VolumeEntered` → State: `Refueling`
 
 5. **Refueling**
-   - Pump starts automatically
-   - Flow meter measures dispensed volume
+   - The flow-control worker first arms the flow meter for the current measurement
+     generation
+   - Pump starts automatically only after successful flow-meter arming
+   - An arming failure leaves the pump off and enters the equipment error/recovery path
+   - A runtime monitoring failure stops the pump through `RefuelingStopping`,
+     preserves the final observed volume, and inhibits new sessions until recovery
    - Display shows: current volume / target volume
    - **Completion Options:**
      - Target volume reached: Pump stops automatically
      - User presses 'B' (Stop/Cancel): Pump stops
-     - Both trigger: Event: `RefuelingStopped` → State: `RefuelDataTransmission`
+     - Both trigger: Event: `RefuelingStopped` → State: `RefuelingStopping` → final measurement → `RefuelDataTransmission`
 
 6. **Refuel Data Transmission**
    - Transaction is logged to backend asynchronously
@@ -321,7 +326,7 @@ The 'B' key (Stop/Cancel) is active in most states and handles different operati
 | `NotAuthorized` | Return to `Waiting` |
 | `TankSelection` | Cancel selection, return to `Waiting` |
 | `VolumeEntry` | Cancel entry, return to `Waiting` |
-| `Refueling` | Stop pump, transition to `RefuelDataTransmission` |
+| `Refueling` | Confirm pump-off and final measurement in `RefuelingStopping`, then report |
 | `RefuelDataTransmission` | No effect (cannot cancel during transmission) |
 | `RefuelingComplete` | Return to `Waiting` |
 | `IntakeDirectionSelection` | Cancel intake, return to `Waiting` |
@@ -644,13 +649,13 @@ Example test scenarios:
 
 ### Thread Safety
 
-- State machine uses `std::recursive_mutex` for thread-safe state access
+- The controller event loop exclusively owns state-machine mutation; readers use copied status snapshots
 - Event processing is serialized through the controller's event queue
-- Timeout checking runs in a separate thread
+- The controller checks deadlines between external messages, including under sustained traffic
 
 ### Activity Time Updates
 
-The state machine updates `lastActivityTime_` on every event processed. This timestamp is used by the timeout thread to detect inactivity.
+The state machine updates `lastActivityTime_` on every event processed. The controller owner uses this timestamp to detect inactivity.
 
 ### Event Queue
 
@@ -659,7 +664,7 @@ The controller maintains an event queue that allows asynchronous event posting:
 controller->postEvent(Event::Timeout);
 ```
 
-This ensures thread-safe event delivery from peripheral callbacks and the timeout thread.
+Peripheral callbacks enqueue copied, typed messages. Internal transitions drain before the next external message; timeout events originate on the controller owner.
 
 ## Key Codes for Keyboard Input
 
@@ -701,3 +706,21 @@ PinEntry State → Press: "2", "3", "4" (remaining digits)
 ```
 
 **Note:** In Waiting state, pressing the first digit automatically switches from Command Mode to Key Mode and triggers PIN entry.
+
+
+## Controller ownership and recovery
+
+Runtime transitions are owned by the controller event loop. Raw peripheral inputs
+are copied messages; backend and display work execute outside the loop. Each input
+finishes its internal transition sequence before the next input is handled.
+
+Dispensing now passes through `RefuelingStopping`: pump-off, final measurement,
+durable receipt commit, then `RefuelDataTransmission`. Intake likewise does not
+leave `IntakeVolumeEntry` for `IntakeDataTransmission` until its receipt commit is
+confirmed. Backend reporting never precedes that durable handoff. Input failures
+use the stop path and inhibit new sessions until recovery; they never automatically
+resume dispensing. Authorization failure screens accept cards immediately,
+consistent with their displayed prompts.
+
+See [Input recovery and controller ownership](input_recovery.md) for lifecycle,
+message ordering, diagnostics, and hardware release requirements.

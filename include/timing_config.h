@@ -148,6 +148,17 @@ constexpr std::chrono::milliseconds kFlowDisplayRefreshInterval{500};
 // measurement immediately before waiting for this interval.
 constexpr std::chrono::minutes kTemperaturePollInterval{1};
 
+// Input workers: retries are interruptible and never run in the event loop.
+constexpr std::chrono::seconds kInputStallTimeout{5};
+constexpr std::chrono::seconds kDiagnosticInterval{30};
+constexpr std::chrono::milliseconds kInputCommandTimeout{1000};
+constexpr std::chrono::seconds kInputRetryMaximum{30};
+constexpr std::chrono::seconds kInputRetryInitial{1};
+constexpr std::chrono::seconds kCardDeliveryCooldown{1};
+constexpr std::chrono::milliseconds kCardPollInterval{50};
+constexpr std::chrono::seconds kQueueAgeWarning{1};
+constexpr std::chrono::milliseconds kSlowHandlerWarning{100};
+
 // ─── GPS receiver ────────────────────────────────────────────
 
 // How long a successfully opened receiver may produce no checksum-valid NMEA

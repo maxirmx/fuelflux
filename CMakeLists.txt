@@ -3,7 +3,7 @@
 # This file is a part of fuelflux application
 
 cmake_minimum_required(VERSION 3.16)
-project(FuelFlux VERSION 0.3.7 LANGUAGES CXX)
+project(FuelFlux VERSION 0.3.8 LANGUAGES CXX)
 
 # Generate version header from template
 configure_file(
@@ -336,8 +336,10 @@ include_directories(${CMAKE_BINARY_DIR}/include)
 set(LIB_SOURCES
     src/state_machine.cpp
     src/controller.cpp
+    src/controller_events.cpp
     src/logger.cpp
     src/message_storage.cpp
+    src/receipt_storage.cpp
     src/user_cache.cpp
     src/cache_manager.cpp
     src/backlog_worker.cpp
@@ -600,6 +602,7 @@ if(ENABLE_TESTING)
         tests/url_utils_test.cpp
         tests/console_emulator_test.cpp
         tests/keyboard_test.cpp
+        tests/input_recovery_test.cpp
         tests/four_line_display_test.cpp
         tests/flow_meter_test.cpp
         tests/temperature_sensor_test.cpp
@@ -614,6 +617,11 @@ if(ENABLE_TESTING)
 
     # Create test executable
     add_executable(fuelflux_tests ${TEST_SOURCES})
+    if(MSVC)
+        # Google Mock's template-heavy controller regressions exceed COFF's
+        # default section limit in debug builds.
+        target_compile_options(fuelflux_tests PRIVATE /bigobj)
+    endif()
 
     # Link test executable with library and Google Test
     target_link_libraries(fuelflux_tests

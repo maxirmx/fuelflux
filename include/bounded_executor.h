@@ -28,6 +28,8 @@ public:
     // Submit a task for execution
     // Returns true if task was queued, false if queue is full
     bool Submit(std::function<void()> task);
+    // One reserved FIFO slot for lifecycle cleanup; never blocks the caller.
+    bool SubmitReserved(std::function<void()> task);
 
     // Get number of queued tasks
     size_t QueueSize() const;
@@ -39,7 +41,9 @@ private:
     void WorkerThread();
 
     std::vector<std::thread> workers_;
-    std::queue<std::function<void()>> tasks_;
+    struct Task { std::function<void()> function; bool reserved; };
+    std::queue<Task> tasks_;
+    bool reservedQueued_ = false;
     mutable std::mutex mutex_;
     std::condition_variable cv_;
     std::atomic<bool> shutdown_{false};

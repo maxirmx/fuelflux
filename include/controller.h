@@ -14,6 +14,10 @@
 #include <string>
 #include <thread>
 #include <vector>
+#include <deque>
+#include <variant>
+#include <cassert>
+#include <future>
 
 #include "backend.h"
 #include "message_storage.h"
@@ -23,6 +27,7 @@
 #include "peripherals/peripheral_interface.h"
 
 namespace fuelflux {
+enum class MessageMethod;
 
 // Forward declarations
 class CacheManager;
@@ -31,6 +36,28 @@ class UserCache;
 struct ControllerPersistencePaths {
     std::string cacheDbPath;
     std::string messageStorageDbPath;
+};
+
+struct ControllerRuntimeOptions {
+    bool startCacheSynchronization = true;
+    std::function<std::chrono::steady_clock::time_point()> now = [] { return std::chrono::steady_clock::now(); };
+};
+
+struct ControllerStatus {
+    SystemState state = SystemState::Waiting;
+    UserInfo user;
+    std::vector<TankInfo> tanks;
+    std::vector<BackendTankInfo> tankDetails;
+    TankNumber tank = 0;
+    Volume entered = 0, delivered = 0;
+    std::string input, error;
+    IntakeDirection direction = IntakeDirection::In;
+    double coefficient = 1.0;
+    bool fromCache = false;
+    DisplayMessage display;
+    std::uint64_t revision = 0;
+    std::uint64_t measurementGeneration = 0;
+    std::optional<peripherals::InputHealth> keyboardHealth, cardHealth;
 };
 
 // Main controller class that orchestrates the entire system
@@ -42,36 +69,17 @@ class Controller {
     Controller(ControllerId controllerId,
                std::shared_ptr<IBackend> backend,
                std::chrono::seconds noFlowCancelTimeout,
-               ControllerPersistencePaths persistencePaths);
+               ControllerPersistencePaths persistencePaths,
+               ControllerRuntimeOptions options = {});
     ~Controller();
 
     // System lifecycle
     bool initialize();
     void shutdown();
     void run();
-    /**
-     * Reinitialize the device and all connected peripherals.
-     *
-     * This method performs a controlled shutdown of the current controller state,
-     * including stopping active operations, shutting down and reinitializing all
-     * configured peripherals (display, keyboard, card reader, pump, flow meter, etc.),
-     * and resetting in‑memory session data (current user, input, selected tank,
-     * refuel/intake state, and related runtime fields) to a clean initial state.
-     *
-     * Typical use cases:
-     *  - Recovering from non‑recoverable peripheral errors without restarting the process.
-     *  - Applying configuration or backend changes that require a full device restart.
-     *
-     * Threading and state machine considerations:
-     *  - This function is intended to be called from the controller's main thread /
-     *    event loop context, not concurrently with other Controller methods.
-     *  - Ongoing operations managed by the internal state machine will be aborted and
-     *    the state machine returned to its initial state as part of reinitialization.
-     *
-     * @return true if the device and all peripherals were successfully reinitialized;
-     *         false if reinitialization failed and the controller remains in an
-     *         error or partially initialized state.
-     */
+    // Reset an idle/error session and request display reset. Runtime callers
+    // enqueue the request; input workers retain ownership of reconnect/handles.
+    // Returns acceptance when called off-thread, or health when called by owner.
     bool reinitializeDevice();
 
     // Peripheral management
@@ -90,20 +98,24 @@ class Controller {
     void discardPendingInputUpdatedEvents();
 
     // State machine interface
-    StateMachine& getStateMachine() { return stateMachine_; }
+    ControllerStatus getStatus() const;
+    void assertOwner() const;
+    std::chrono::steady_clock::time_point now() const { return options_.now(); }
+    bool onOwnerThread() const;
+    void synchronize(); // Completion barrier for previously queued controller messages.
     const StateMachine& getStateMachine() const { return stateMachine_; }
 
     // Current session data
-    const UserInfo& getCurrentUser() const { return currentUser_; }
-    const std::vector<TankInfo>& getAvailableTanks() const { return availableTanks_; }
-    TankNumber getSelectedTank() const { return selectedTank_; }
-    Volume getEnteredVolume() const { return enteredVolume_; }
-    const std::string& getCurrentInput() const { return currentInput_; }
-    IntakeDirection getSelectedIntakeDirection() const { return selectedIntakeDirection_; }
-    Volume getCurrentRefuelVolume() const { return currentRefuelVolume_; }
-    double getCalibrationCoefficient() const { return calibrationCoefficient_; }
+    UserInfo getCurrentUser() const { return onOwnerThread() ? currentUser_ : getStatus().user; }
+    std::vector<TankInfo> getAvailableTanks() const { return onOwnerThread() ? availableTanks_ : getStatus().tanks; }
+    TankNumber getSelectedTank() const { return onOwnerThread() ? selectedTank_ : getStatus().tank; }
+    Volume getEnteredVolume() const { return onOwnerThread() ? enteredVolume_ : getStatus().entered; }
+    std::string getCurrentInput() const { return onOwnerThread() ? currentInput_ : getStatus().input; }
+    IntakeDirection getSelectedIntakeDirection() const { return onOwnerThread() ? selectedIntakeDirection_ : getStatus().direction; }
+    Volume getCurrentRefuelVolume() const { return onOwnerThread() ? currentRefuelVolume_ : getStatus().delivered; }
+    double getCalibrationCoefficient() const { return onOwnerThread() ? calibrationCoefficient_ : getStatus().coefficient; }
     std::size_t getCalibrationPasswordLength() const;
-    const std::string& getLastErrorMessage() const { return lastErrorMessage_; }
+    std::string getLastErrorMessage() const { return onOwnerThread() ? lastErrorMessage_ : getStatus().error; }
     std::optional<double> getLastTemperatureCelsius() const;
     std::optional<GpsPosition> getLastGpsPosition() const;
 
@@ -163,7 +175,7 @@ class Controller {
     // Cache management
     std::shared_ptr<CacheManager> getCacheManager() const { return cacheManager_; }
     std::shared_ptr<UserCache> getUserCache() const { return userCache_; }
-    bool isSessionAuthorizedFromCache() const { return sessionAuthorizedFromCache_; }
+    bool isSessionAuthorizedFromCache() const { return onOwnerThread() ? sessionAuthorizedFromCache_ : getStatus().fromCache; }
 
     // Utility functions
     std::string formatVolume(Volume volume) const;
@@ -177,10 +189,12 @@ class Controller {
 
   private:
     friend class StateMachine;
+    friend struct ControllerTestAccess;
 
     // Core components
     ControllerId controllerId_;
     StateMachine stateMachine_;
+    ControllerRuntimeOptions options_;
     
     // Peripherals
     std::unique_ptr<peripherals::IDisplay> display_;
@@ -225,23 +239,134 @@ class Controller {
     bool stopPressBeganInWaiting_ = false;
     
     // System state
-    bool isRunning_;
-    std::atomic<bool> threadExited_{false};
+    std::atomic<bool> isRunning_{false};
+    std::atomic<bool> loopActive_{false};
+    std::mutex lifecycleMutex_;
+    std::mutex shutdownMutex_;
+    std::condition_variable lifecycleCv_;
+    bool shutdownRequested_ = false;
+    bool acceptingBarriers_ = false; // Protected by lifecycleMutex_.
+    std::atomic<bool> lifecycleStopping_{false}; // Prevent run() starting during synchronous cleanup.
+    void cleanupWorkers();
+    bool canStartRefueling();
+    bool reconcileReceipts();
+    void reportTransaction(const std::string& uid, MessageMethod method, const std::string& payload, double volume, bool deduct, bool cached);
+    void submitReceiptPreparation();
+    void transmitPreparedTransaction();
+    std::atomic<bool> cleanupDone_{false};
+    inline static thread_local Controller* owner_ = nullptr;
+    const std::thread::id setupThread_ = std::this_thread::get_id();
+    mutable std::mutex statusMutex_;
+    ControllerStatus status_;
+    BoundedExecutor backendWorker_{1, 100};
+    bool cleanupPending_ = false;
+    std::uint64_t cleanupRequestedGeneration_ = 0;
+    std::uint64_t backendSessionGeneration_ = 0; // accessed only by backendWorker_
+    void requestBackendCleanup(std::uint64_t generation);
+    BoundedExecutor flowWorker_{1, 100};
+    BoundedExecutor persistenceWorker_{1, 1}; // Reserved for the single active report.
+    std::uint64_t sessionGeneration_ = 0;
+    std::uint64_t measurementGeneration_ = 0;
+    unsigned pendingOperations_ = 0;
+    bool stopping_ = false;
+    bool reporting_ = false;
+    std::optional<std::uint64_t> reportedSession_;
+    struct PendingTransaction {
+        std::uint64_t generation;
+        std::string uid;
+        MessageMethod method;
+        std::string payload;
+        double volume;
+        bool deduct;
+        bool cached;
+        std::optional<std::string> receiptId;
+    };
+    std::optional<PendingTransaction> pendingTransaction_;
+    bool inputFault_ = false;
+    bool inputsReady_ = true;
+    bool startAborted_ = false;
+    bool measurementArming_ = false;
+    bool measurementActive_ = false;
+    bool pumpReady_ = true, flowReady_ = true;
+    bool recoveringPeripherals_ = false;
+    std::atomic<bool> displayReady_{true};
+    bool finalizationFailed_ = false;
+    bool pumpOffFailed_ = false;
+    std::chrono::steady_clock::time_point healthCheck_{};
+    std::chrono::steady_clock::time_point lastQueueWarning_{}, lastHandlerWarning_{};
+    std::mutex displayMutex_;
+    std::condition_variable displayCv_;
+    std::optional<DisplayMessage> pendingDisplay_;
+    bool displayReset_ = false, displayStopping_ = false;
+    std::atomic<bool> displayWorkerStarted_{false};
+    std::thread displayThread_;
+
     std::string lastErrorMessage_;
     bool sessionAuthorizedFromCache_ = false;
 
-    // Event queue for cross-thread event posting
-    std::queue<Event> eventQueue_;
+    struct KeyMessage { KeyCode key; std::uint64_t generation = 0; };
+    struct CardMessage { UserId uid; std::uint64_t generation = 0; };
+    struct PumpMessage { bool running; std::uint64_t generation; };
+    struct FlowMessage { Volume volume; std::uint64_t generation; };
+    struct FlowArmResult { std::uint64_t generation; bool ok; };
+    struct FlowFault { std::uint64_t generation; };
+    struct FinalFlow { Volume volume; std::uint64_t generation; bool ok; };
+    struct ReceiptPrepared { std::uint64_t generation; std::optional<std::string> receiptId; };
+    struct AuthorizationResult {
+        explicit AuthorizationResult(std::uint64_t value) : generation(value) {}
+        std::uint64_t generation;
+        Event outcome = Event::AuthorizationFailed;
+        UserInfo user;
+        std::vector<BackendTankInfo> tanks;
+        bool cached = false;
+    };
+    struct WorkComplete { std::uint64_t generation; bool report = false; bool ok = true; bool cleanupNeeded = false; bool cleanupDone = false; };
+    struct RecoveryResult { bool pumpReady; bool flowReady; };
+    struct CalibrationResult { std::uint64_t generation; double value; bool saved; };
+    enum class CommandKind { Shutdown, Reset, Simulation, Clear, ClearSilent,
+        ShowError, EndSession, SelectTank, EnterVolume, Authorize, StartSession, Digit,
+        RemoveDigit, Max, Stop, Start, IntakeVolume, IntakeStart };
+    struct Command {
+        Command(CommandKind kindValue, double number = 0, std::string string = {})
+            : kind(kindValue), value(number), text(std::move(string)) {}
+        CommandKind kind;
+        double value;
+        std::string text;
+        std::shared_ptr<std::promise<bool>> completion;
+    };
+    struct Barrier { std::shared_ptr<std::promise<void>> completion; };
+    using Message = std::variant<Event, KeyMessage, CardMessage, PumpMessage,
+        FlowMessage, FlowArmResult, FlowFault, FinalFlow, ReceiptPrepared, AuthorizationResult,
+        WorkComplete, CalibrationResult, Command, Barrier, RecoveryResult>;
+    struct Envelope { Message message; std::chrono::steady_clock::time_point posted; };
+    std::deque<Envelope> eventQueue_;
+    std::queue<Event> internalEvents_;
     std::mutex eventQueueMutex_;
     std::condition_variable eventCv_;
+    bool enqueue(Message message);
+    std::thread::id shutdownDriver_; // Protected by lifecycleMutex_.
+    bool inputClosed_ = false;
+    bool ingressClosed_ = false; // Protected by eventQueueMutex_.
+    void closeIngress();
+    bool shutdownFinalized();
+    void dispatch(Message message);
+    void publishStatus();
+    void checkDeadlines(bool forceHealth = false);
+    void processKeyPress(KeyCode key);
+    void processCardPresented(const UserId& uid);
+    void processPumpStateChanged(bool running);
+    void processFlowUpdate(Volume volume);
+    void finishFlowArming(const FlowArmResult& result);
+    void processFlowFault(const FlowFault& fault);
+    void finishStopping(const FinalFlow& result);
+    void finishReceiptPreparation(ReceiptPrepared result);
+    void startDisplayWorker();
+    void stopDisplayWorker();
+    void sendDisplay(DisplayMessage message);
+    bool defer(Command command);
 
-    // No-flow watchdog
     std::chrono::seconds noFlowCancelTimeout_;
-    std::atomic<bool> noFlowMonitorRunning_{false};
-    std::thread noFlowMonitorThread_;
-    std::mutex noFlowMonitorMutex_;
     bool pumpRunning_ = false;
-    bool noFlowCancelPosted_ = false;
     std::chrono::steady_clock::time_point lastFlowUpdateTime_ = std::chrono::steady_clock::now();
 
     // Display update throttle for flow callbacks: limits InputUpdated events to avoid
@@ -283,9 +408,7 @@ class Controller {
      * throwing exceptions.
      */
     void shutdownPeripherals();
-    void startNoFlowMonitorThread();
-    void stopNoFlowMonitorThread();
-    void noFlowMonitorThreadFunction();
+
 };
 
 } // namespace fuelflux

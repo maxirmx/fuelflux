@@ -25,6 +25,15 @@ struct StoredMessage {
     std::string data;
 };
 
+struct Receipt {
+    std::string id;
+    StoredMessage message;
+    double volume = 0;
+    bool deduct = false;
+    bool retained = false;
+    bool accounted = false;
+};
+
 class MessageStorage {
 public:
     explicit MessageStorage(const std::string& dbPath);
@@ -34,6 +43,10 @@ public:
     MessageStorage& operator=(const MessageStorage&) = delete;
 
     bool IsOpen() const;
+    std::optional<std::string> BeginReceipt(const std::string& uid, MessageMethod method, const std::string& data, double volume, bool deduct);
+    std::optional<std::vector<Receipt>> PendingReceipts() const;
+    bool RetainReceipt(const std::string& id, bool delivered, bool rejected = false);
+    bool AccountReceipt(const std::string& id);
 
     bool AddBacklog(const std::string& uid, MessageMethod method, const std::string& data);
     bool AddDeadMessage(const std::string& uid, MessageMethod method, const std::string& data);

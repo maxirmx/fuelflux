@@ -50,9 +50,18 @@ class IBackend {
 public:
     virtual ~IBackend() = default;
     virtual bool Authorize(const std::string& uid) = 0;
+    // Fire-and-forget cleanup is safe only when deauthorization is scoped to the
+    // captured bearer token and cannot invalidate a newer session for the device.
     virtual bool Deauthorize() = 0;
+    // Called on the controller backend worker; completion includes network I/O.
+    virtual bool DeauthorizeAndWait() { return Deauthorize(); }
     virtual bool Refuel(TankNumber tankNumber, Volume volume) = 0;
     virtual bool Intake(TankNumber tankNumber, Volume volume, IntakeDirection direction) = 0;
+    // Controller journals these reports itself; implementations must not persist them.
+    virtual bool RefuelUnpersisted(TankNumber tank, Volume volume) { return Refuel(tank, volume); }
+    virtual bool IntakeUnpersisted(TankNumber tank, Volume volume, IntakeDirection direction) { return Intake(tank, volume, direction); }
+    // Valid after a failed Refuel/Intake call on the backend's owning worker.
+    virtual bool WasLastReportPersisted() const { return false; }
     virtual bool RefuelPayload(const std::string& payload) = 0;
     virtual bool IntakePayload(const std::string& payload) = 0;
     virtual bool IsAuthorized() const = 0;
@@ -71,8 +80,11 @@ public:
 // Base backend class with shared logic for request/response handling
 // Thread safety: Session object provides thread-safe access to token and authorization state.
 // Other state variables are modified only by Authorize/Refuel/Intake methods.
-// Deauthorize is designed as a "fire-and-forget" operation with respect to network I/O and is
-// safe to call concurrently, but its return value reflects whether a deauthorization was actually started.
+// Deauthorize is designed as a "fire-and-forget" operation with respect to network I/O. It
+// captures the current bearer token, and the server contract requires deauthorization to
+// invalidate only the session identified by that token. The asynchronous request neither
+// reads nor modifies a later local session, so callers need not wait before authorizing again.
+// Its return value reflects whether a deauthorization was actually started.
 //
 // Lifecycle: BackendBase inherits from std::enable_shared_from_this to support async operations.
 // When managed by shared_ptr (production), Deauthorize submits work to a bounded executor
@@ -89,8 +101,12 @@ public:
 
     bool Authorize(const std::string& uid) override;
     bool Deauthorize() override;
+    bool DeauthorizeAndWait() override;
+    bool RefuelUnpersisted(TankNumber tank, Volume volume) override;
+    bool IntakeUnpersisted(TankNumber tank, Volume volume, IntakeDirection direction) override;
     bool Refuel(TankNumber tankNumber, Volume volume) override;
     bool Intake(TankNumber tankNumber, Volume volume, IntakeDirection direction) override;
+    bool WasLastReportPersisted() const override { return lastReportPersisted_; }
     bool RefuelPayload(const std::string& payload) override;
     bool IntakePayload(const std::string& payload) override;
 
@@ -107,6 +123,8 @@ public:
     const std::string& GetControllerUid() const override { return controllerUid_; }
 
 protected:
+    bool RefuelImpl(TankNumber tank, Volume volume, bool persist);
+    bool IntakeImpl(TankNumber tank, Volume volume, IntakeDirection direction, bool persist);
     BackendBase(std::string controllerUid, std::shared_ptr<MessageStorage> storage);
 
     virtual nlohmann::json HttpRequestWrapper(const std::string& endpoint,
@@ -133,6 +151,7 @@ protected:
 
     std::string controllerUid_;
     std::string authorizedUid_;
+    bool lastReportPersisted_ = false;
     Session session_;
     int roleId_ = 0;
     double allowance_ = 0.0;
