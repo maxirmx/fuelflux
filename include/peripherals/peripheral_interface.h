@@ -71,13 +71,17 @@ public:
 class IFlowMeter : public IPeripheral {
 public:
     using FlowCallback = std::function<void(Volume currentVolume)>;
+    using MeasurementFaultCallback = std::function<void()>;
     
-    virtual void startMeasurement() = 0;
+    // Returns only after measurement is armed and observations can be accepted.
+    // A false result means the pump must not be enabled.
+    virtual bool startMeasurement() = 0;
     virtual void stopMeasurement() = 0;
     virtual void resetCounter() = 0;
     virtual Volume getCurrentVolume() const = 0;
     virtual Volume getTotalVolume() const = 0;
     virtual void setFlowCallback(FlowCallback callback) = 0;
+    virtual void setMeasurementFaultCallback(MeasurementFaultCallback callback) = 0;
 };
 
 // Temperature sensor interface

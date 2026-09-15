@@ -148,6 +148,11 @@ void Controller::dispatch(Message message) {
             if (value.generation == measurementGeneration_) processPumpStateChanged(value.running);
         } else if constexpr (std::is_same_v<T, FlowMessage>) {
             if (value.generation == measurementGeneration_) processFlowUpdate(value.volume);
+        } else if constexpr (std::is_same_v<T, FlowArmResult>) {
+            if (pendingOperations_) --pendingOperations_;
+            finishFlowArming(value);
+        } else if constexpr (std::is_same_v<T, FlowFault>) {
+            processFlowFault(value);
         } else if constexpr (std::is_same_v<T, FinalFlow>) finishStopping(value);
         else if constexpr (std::is_same_v<T, AuthorizationResult>) {
             if (pendingOperations_) --pendingOperations_;

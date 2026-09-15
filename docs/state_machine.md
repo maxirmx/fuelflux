@@ -120,8 +120,12 @@ reporting, offline backlog storage, and allowance deduction.
    - If valid: Event: `VolumeEntered` → State: `Refueling`
 
 5. **Refueling**
-   - Pump starts automatically
-   - Flow meter measures dispensed volume
+   - The flow-control worker first arms the flow meter for the current measurement
+     generation
+   - Pump starts automatically only after successful flow-meter arming
+   - An arming failure leaves the pump off and enters the equipment error/recovery path
+   - A runtime monitoring failure stops the pump through `RefuelingStopping`,
+     preserves the final observed volume, and inhibits new sessions until recovery
    - Display shows: current volume / target volume
    - **Completion Options:**
      - Target volume reached: Pump stops automatically

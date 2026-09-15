@@ -6,10 +6,87 @@
 #include <gmock/gmock.h>
 #include "backend.h"
 #include <httplib.h>
+#include <atomic>
 #include <thread>
 #include <chrono>
+#include <future>
 
 using namespace fuelflux;
+
+TEST(BackendIntegrationTest, DelayedDeauthorizationUsesCapturedTokenAndPreservesNewSession) {
+    httplib::Server server;
+    std::atomic<int> authorizationCount{0};
+    std::promise<std::string> deauthorizationToken;
+    auto deauthorizationTokenFuture = deauthorizationToken.get_future();
+    std::promise<void> releaseDeauthorization;
+    auto releaseFuture = releaseDeauthorization.get_future().share();
+    std::promise<void> deauthorizationCompleted;
+    auto deauthorizationCompletedFuture = deauthorizationCompleted.get_future();
+
+    server.Post("/api/pump/authorize", [&](const httplib::Request&, httplib::Response& res) {
+        const auto token = authorizationCount.fetch_add(1) == 0 ? "token-a" : "token-b";
+        nlohmann::json response = {
+            {"CodeError", 0},
+            {"TextError", ""},
+            {"Token", token},
+            {"RoleId", 1},
+            {"Allowance", 100.0},
+            {"Price", 50.0},
+            {"fuelTanks", nlohmann::json::array({
+                {{"idTank", 1}, {"visualNumberTank", 1}, {"nameTank", "Tank 1"},
+                 {"isCheckEnoughFuel", 1}, {"allowanceTank", "120.0"}}
+            })}
+        };
+        res.set_content(response.dump(), "application/json");
+    });
+
+    server.Post("/api/pump/deauthorize", [&](const httplib::Request& req, httplib::Response& res) {
+        deauthorizationToken.set_value(req.get_header_value("Authorization"));
+        releaseFuture.wait();
+        res.set_content(nlohmann::json{{"CodeError", 0}, {"TextError", ""}}.dump(),
+                        "application/json");
+        deauthorizationCompleted.set_value();
+    });
+
+    const int port = server.bind_to_any_port("127.0.0.1");
+    ASSERT_NE(port, -1);
+    std::thread serverThread([&server] { server.listen_after_bind(); });
+
+    const std::string baseAPI = "http://127.0.0.1:" + std::to_string(port);
+    auto backend = std::make_shared<Backend>(baseAPI, "test-controller");
+    const bool firstAuthorized = backend->Authorize("first-user");
+    const std::string firstToken = backend->GetToken();
+    const bool deauthorizationSubmitted = firstAuthorized && backend->Deauthorize();
+
+    const bool requestStarted = deauthorizationSubmitted &&
+        deauthorizationTokenFuture.wait_for(std::chrono::seconds(5)) == std::future_status::ready;
+    bool secondAuthorized = false;
+    std::string secondToken;
+    if (requestStarted) {
+        secondAuthorized = backend->Authorize("second-user");
+        secondToken = backend->GetToken();
+    }
+
+    releaseDeauthorization.set_value();
+    const bool requestCompleted = deauthorizationCompletedFuture.wait_for(std::chrono::seconds(5)) ==
+                                  std::future_status::ready;
+
+    EXPECT_TRUE(firstAuthorized);
+    EXPECT_EQ(firstToken, "token-a");
+    EXPECT_TRUE(deauthorizationSubmitted);
+    EXPECT_TRUE(requestStarted);
+    if (requestStarted) {
+        EXPECT_EQ(deauthorizationTokenFuture.get(), "Bearer token-a");
+    }
+    EXPECT_TRUE(secondAuthorized);
+    EXPECT_EQ(secondToken, "token-b");
+    EXPECT_TRUE(requestCompleted);
+    EXPECT_TRUE(backend->IsAuthorized());
+    EXPECT_EQ(backend->GetToken(), "token-b");
+
+    server.stop();
+    serverThread.join();
+}
 
 // Test to verify that rapid deauthorization doesn't exhaust resources
 TEST(BackendIntegrationTest, RapidDeauthorizationBounded) {

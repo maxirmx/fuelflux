@@ -50,6 +50,8 @@ class IBackend {
 public:
     virtual ~IBackend() = default;
     virtual bool Authorize(const std::string& uid) = 0;
+    // Fire-and-forget cleanup is safe only when deauthorization is scoped to the
+    // captured bearer token and cannot invalidate a newer session for the device.
     virtual bool Deauthorize() = 0;
     // Called on the controller backend worker; completion includes network I/O.
     virtual bool DeauthorizeAndWait() { return Deauthorize(); }
@@ -78,8 +80,11 @@ public:
 // Base backend class with shared logic for request/response handling
 // Thread safety: Session object provides thread-safe access to token and authorization state.
 // Other state variables are modified only by Authorize/Refuel/Intake methods.
-// Deauthorize is designed as a "fire-and-forget" operation with respect to network I/O and is
-// safe to call concurrently, but its return value reflects whether a deauthorization was actually started.
+// Deauthorize is designed as a "fire-and-forget" operation with respect to network I/O. It
+// captures the current bearer token, and the server contract requires deauthorization to
+// invalidate only the session identified by that token. The asynchronous request neither
+// reads nor modifies a later local session, so callers need not wait before authorizing again.
+// Its return value reflects whether a deauthorization was actually started.
 //
 // Lifecycle: BackendBase inherits from std::enable_shared_from_this to support async operations.
 // When managed by shared_ptr (production), Deauthorize submits work to a bounded executor

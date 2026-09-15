@@ -17,9 +17,12 @@ use injected transports and completion gates, rather than sleep after callbacks.
 
 The backend worker owns authorization, reporting, persistence, and deauthorization
 sequencing. The display worker owns runtime rendering/reset; pending frames are
-coalesced. A separate flow-control worker stops and joins measurement without
-blocking the controller loop. Worker results contain copied data and generations;
-stale results cannot change a newer session.
+coalesced. A separate flow-control worker arms, stops, and joins measurement
+without blocking the controller loop. Arming acquires the GPIO line and subscribes
+to edge events before returning success. The controller enables the pump only
+after it receives a successful arming result for the current measurement
+generation. Worker results and runtime flow faults contain copied data and
+generations; stale results cannot change or stop a newer session.
 
 STOP, target crossing, no flow, and input faults enter `RefuelingStopping`. The
 controller commands pump-off first and checks its result. Final measurement then
@@ -108,10 +111,17 @@ becomes a fault on an explicit I/O error or expiration of the stall deadline.
 Startup progress messages render synchronously before the display worker starts.
 
 Health is checked before entering Refueling. A rejected entry cannot report a
-cleared session. A failed pump start still confirms pump-off and finalizes the
-measurement: zero delivery aborts without a refuel report, while measured delivery
-is retained through the normal reporting path. Backend exceptions leave local
-storage fallback reachable for both refueling and intake. An unknown backend
+cleared session. Flow-meter arming runs on the flow-control worker, and the pump
+remains off until the current generation reports that observation is ready. An
+arming failure enters the equipment-fault path without producing a zero-volume
+transaction. A runtime GPIO monitoring failure publishes a generation-tagged
+fault, immediately enters the idempotent pump-stop path, retains the last measured
+volume, and inhibits new sessions until flow-meter recovery. Recovery never
+resumes the interrupted dispensing session. A failed pump start still confirms
+pump-off and finalizes the measurement: zero delivery aborts without a refuel
+report, while measured delivery is retained through the normal reporting path.
+Backend exceptions leave local storage fallback reachable for both refueling and
+intake. An unknown backend
 outcome uses the existing backlog retry semantics; this does not introduce backend
 idempotency or eliminate delivery ambiguity.
 
@@ -193,6 +203,19 @@ first. Session-end cleanup and local-only report cleanup have a coalesced, reser
 FIFO queue slot and count as pending work through shutdown. The controller loop
 never waits on HTTP; network timeouts still bound each worker attempt. Legacy
 backend users retain the existing asynchronous Deauthorize API.
+
+The asynchronous deauthorization contract is token-scoped. Every successful
+authorization returns a token that identifies that specific server-side session,
+and `/api/pump/deauthorize` may invalidate only the session named by its bearer
+token. It must not invalidate a newer session merely because both sessions use the
+same controller UID. `Deauthorize()` captures the current token, clears only the
+corresponding local session, and sends that captured token without reading or
+modifying any later session state. Callers may therefore authorize a new session
+without waiting for the earlier network cleanup. A backend adapter or server that
+cannot guarantee token-scoped invalidation must not use this asynchronous contract;
+it must serialize cleanup with the next authorization or provide a blocking cleanup
+operation instead.
+
 Cleanup requests carry session generations; coalesced requests cannot clear a
 newer backend session. Executor shutdown changes its wait predicate under the
 queue mutex before notifying workers, preventing a missed shutdown notification.

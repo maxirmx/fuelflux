@@ -257,12 +257,16 @@ public:
     
     std::atomic<Volume> currentVolume_{0.0};
     FlowCallback storedCallback;
+    MeasurementFaultCallback storedFaultCallback;
     std::function<void()> onStart;
     std::atomic<bool> measuring{false};
+    std::atomic<bool> startSucceeds{true};
     
-    void startMeasurement() override {
-        measuring = true;
+    bool startMeasurement() override {
         if (onStart) onStart();
+        if (!startSucceeds) return false;
+        measuring = true;
+        return true;
     }
     
     void stopMeasurement() override {
@@ -284,12 +288,21 @@ public:
     void setFlowCallback(FlowCallback callback) override {
         storedCallback = callback;
     }
+
+    void setMeasurementFaultCallback(MeasurementFaultCallback callback) override {
+        storedFaultCallback = callback;
+    }
     
     void simulateFlow(Volume volume) {
         currentVolume_ = volume;
         if (storedCallback) {
             storedCallback(volume);
         }
+    }
+
+    void simulateFault() {
+        measuring = false;
+        if (storedFaultCallback) storedFaultCallback();
     }
 };
 
@@ -3818,10 +3831,12 @@ TEST_F(ControllerTest, OldMeasurementCannotAffectNewSession) {
     controller->handleCardPresented("first"); controller->synchronize();
     controller->enterVolume(10); controller->synchronize();
     auto oldCallback = mockFlowMeter->storedCallback;
+    auto oldFaultCallback = mockFlowMeter->storedFaultCallback;
     controller->handleKeyPress(KeyCode::KeyStop); controller->synchronize();
     controller->handleCardPresented("second"); controller->synchronize();
     controller->enterVolume(20); controller->synchronize();
     oldCallback(500);
+    oldFaultCallback();
     controller->synchronize();
     EXPECT_EQ(controller->getStateMachine().getCurrentState(), SystemState::Refueling);
     EXPECT_DOUBLE_EQ(controller->getCurrentRefuelVolume(), 0);
@@ -4228,6 +4243,116 @@ TEST_F(ControllerTest, MeasurementStartupExceptionFinalizesWithoutReportingZeroD
     EXPECT_FALSE(mockFlowMeter->measuring);
     EXPECT_FALSE(mockPump->isRunning());
     EXPECT_NE(controller->getStatus().state, SystemState::Refueling);
+}
+
+TEST_F(ControllerTest, PumpWaitsForDelayedFlowArmingWhileControllerRemainsResponsive) {
+    mockBackend->roleId_ = 1;
+    mockBackend->allowance_ = 100;
+    mockBackend->tanksStorage_ = {{1, 1, "Tank", 100}};
+    controller->initialize();
+    controller->handleCardPresented("customer"); controller->synchronize();
+
+    std::promise<void> armEntered, releaseArm, pumpStarted;
+    auto armEnteredResult = armEntered.get_future();
+    auto releaseGate = releaseArm.get_future().share();
+    auto pumpStartedResult = pumpStarted.get_future();
+    mockFlowMeter->onStart = [&] { armEntered.set_value(); releaseGate.wait(); };
+    mockPump->onStart = [&] { pumpStarted.set_value(); };
+
+    std::thread runner([&] { controller->run(); });
+    controller->enterVolume(10);
+    ASSERT_EQ(armEnteredResult.wait_for(std::chrono::seconds(2)), std::future_status::ready);
+    EXPECT_FALSE(mockPump->isRunning());
+
+    auto barrier = std::async(std::launch::async, [&] { controller->synchronize(); });
+    EXPECT_EQ(barrier.wait_for(std::chrono::seconds(2)), std::future_status::ready);
+    barrier.get();
+    EXPECT_FALSE(mockPump->isRunning());
+
+    releaseArm.set_value();
+    ASSERT_EQ(pumpStartedResult.wait_for(std::chrono::seconds(2)), std::future_status::ready);
+    EXPECT_TRUE(mockPump->isRunning());
+    controller->handleKeyPress(KeyCode::KeyStop); controller->synchronize();
+    shutdownControllerAndJoinThread(runner);
+}
+
+TEST_F(ControllerTest, FlowArmingFailureNeverStartsPumpAndRecoveryRequiresFreshSession) {
+    mockBackend->roleId_ = 1;
+    mockBackend->allowance_ = 100;
+    mockBackend->tanksStorage_ = {{1, 1, "Tank", 100}};
+    controller->initialize();
+    controller->handleCardPresented("customer"); controller->synchronize();
+    mockFlowMeter->startSucceeds = false;
+    std::atomic<int> pumpStarts{0};
+    mockPump->onStart = [&] { ++pumpStarts; };
+    EXPECT_CALL(*mockBackend, Refuel(_, _)).Times(0);
+
+    std::thread runner([&] { controller->run(); });
+    controller->enterVolume(10); controller->synchronize();
+    EXPECT_EQ(pumpStarts.load(), 0);
+    EXPECT_FALSE(mockPump->isRunning());
+    EXPECT_FALSE(mockFlowMeter->measuring);
+    EXPECT_EQ(controller->getStatus().state, SystemState::Error);
+
+    mockFlowMeter->startSucceeds = true;
+    controller->handleKeyPress(KeyCode::KeyStop);
+    EXPECT_TRUE(waitForState(SystemState::Waiting, std::chrono::seconds(2)));
+    EXPECT_TRUE(controller->getCurrentUser().uid.empty());
+    EXPECT_EQ(pumpStarts.load(), 0);
+    shutdownControllerAndJoinThread(runner);
+}
+
+TEST_F(ControllerTest, RuntimeFlowFaultStopsPumpReportsFinalObservationAndRecoversIdle) {
+    mockBackend->roleId_ = 1;
+    mockBackend->allowance_ = 100;
+    mockBackend->tanksStorage_ = {{1, 1, "Tank", 100}};
+    controller->initialize();
+    controller->handleCardPresented("customer"); controller->synchronize();
+    controller->enterVolume(10); controller->synchronize();
+    ASSERT_TRUE(mockPump->isRunning());
+    mockFlowMeter->simulateFlow(2.5); controller->synchronize();
+    EXPECT_CALL(*mockBackend, Refuel(1, 2.5)).Times(1).WillOnce(Return(true));
+
+    mockFlowMeter->simulateFault(); controller->synchronize();
+    EXPECT_FALSE(mockPump->isRunning());
+    EXPECT_FALSE(mockFlowMeter->measuring);
+    EXPECT_DOUBLE_EQ(controller->getCurrentRefuelVolume(), 2.5);
+    EXPECT_EQ(controller->getStatus().state, SystemState::Error);
+
+    EXPECT_FALSE(controller->reinitializeDevice());
+    controller->synchronize();
+    EXPECT_EQ(controller->getStatus().state, SystemState::Waiting);
+    EXPECT_FALSE(mockPump->isRunning());
+    EXPECT_TRUE(controller->getCurrentUser().uid.empty());
+}
+
+TEST_F(ControllerTest, ShutdownDuringDelayedFlowArmingNeverStartsPump) {
+    mockBackend->roleId_ = 1;
+    mockBackend->allowance_ = 100;
+    mockBackend->tanksStorage_ = {{1, 1, "Tank", 100}};
+    controller->initialize();
+    controller->handleCardPresented("customer"); controller->synchronize();
+
+    std::promise<void> armEntered, releaseArm;
+    auto armEnteredResult = armEntered.get_future();
+    auto releaseGate = releaseArm.get_future().share();
+    mockFlowMeter->onStart = [&] { armEntered.set_value(); releaseGate.wait(); };
+    std::atomic<int> pumpStarts{0};
+    mockPump->onStart = [&] { ++pumpStarts; };
+    EXPECT_CALL(*mockBackend, Refuel(_, _)).Times(0);
+
+    std::thread runner([&] { controller->run(); });
+    controller->enterVolume(10);
+    ASSERT_EQ(armEnteredResult.wait_for(std::chrono::seconds(2)), std::future_status::ready);
+    auto stopped = std::async(std::launch::async, [&] { controller->shutdown(); });
+    EXPECT_EQ(stopped.wait_for(std::chrono::milliseconds(20)), std::future_status::timeout);
+    releaseArm.set_value();
+    EXPECT_EQ(stopped.wait_for(std::chrono::seconds(2)), std::future_status::ready);
+    stopped.get();
+    runner.join();
+    EXPECT_EQ(pumpStarts.load(), 0);
+    EXPECT_FALSE(mockPump->isRunning());
+    EXPECT_FALSE(mockFlowMeter->measuring);
 }
 
 TEST_F(ControllerTest, PumpStartupExceptionStopsOutputAndRetainsMeasuredDelivery) {

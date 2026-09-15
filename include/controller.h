@@ -272,6 +272,7 @@ class Controller {
     bool inputFault_ = false;
     bool inputsReady_ = true;
     bool startAborted_ = false;
+    bool measurementArming_ = false;
     bool measurementActive_ = false;
     bool pumpReady_ = true, flowReady_ = true;
     bool recoveringPeripherals_ = false;
@@ -294,6 +295,8 @@ class Controller {
     struct CardMessage { UserId uid; std::uint64_t generation = 0; };
     struct PumpMessage { bool running; std::uint64_t generation; };
     struct FlowMessage { Volume volume; std::uint64_t generation; };
+    struct FlowArmResult { std::uint64_t generation; bool ok; };
+    struct FlowFault { std::uint64_t generation; };
     struct FinalFlow { Volume volume; std::uint64_t generation; bool ok; };
     struct AuthorizationResult {
         explicit AuthorizationResult(std::uint64_t value) : generation(value) {}
@@ -319,8 +322,8 @@ class Controller {
     };
     struct Barrier { std::shared_ptr<std::promise<void>> completion; };
     using Message = std::variant<Event, KeyMessage, CardMessage, PumpMessage,
-        FlowMessage, FinalFlow, AuthorizationResult, WorkComplete, CalibrationResult,
-        Command, Barrier, RecoveryResult>;
+        FlowMessage, FlowArmResult, FlowFault, FinalFlow, AuthorizationResult,
+        WorkComplete, CalibrationResult, Command, Barrier, RecoveryResult>;
     struct Envelope { Message message; std::chrono::steady_clock::time_point posted; };
     std::deque<Envelope> eventQueue_;
     std::queue<Event> internalEvents_;
@@ -339,6 +342,8 @@ class Controller {
     void processCardPresented(const UserId& uid);
     void processPumpStateChanged(bool running);
     void processFlowUpdate(Volume volume);
+    void finishFlowArming(const FlowArmResult& result);
+    void processFlowFault(const FlowFault& fault);
     void finishStopping(const FinalFlow& result);
     void startDisplayWorker();
     void stopDisplayWorker();

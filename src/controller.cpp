@@ -742,26 +742,70 @@ void Controller::enterVolume(Volume volume) {
 bool Controller::canStartRefueling() {
     checkDeadlines(true);
     if (stateMachine_.checkTimeout()) return false;
-    return pumpReady_ && flowReady_ && displayReady_ && !recoveringPeripherals_ && inputsReady_ && !inputFault_ && !shutdownRequested_ && !pumpRunning_ && !stopping_ && !reporting_;
+    return pumpReady_ && flowReady_ && displayReady_ && !recoveringPeripherals_ &&
+        inputsReady_ && !inputFault_ && !shutdownRequested_ && !pumpRunning_ &&
+        !measurementArming_ && !stopping_ && !reporting_;
 }
 
 void Controller::startRefueling() {
     if (defer(Command{CommandKind::Start})) return;
-    if (!pumpReady_ || !flowReady_ || !displayReady_ || recoveringPeripherals_ || !inputsReady_ || inputFault_ || shutdownRequested_ || pumpRunning_ || stopping_ || reporting_) return;
+    if (!pumpReady_ || !flowReady_ || !displayReady_ || recoveringPeripherals_ ||
+        !inputsReady_ || inputFault_ || shutdownRequested_ || pumpRunning_ ||
+        measurementArming_ || stopping_ || reporting_) return;
     startAborted_ = false;
     measurementActive_ = true;
+    measurementArming_ = true;
     currentRefuelVolume_ = 0;
     ++measurementGeneration_;
-    try {
-        if (flowMeter_) {
-            const auto generation = measurementGeneration_;
-            flowMeter_->setFlowCallback([this, generation](Volume volume) { enqueue(FlowMessage{volume, generation}); });
+    const auto generation = measurementGeneration_;
+    ++pendingOperations_;
+    if (!flowWorker_.Submit([this, generation] {
+        bool armed = !flowMeter_;
+        try {
+            if (!flowMeter_) {
+                enqueue(FlowArmResult{generation, true});
+                return;
+            }
+            flowMeter_->setFlowCallback([this, generation](Volume volume) {
+                enqueue(FlowMessage{volume, generation});
+            });
+            flowMeter_->setMeasurementFaultCallback([this, generation] {
+                enqueue(FlowFault{generation});
+            });
             flowMeter_->resetCounter();
-            flowMeter_->startMeasurement();
+            armed = flowMeter_->startMeasurement();
+        } catch (...) {
+            LOG_CTRL_ERROR("Flow meter arming failed");
         }
+        enqueue(FlowArmResult{generation, armed});
+    })) enqueue(FlowArmResult{generation, false});
+}
+
+void Controller::finishFlowArming(const FlowArmResult& result) {
+    if (result.generation != measurementGeneration_ || !measurementArming_) return;
+    measurementArming_ = false;
+    if (!result.ok) {
+        startAborted_ = true;
+        flowReady_ = false;
+        inputFault_ = true;
+        lastErrorMessage_ = "Ошибка расходомера";
+        LOG_CTRL_ERROR("Dispensing inhibited: flow meter failed to arm");
+        postEvent(Event::Error);
+        return;
+    }
+
+    if (stopping_ || shutdownRequested_ || inputFault_ ||
+        stateMachine_.getCurrentState() != SystemState::Refueling) {
+        startAborted_ = true;
+        return;
+    }
+
+    try {
         if (pump_) {
             const auto generation = measurementGeneration_;
-            pump_->setPumpStateCallback([this, generation](bool running) { enqueue(PumpMessage{running, generation}); });
+            pump_->setPumpStateCallback([this, generation](bool running) {
+                enqueue(PumpMessage{running, generation});
+            });
             pump_->start();
         }
         pumpRunning_ = pump_ && pump_->isRunning();
@@ -782,6 +826,19 @@ void Controller::startRefueling() {
         return;
     }
     postEvent(Event::RefuelingStarted);
+}
+
+void Controller::processFlowFault(const FlowFault& fault) {
+    if (fault.generation != measurementGeneration_) return;
+    flowReady_ = false;
+    inputFault_ = true;
+    lastErrorMessage_ = "Ошибка расходомера";
+    if (measurementArming_) {
+        measurementArming_ = false;
+        startAborted_ = true;
+    }
+    LOG_CTRL_ERROR("Flow meter monitoring failed; stopping dispensing");
+    if (!stopping_) postEvent(Event::Error);
 }
 
 void Controller::stopRefueling() {
@@ -1000,7 +1057,8 @@ bool Controller::setFlowMeterSimulationEnabled(bool enabled) {
         lifecycle.unlock();
         return result.get();
     }
-    if (pumpRunning_ || stopping_ || recoveringPeripherals_ || !flowReady_ || shutdownRequested_) return false;
+    if (pumpRunning_ || measurementArming_ || stopping_ || recoveringPeripherals_ ||
+        !flowReady_ || shutdownRequested_) return false;
     if (!flowMeter_) {
         LOG_CTRL_WARN("Cannot toggle flow meter simulation: flow meter not configured");
         return false;
