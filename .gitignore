@@ -64,3 +64,4 @@ config/logging.json
 coverage.info
 coverage_filtered.info
 Testing/
+out/
