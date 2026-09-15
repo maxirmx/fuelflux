@@ -62,7 +62,16 @@ struct ControllerTestAccess {
         if (!c.backendWorker_.Submit([&entered, release] { entered.set_value(); release.wait(); })) return false;
         return entered.get_future().wait_for(std::chrono::seconds(2)) == std::future_status::ready;
     }
+    static bool blockPersistence(Controller& c, std::promise<void>& entered, std::shared_future<void> release) {
+        if (!c.persistenceWorker_.Submit([&entered, release] { entered.set_value(); release.wait(); })) return false;
+        return entered.get_future().wait_for(std::chrono::seconds(2)) == std::future_status::ready;
+    }
     static std::size_t backendQueue(Controller& c) { return c.backendWorker_.QueueSize(); }
+    static std::size_t persistenceQueue(Controller& c) { return c.persistenceWorker_.QueueSize(); }
+    static std::uint64_t sessionGeneration(const Controller& c) { return c.sessionGeneration_; }
+    static void injectReceiptPrepared(Controller& c, std::uint64_t generation, std::string receiptId) {
+        c.enqueue(Controller::ReceiptPrepared{generation, std::move(receiptId)});
+    }
     static std::size_t queuedEvents(Controller& c) {
         std::lock_guard<std::mutex> lock(c.eventQueueMutex_);
         return c.eventQueue_.size();
@@ -4625,6 +4634,149 @@ TEST_F(ControllerTest, RenderingFailureInhibitsSessionsUntilReset) {
     controller->handleKeyPress(KeyCode::KeyStop);
     EXPECT_TRUE(waitForState(SystemState::Waiting));
     controller->shutdown(); runner.join();
+}
+
+TEST_F(ControllerTest, RefuelWaitsForDurableReceiptBeforeTransmission) {
+    mockBackend->roleId_ = 1;
+    mockBackend->allowance_ = 100;
+    mockBackend->tanksStorage_ = {{1, 1, "Tank", 100}};
+    std::atomic<int> reports{0};
+    std::atomic<bool> receiptVisibleAtReport{false};
+    EXPECT_CALL(*mockBackend, Refuel(1, 2.5)).WillOnce([&](TankNumber, Volume) {
+        ++reports;
+        MessageStorage storage(messageStorageDbPath.string());
+        const auto pending = storage.PendingReceipts();
+        receiptVisibleAtReport = pending && pending->size() == 1 && !pending->front().retained;
+        return true;
+    });
+
+    controller->initialize();
+    std::thread runner([&] { controller->run(); });
+    controller->handleCardPresented("customer"); controller->synchronize();
+    controller->enterVolume(10); controller->synchronize();
+    mockFlowMeter->simulateFlow(2.5); controller->synchronize();
+
+    std::promise<void> entered, release;
+    ASSERT_TRUE(ControllerTestAccess::blockPersistence(*controller, entered, release.get_future().share()));
+    controller->handleKeyPress(KeyCode::KeyStop);
+    ASSERT_TRUE(waitForState(SystemState::RefuelingStopping));
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    while (ControllerTestAccess::persistenceQueue(*controller) != 1 && std::chrono::steady_clock::now() < deadline)
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+
+    EXPECT_EQ(ControllerTestAccess::persistenceQueue(*controller), 1u);
+    EXPECT_EQ(reports.load(), 0);
+    {
+        MessageStorage storage(messageStorageDbPath.string());
+        const auto pending = storage.PendingReceipts();
+        ASSERT_TRUE(pending);
+        EXPECT_TRUE(pending->empty());
+    }
+
+    const auto generation = ControllerTestAccess::sessionGeneration(*controller);
+    ControllerTestAccess::injectReceiptPrepared(*controller, generation - 1, "stale-receipt");
+    controller->synchronize();
+    EXPECT_EQ(controller->getStatus().state, SystemState::RefuelingStopping);
+    EXPECT_EQ(reports.load(), 0);
+
+    release.set_value();
+    EXPECT_TRUE(waitForState(SystemState::RefuelingComplete, std::chrono::seconds(2)));
+    EXPECT_EQ(reports.load(), 1);
+    EXPECT_TRUE(receiptVisibleAtReport.load());
+    controller->shutdown(); runner.join();
+}
+
+TEST_F(ControllerTest, IntakeWaitsForDurableReceiptBeforeTransmission) {
+    mockBackend->roleId_ = static_cast<int>(UserRole::Operator);
+    mockBackend->tanksStorage_ = {{1, 1, "Tank", 100}};
+    std::atomic<int> reports{0};
+    std::atomic<bool> receiptVisibleAtReport{false};
+    EXPECT_CALL(*mockBackend, Intake(1, 12, IntakeDirection::In)).WillOnce([&](TankNumber, Volume, IntakeDirection) {
+        ++reports;
+        MessageStorage storage(messageStorageDbPath.string());
+        const auto pending = storage.PendingReceipts();
+        receiptVisibleAtReport = pending && pending->size() == 1 && !pending->front().retained;
+        return true;
+    });
+
+    controller->initialize();
+    std::thread runner([&] { controller->run(); });
+    controller->handleCardPresented("operator"); controller->synchronize();
+    controller->selectTank(1); controller->synchronize();
+    controller->handleKeyPress(KeyCode::Key1); controller->handleKeyPress(KeyCode::KeyStart);
+    ASSERT_TRUE(waitForState(SystemState::IntakeVolumeEntry));
+
+    std::promise<void> entered, release;
+    ASSERT_TRUE(ControllerTestAccess::blockPersistence(*controller, entered, release.get_future().share()));
+    controller->enterIntakeVolume(12);
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    while (ControllerTestAccess::persistenceQueue(*controller) != 1 && std::chrono::steady_clock::now() < deadline)
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    EXPECT_EQ(controller->getStatus().state, SystemState::IntakeVolumeEntry);
+    EXPECT_EQ(reports.load(), 0);
+
+    release.set_value();
+    EXPECT_TRUE(waitForState(SystemState::IntakeComplete, std::chrono::seconds(2)));
+    EXPECT_EQ(reports.load(), 1);
+    EXPECT_TRUE(receiptVisibleAtReport.load());
+    controller->shutdown(); runner.join();
+}
+
+TEST_F(ControllerTest, ReceiptCreationFailureCanRetryWithoutLosingTransaction) {
+    mockBackend->roleId_ = 1;
+    mockBackend->allowance_ = 100;
+    mockBackend->tanksStorage_ = {{1, 1, "Tank", 100}};
+    controller->initialize();
+    controller->handleCardPresented("customer"); controller->synchronize();
+    controller->enterVolume(10); controller->synchronize();
+    mockFlowMeter->simulateFlow(2.5); controller->synchronize();
+
+    sqlite3* db = nullptr;
+    ASSERT_EQ(sqlite3_open(messageStorageDbPath.string().c_str(), &db), SQLITE_OK);
+    ASSERT_EQ(sqlite3_exec(db, "CREATE TRIGGER fail_receipt BEFORE INSERT ON receipts BEGIN SELECT RAISE(FAIL,'injected'); END", nullptr, nullptr, nullptr), SQLITE_OK);
+    sqlite3_close(db);
+    EXPECT_CALL(*mockBackend, Refuel(_, _)).Times(0);
+    controller->handleKeyPress(KeyCode::KeyStop); controller->synchronize();
+    EXPECT_EQ(controller->getStatus().state, SystemState::Error);
+
+    ASSERT_EQ(sqlite3_open(messageStorageDbPath.string().c_str(), &db), SQLITE_OK);
+    ASSERT_EQ(sqlite3_exec(db, "DROP TRIGGER fail_receipt", nullptr, nullptr, nullptr), SQLITE_OK);
+    sqlite3_close(db);
+    ::testing::Mock::VerifyAndClearExpectations(mockBackend);
+    EXPECT_CALL(*mockBackend, Refuel(1, 2.5)).WillOnce(Return(true));
+    controller->handleKeyPress(KeyCode::KeyStop); controller->synchronize();
+    EXPECT_EQ(controller->getStatus().state, SystemState::Waiting);
+}
+
+TEST_F(ControllerTest, ShutdownWaitsForReceiptPreparationAndReporting) {
+    mockBackend->roleId_ = 1;
+    mockBackend->allowance_ = 100;
+    mockBackend->tanksStorage_ = {{1, 1, "Tank", 100}};
+    EXPECT_CALL(*mockBackend, Refuel(1, 3)).WillOnce(Return(true));
+    controller->initialize();
+    std::thread runner([&] { controller->run(); });
+    controller->handleCardPresented("customer"); controller->synchronize();
+    controller->enterVolume(10); controller->synchronize();
+    mockFlowMeter->simulateFlow(3); controller->synchronize();
+
+    std::promise<void> entered, release;
+    ASSERT_TRUE(ControllerTestAccess::blockPersistence(*controller, entered, release.get_future().share()));
+    controller->handleKeyPress(KeyCode::KeyStop);
+    ASSERT_TRUE(waitForState(SystemState::RefuelingStopping));
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    while (ControllerTestAccess::persistenceQueue(*controller) != 1 && std::chrono::steady_clock::now() < deadline)
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+
+    auto shutdown = std::async(std::launch::async, [&] { controller->shutdown(); });
+    EXPECT_EQ(shutdown.wait_for(std::chrono::milliseconds(50)), std::future_status::timeout);
+    release.set_value();
+    EXPECT_EQ(shutdown.wait_for(std::chrono::seconds(2)), std::future_status::ready);
+    shutdown.get();
+    runner.join();
+    MessageStorage storage(messageStorageDbPath.string());
+    const auto pending = storage.PendingReceipts();
+    ASSERT_TRUE(pending);
+    EXPECT_TRUE(pending->empty());
 }
 
 TEST_F(ControllerTest, PendingAccountingRecoversAfterRestartWithoutDoubleDebit) {

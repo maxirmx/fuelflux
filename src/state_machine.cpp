@@ -770,12 +770,12 @@ void StateMachine::onAuthorizationSuccess() {
 }
 
 void StateMachine::doRefuelingDataTransmission() {
-    // Execute refuel backend operation and log transaction
+    // The receipt was committed while RefuelingStopping was still active.
+    // Only the network/reporting phase begins in DataTransmission.
     // Do not clear session data here - keep the displayed pumped volume visible.
     // The session is cleaned up on timeout or other user interactions.
     if (controller_) {
-        controller_->completeRefueling();
-
+        controller_->transmitPreparedTransaction();
     }
 }
 
@@ -821,11 +821,10 @@ void StateMachine::onIntakeVolumeEntered() {
     LOG_SM_INFO("Intake volume entered");
     if (controller_) {
         controller_->clearInput();  // Clear after intake volume entry
-        // Execute intake backend operation and log transaction
+        // Receipt creation completed before entering DataTransmission.
         // Do not clear session data here - keep the intake values visible.
         // The session is cleaned up on timeout or other user interactions.
-        controller_->completeIntakeOperation();
-
+        controller_->transmitPreparedTransaction();
     }
 }
 

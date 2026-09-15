@@ -715,9 +715,12 @@ are copied messages; backend and display work execute outside the loop. Each inp
 finishes its internal transition sequence before the next input is handled.
 
 Dispensing now passes through `RefuelingStopping`: pump-off, final measurement,
-then `RefuelDataTransmission`. Input failures use this path and inhibit new sessions
-until recovery; they never automatically resume dispensing. Authorization failure
-screens accept cards immediately, consistent with their displayed prompts.
+durable receipt commit, then `RefuelDataTransmission`. Intake likewise does not
+leave `IntakeVolumeEntry` for `IntakeDataTransmission` until its receipt commit is
+confirmed. Backend reporting never precedes that durable handoff. Input failures
+use the stop path and inhibit new sessions until recovery; they never automatically
+resume dispensing. Authorization failure screens accept cards immediately,
+consistent with their displayed prompts.
 
 See [Input recovery and controller ownership](input_recovery.md) for lifecycle,
 message ordering, diagnostics, and hardware release requirements.

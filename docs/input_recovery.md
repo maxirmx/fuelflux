@@ -165,12 +165,19 @@ Input/ordinary command admission closes when shutdown is consumed; all ingress
 closes atomically with the final queue drain. Late reset calls return false.
 
 Every completed refueling/intake operation first receives a durable local receipt
-in the message-storage database. If the backend executor rejects the report, a
-reserved persistence worker journals it and routes it to backlog without touching
-the busy backend. Only one report can be outstanding, and this worker remains
-alive until its completion has been processed. Complete storage failure remains
-a fault with data held in memory; software cannot guarantee persistence on failed
-media or recovery after power loss when no durable write succeeded.
+in the message-storage database. Receipt creation is a separate persistence phase:
+the controller retains the immutable transaction snapshot and freezes input while
+the persistence worker commits it. Refueling remains in `RefuelingStopping`, and
+intake remains in `IntakeVolumeEntry`, until the generation-tagged commit result is
+accepted. Only then may the controller enter the corresponding data-transmission
+state or call the backend. A graceful shutdown waits for both phases.
+
+If the backend executor rejects the report, a reserved persistence worker promotes
+the existing receipt to backlog without creating a second receipt or touching the
+busy backend. Only one report can be outstanding, and its workers remain alive
+until completion has been processed. Complete storage failure remains a fault with
+the transaction held in controller memory; software cannot guarantee persistence
+on failed media or recovery after power loss when no durable write succeeded.
 
 Allowance deduction and an applied-receipt ID commit together in the user-cache
 database. A separate receipt marker can therefore be recovered after a crash

@@ -251,6 +251,8 @@ class Controller {
     bool canStartRefueling();
     bool reconcileReceipts();
     void reportTransaction(const std::string& uid, MessageMethod method, const std::string& payload, double volume, bool deduct, bool cached);
+    void submitReceiptPreparation();
+    void transmitPreparedTransaction();
     std::atomic<bool> cleanupDone_{false};
     inline static thread_local Controller* owner_ = nullptr;
     const std::thread::id setupThread_ = std::this_thread::get_id();
@@ -269,6 +271,17 @@ class Controller {
     bool stopping_ = false;
     bool reporting_ = false;
     std::optional<std::uint64_t> reportedSession_;
+    struct PendingTransaction {
+        std::uint64_t generation;
+        std::string uid;
+        MessageMethod method;
+        std::string payload;
+        double volume;
+        bool deduct;
+        bool cached;
+        std::optional<std::string> receiptId;
+    };
+    std::optional<PendingTransaction> pendingTransaction_;
     bool inputFault_ = false;
     bool inputsReady_ = true;
     bool startAborted_ = false;
@@ -298,6 +311,7 @@ class Controller {
     struct FlowArmResult { std::uint64_t generation; bool ok; };
     struct FlowFault { std::uint64_t generation; };
     struct FinalFlow { Volume volume; std::uint64_t generation; bool ok; };
+    struct ReceiptPrepared { std::uint64_t generation; std::optional<std::string> receiptId; };
     struct AuthorizationResult {
         explicit AuthorizationResult(std::uint64_t value) : generation(value) {}
         std::uint64_t generation;
@@ -322,7 +336,7 @@ class Controller {
     };
     struct Barrier { std::shared_ptr<std::promise<void>> completion; };
     using Message = std::variant<Event, KeyMessage, CardMessage, PumpMessage,
-        FlowMessage, FlowArmResult, FlowFault, FinalFlow, AuthorizationResult,
+        FlowMessage, FlowArmResult, FlowFault, FinalFlow, ReceiptPrepared, AuthorizationResult,
         WorkComplete, CalibrationResult, Command, Barrier, RecoveryResult>;
     struct Envelope { Message message; std::chrono::steady_clock::time_point posted; };
     std::deque<Envelope> eventQueue_;
@@ -345,6 +359,7 @@ class Controller {
     void finishFlowArming(const FlowArmResult& result);
     void processFlowFault(const FlowFault& fault);
     void finishStopping(const FinalFlow& result);
+    void finishReceiptPreparation(ReceiptPrepared result);
     void startDisplayWorker();
     void stopDisplayWorker();
     void sendDisplay(DisplayMessage message);

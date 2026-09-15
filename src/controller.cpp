@@ -212,6 +212,12 @@ bool Controller::reinitializeDevice() {
     assertOwner();
     // Input devices own their reconnect loops. A reset must never close their
     // handles or join them from the controller loop.
+    if (finalizationFailed_ && pendingTransaction_ && !pendingTransaction_->receiptId && !reporting_ &&
+        !pumpRunning_ && !stopping_) {
+        reporting_ = true;
+        submitReceiptPreparation();
+        return false;
+    }
     if (pumpRunning_ || stopping_ || reporting_ || finalizationFailed_ || recoveringPeripherals_) return false;
     endCurrentSession();
     reinitializeDisplay();
@@ -359,7 +365,7 @@ void Controller::processKeyPress(KeyCode key) {
         if (reinitializeDevice()) postEvent(Event::ErrorRecovery);
         return;
     }
-    if (!inputsReady_ || inputFault_ || shutdownRequested_ || state == SystemState::Authorization ||
+    if (!inputsReady_ || inputFault_ || shutdownRequested_ || reporting_ || state == SystemState::Authorization ||
         state == SystemState::RefuelDataTransmission || state == SystemState::IntakeDataTransmission ||
         state == SystemState::RefuelingStopping) return;
     
@@ -438,7 +444,7 @@ void Controller::dispatchKeyPress(KeyCode key) {
 
 void Controller::processCardPresented(const UserId& userId) {
     const auto state = stateMachine_.getCurrentState();
-    if (!inputsReady_ || inputFault_ || shutdownRequested_ || (state != SystemState::Waiting &&
+    if (!inputsReady_ || inputFault_ || shutdownRequested_ || reporting_ || (state != SystemState::Waiting &&
         state != SystemState::NotAuthorized && state != SystemState::CannotAuthorize &&
         state != SystemState::RefuelingComplete && state != SystemState::IntakeComplete)) return;
     LOG_CTRL_DEBUG("Card event accepted");
@@ -885,9 +891,7 @@ void Controller::finishStopping(const FinalFlow& result) {
         postEvent(Event::Error);
         return;
     }
-    if (stateMachine_.getCurrentState() == SystemState::RefuelingStopping)
-        postEvent(Event::RefuelingStopped);
-    else completeRefueling();
+    completeRefueling();
 }
 
 void Controller::completeRefueling() {
@@ -913,7 +917,10 @@ void Controller::enterIntakeVolume(Volume volume) {
     }
 
     enteredVolume_ = volume;
-    postEvent(Event::IntakeVolumeEntered);
+    if (stateMachine_.getCurrentState() == SystemState::IntakeVolumeEntry)
+        completeIntakeOperation();
+    else
+        postEvent(Event::IntakeVolumeEntered);
 }
 
 void Controller::selectIntakeDirection(IntakeDirection direction) {
@@ -958,43 +965,97 @@ void Controller::reportTransaction(const std::string& uid, MessageMethod method,
     if (reporting_ || reportedSession_ == sessionGeneration_) return;
     reportedSession_ = sessionGeneration_;
     reporting_ = true;
+    pendingTransaction_ = PendingTransaction{sessionGeneration_, uid, method, payload, volume,
+        deduct, cached, std::nullopt};
+    submitReceiptPreparation();
+}
+
+void Controller::submitReceiptPreparation() {
+    assertOwner();
+    if (!reporting_ || !pendingTransaction_ || pendingTransaction_->receiptId) return;
     ++pendingOperations_;
-    const auto generation = sessionGeneration_;
-    const auto work = [this, uid, method, payload, volume, deduct, cached, generation](bool localOnly) {
+    const auto transaction = *pendingTransaction_;
+    const bool submitted = persistenceWorker_.Submit([this, transaction] {
+        std::optional<std::string> receipt;
+        try {
+            if (messageStorage_) receipt = messageStorage_->BeginReceipt(transaction.uid, transaction.method,
+                transaction.payload, transaction.volume, transaction.deduct);
+        } catch (...) { LOG_CTRL_ERROR("Transaction receipt creation failed"); }
+        enqueue(ReceiptPrepared{transaction.generation, std::move(receipt)});
+    });
+    if (!submitted) enqueue(ReceiptPrepared{transaction.generation, std::nullopt});
+}
+
+void Controller::finishReceiptPreparation(ReceiptPrepared result) {
+    assertOwner();
+    if (!pendingTransaction_ || result.generation != sessionGeneration_ ||
+        result.generation != pendingTransaction_->generation) return;
+    if (!result.receiptId) {
+        reporting_ = false;
+        finalizationFailed_ = true;
+        inputFault_ = true;
+        lastErrorMessage_ = "Ошибка записи операции";
+        LOG_CTRL_ERROR("Transaction receipt was not made durable; keeping the operation in memory");
+        postEvent(Event::Error);
+        return;
+    }
+
+    pendingTransaction_->receiptId = std::move(result.receiptId);
+    const auto state = stateMachine_.getCurrentState();
+    if (pendingTransaction_->method == MessageMethod::Refuel && state == SystemState::RefuelingStopping) {
+        postEvent(Event::RefuelingStopped);
+    } else if (pendingTransaction_->method == MessageMethod::Intake && state == SystemState::IntakeVolumeEntry) {
+        postEvent(Event::IntakeVolumeEntered);
+    } else if (state == SystemState::Error && finalizationFailed_) {
+        // A storage reset retried the in-memory transaction. Keep the error
+        // screen/inhibition active until reporting and accounting also succeed.
+        transmitPreparedTransaction();
+    } else {
+        // Public transaction helpers are also used by maintenance/tests outside
+        // the interactive state path. They still obey the durable-first rule.
+        transmitPreparedTransaction();
+    }
+}
+
+void Controller::transmitPreparedTransaction() {
+    assertOwner();
+    if (!reporting_ || !pendingTransaction_ || !pendingTransaction_->receiptId) return;
+    const auto transaction = *pendingTransaction_;
+    const auto work = [this, transaction](bool localOnly) {
         bool ok = false;
         try {
-            auto receipt = messageStorage_ ? messageStorage_->BeginReceipt(uid, method, payload, volume, deduct) : std::nullopt;
-            if (receipt) {
-                bool delivered = false, rejected = false;
-                try {
-                    if (!localOnly && !cached && backend_) {
-                        auto data = nlohmann::json::parse(payload);
-                        delivered = (method == MessageMethod::Refuel
-                            ? backend_->RefuelUnpersisted(data["TankNumber"].get<int>(), volume)
-                            : backend_->IntakeUnpersisted(data["TankNumber"].get<int>(), volume,
-                                static_cast<IntakeDirection>(data["Direction"].get<int>())));
-                        if (!delivered) rejected = !backend_->IsNetworkError();
-                    }
-                } catch (...) { LOG_CTRL_ERROR("Backend report failed; retaining receipt locally"); }
-                const bool retained = messageStorage_->RetainReceipt(*receipt, delivered, rejected);
-                // Even if backlog insertion failed, the receipt itself is durable.
-                // Atomically pair the debit with its receipt ID in the cache DB.
-                const bool accounted = !deduct || (userCache_ &&
-                    userCache_->DeductAllowanceOnce(*receipt, uid, volume) && messageStorage_->AccountReceipt(*receipt));
-                ok = retained && accounted;
-            }
+            bool delivered = false, rejected = false;
+            try {
+                if (!localOnly && !transaction.cached && backend_) {
+                    auto data = nlohmann::json::parse(transaction.payload);
+                    delivered = (transaction.method == MessageMethod::Refuel
+                        ? backend_->RefuelUnpersisted(data["TankNumber"].get<int>(), transaction.volume)
+                        : backend_->IntakeUnpersisted(data["TankNumber"].get<int>(), transaction.volume,
+                            static_cast<IntakeDirection>(data["Direction"].get<int>())));
+                    if (!delivered) rejected = !backend_->IsNetworkError();
+                }
+            } catch (...) { LOG_CTRL_ERROR("Backend report failed; retaining receipt locally"); }
+            const bool retained = messageStorage_ &&
+                messageStorage_->RetainReceipt(*transaction.receiptId, delivered, rejected);
+            // Even if backlog insertion failed, the receipt itself is durable.
+            // Atomically pair the debit with its receipt ID in the cache DB.
+            const bool accounted = !transaction.deduct || (userCache_ &&
+                userCache_->DeductAllowanceOnce(*transaction.receiptId, transaction.uid, transaction.volume) &&
+                messageStorage_->AccountReceipt(*transaction.receiptId));
+            ok = retained && accounted;
         } catch (...) { LOG_CTRL_ERROR("Transaction retention/accounting failed"); }
-        if (!localOnly && !cached && backend_) {
+        if (!localOnly && !transaction.cached && backend_) {
             try { if (backend_->IsAuthorized()) (void)backend_->DeauthorizeAndWait(); }
             catch (...) { LOG_CTRL_ERROR("Report session cleanup failed; next authorization must retry"); }
         }
-        enqueue(WorkComplete{generation, true, ok, localOnly && !cached});
+        enqueue(WorkComplete{transaction.generation, true, ok, localOnly && !transaction.cached});
     };
+    ++pendingOperations_;
     if (!backendWorker_.Submit([work] { work(false); })) {
-        // Only one report can be active. This reserved worker has no ordinary
-        // tasks and remains alive until the report completion is consumed.
+        // The receipt already exists, so local fallback only promotes it to the
+        // backlog and performs accounting; it never creates a second receipt.
         if (!persistenceWorker_.Submit([work] { work(true); }))
-            enqueue(WorkComplete{generation, true, false});
+            enqueue(WorkComplete{transaction.generation, true, false});
     }
 }
 

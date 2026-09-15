@@ -154,6 +154,10 @@ void Controller::dispatch(Message message) {
         } else if constexpr (std::is_same_v<T, FlowFault>) {
             processFlowFault(value);
         } else if constexpr (std::is_same_v<T, FinalFlow>) finishStopping(value);
+        else if constexpr (std::is_same_v<T, ReceiptPrepared>) {
+            if (pendingOperations_) --pendingOperations_;
+            finishReceiptPreparation(std::move(value));
+        }
         else if constexpr (std::is_same_v<T, AuthorizationResult>) {
             if (pendingOperations_) --pendingOperations_;
             if (value.generation != sessionGeneration_ || shutdownRequested_ || inputFault_) return;
@@ -172,13 +176,25 @@ void Controller::dispatch(Message message) {
             }
             if (value.cleanupNeeded) requestBackendCleanup(value.generation);
             if (value.report) {
+                if (!pendingTransaction_ || value.generation != pendingTransaction_->generation) return;
+                const bool recoveredInError = finalizationFailed_ &&
+                    stateMachine_.getCurrentState() == SystemState::Error;
                 reporting_ = false;
+                pendingTransaction_.reset();
                 if (!value.ok) {
                     finalizationFailed_ = true;
                     inputFault_ = true;
                     lastErrorMessage_ = "Ошибка записи операции";
                     LOG_CTRL_ERROR("Transaction finalization incomplete; receipt recovery required");
                     postEvent(Event::Error);
+                    return;
+                }
+                if (recoveredInError) {
+                    finalizationFailed_ = false;
+                    inputFault_ = false;
+                    lastErrorMessage_.clear();
+                    endCurrentSession();
+                    stateMachine_.reset();
                     return;
                 }
                 if (value.generation == sessionGeneration_) postEvent(Event::DataTransmissionComplete);
@@ -242,7 +258,7 @@ void Controller::checkDeadlines(bool forceHealth) {
         LOG_CTRL_WARN("Stopping dispensing: no flow");
         postEvent(Event::CancelNoFuel);
     }
-    if (!inputFault_ && !shutdownRequested_) stateMachine_.checkTimeout();
+    if (!inputFault_ && !shutdownRequested_ && !reporting_) stateMachine_.checkTimeout();
     if (!forceHealth && now - healthCheck_ < timing::kEventLoopWaitInterval) return;
     healthCheck_ = now;
     if (pumpOffFailed_ && !stopping_) stopRefueling();
