@@ -81,6 +81,9 @@ jobs:
               install -m 0755 /work/deploy/debian/prerm /work/pkgroot/DEBIAN/prerm
 
               dpkg-deb --build --root-owner-group /work/pkgroot "/work/dist/fuelflux_${DEB_VERSION}_arm64.deb"
+              install -m 0755 /work/pkgroot/opt/fuelflux/bin/fuelflux "/work/dist/fuelflux_${DEB_VERSION}_arm64"
+              cd /work/dist
+              sha256sum "fuelflux_${DEB_VERSION}_arm64.deb" "fuelflux_${DEB_VERSION}_arm64" > SHA256SUMS
             '
 
       - name: Test Debian install/uninstall in Ubuntu arm64 container
@@ -95,9 +98,7 @@ jobs:
             ubuntu:22.04 bash -lc '
               set -euo pipefail
               apt-get update
-              apt-get install -y --no-install-recommends \
-                ca-certificates passwd adduser \
-                libsqlite3-0 libgpiod2 libssl3 libnfc6 libcurl4 libfmt8 libstdc++6
+              apt-get install -y --no-install-recommends passwd adduser binutils file
 
               cat > /usr/local/bin/systemctl << "EOF"
               #!/bin/sh
@@ -111,13 +112,38 @@ jobs:
                 echo "Expected package not found: ${deb_pkg}" >&2
                 exit 1
               fi
-              dpkg -i "${deb_pkg}"
+              # Resolve only the declared package dependencies in a clean image.
+              apt-get install -y --no-install-recommends "${deb_pkg}"
 
               test -x /opt/fuelflux/bin/fuelflux
               test -f /lib/systemd/system/fuelflux.service
               getent passwd fuelflux > /dev/null
 
+              raw="/work/dist/fuelflux_${DEB_VERSION}_arm64"
+              test -s "${raw}"
+              test "$(dpkg-deb -f "${deb_pkg}" Architecture)" = arm64
+              readelf -h "${raw}" | grep -E "Machine:.*AArch64"
+              file "${raw}" | grep -E "ELF 64-bit.*ARM aarch64"
+              cmp "${raw}" /opt/fuelflux/bin/fuelflux
+              # ldd must succeed and every runtime library must be available.
+              ldd "${raw}" > /tmp/fuelflux-ldd.txt
+              cat /tmp/fuelflux-ldd.txt
+              if grep -q "not found" /tmp/fuelflux-ldd.txt; then exit 1; fi
+              cd /work/dist
+              test "$(wc -l < SHA256SUMS)" -eq 2
+              sha256sum -c SHA256SUMS
+
+              # Upgrades and removal must retain per-device settings and data.
+              printf "FUELFLUX_CONTROLLER_ID=000-factory-test\nFUELFLUX_BACKEND_URL=https://example.org/fleet\n" > /etc/fuelflux/fuelflux.env
+              printf "preserve-data\n" > /var/fuelflux/db/installation-test
+              cp /etc/fuelflux/fuelflux.env /tmp/expected.env
+              dpkg -i "${deb_pkg}"
+              cmp /etc/fuelflux/fuelflux.env /tmp/expected.env
+
               dpkg -r fuelflux
+              test ! -e /opt/fuelflux/bin/fuelflux
+              cmp /etc/fuelflux/fuelflux.env /tmp/expected.env
+              grep -qx preserve-data /var/fuelflux/db/installation-test
             '
 
       - name: Upload arm64 deb artifact
@@ -126,6 +152,16 @@ jobs:
         with:
           name: fuelflux-deb-arm64
           path: dist/*.deb
+          if-no-files-found: error
+
+      - name: Upload standalone arm64 executable and checksums
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: actions/upload-artifact@v7
+        with:
+          name: fuelflux-binary-arm64
+          path: |
+            dist/fuelflux_${{ steps.version.outputs.version }}_arm64
+            dist/SHA256SUMS
           if-no-files-found: error
 
   release:
@@ -143,9 +179,32 @@ jobs:
           name: fuelflux-deb-arm64
           path: dist
 
+      - name: Download standalone executable and checksums
+        uses: actions/download-artifact@v8
+        with:
+          name: fuelflux-binary-arm64
+          path: dist
+
+      - name: Verify complete release assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          cd dist
+          test -s "fuelflux_${version}_arm64.deb"
+          test -s "fuelflux_${version}_arm64"
+          test "$(wc -l < SHA256SUMS)" -eq 2
+          sha256sum -c SHA256SUMS
+          dpkg-deb -x "fuelflux_${version}_arm64.deb" ../release-extracted
+          cmp "fuelflux_${version}_arm64" ../release-extracted/opt/fuelflux/bin/fuelflux
+
       - name: Publish release assets
         uses: softprops/action-gh-release@v3
         with:
-          files: dist/*.deb
+          fail_on_unmatched_files: true
+          files: |
+            dist/fuelflux_*_arm64.deb
+            dist/fuelflux_*_arm64
+            dist/SHA256SUMS
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

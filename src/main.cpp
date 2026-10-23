@@ -3,6 +3,7 @@
 // This file is a part of fuelflux application
 
 #include "config.h"
+#include "runtime_config.h"
 #include "controller.h"
 #include "backlog_worker.h"
 #include "backend.h"
@@ -87,6 +88,10 @@ static void displayFailureMessage(peripherals::IDisplay* display, bool fatal) {
 #endif
 
 int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
+    std::string configurationWarning;
+    const auto runtimeConfig = LoadRuntimeConfig({}, [&](const std::string& warning) {
+        configurationWarning = warning;
+    });
     // Setup signal handlers for graceful shutdown
     signal(SIGINT, signalHandler);
     signal(SIGTERM, signalHandler);
@@ -97,6 +102,12 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
     if (!loggerReady) {
         std::cerr << "Failed to initialize logging system" << std::endl;
     }
+    if (!configurationWarning.empty()) {
+        if (loggerReady) { LOG_WARN("{}", configurationWarning); }
+        else { std::cerr << configurationWarning << std::endl; }
+    }
+    LOG_INFO("Effective FuelFlux settings: controller ID={}, backend URL={}",
+             runtimeConfig.controllerId, runtimeConfig.backendUrl);
     
     // On Windows, set console to UTF-8 and enable virtual terminal processing
 #ifdef _WIN32
@@ -114,12 +125,6 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
         }
     }
 #endif
-    
-    // Get controller ID from environment or use default
-    std::string controllerId = CONTROLLER_UID;
-    if (const char* envId = std::getenv("FUELFLUX_CONTROLLER_ID")) {
-        controllerId = envId;
-    }
     
     // Retry limit to prevent infinite restart on persistent errors
     const int MAX_RETRIES = timing::kMaxRetries;
@@ -199,8 +204,8 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
             display->showMessage(msg);
 
             auto storage = std::make_shared<MessageStorage>(STORAGE_DB_PATH);
-            auto backend = Controller::CreateDefaultBackend(storage);
-            auto backlogBackend = Controller::CreateDefaultBackendShared(controllerId, nullptr);
+            auto backend = Controller::CreateDefaultBackend(runtimeConfig, storage);
+            auto backlogBackend = Controller::CreateDefaultBackend(runtimeConfig);
             BacklogWorker backlogWorker(storage, backlogBackend, timing::kBacklogWorkerInterval);
             backlogWorker.Start();
 
@@ -209,7 +214,7 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
             msg.line3 = "Контроллер";
             display->showMessage(msg);
 
-            Controller controller(controllerId, backend);
+            Controller controller(runtimeConfig.controllerId, backend);
             controller.setDisplay(std::move(display));
 
 

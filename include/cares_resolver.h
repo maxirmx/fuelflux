@@ -55,6 +55,7 @@ public:
     // Test helpers for validating targeted cache behavior
     bool HasValidTargetedCacheForTesting() const;
     std::string GetTargetedCachedIpForTesting() const;
+    const std::string& GetTargetedHostnameForTesting() const { return cached_hostname_; }
 
 private:
     struct CacheEntry {

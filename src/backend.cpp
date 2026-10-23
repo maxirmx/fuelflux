@@ -8,6 +8,7 @@
 #include "logger.h"
 #include "timing_config.h"
 #include "version.h"
+#include "runtime_config.h"
 #include <curl/curl.h>
 #include <mutex>
 #include <sstream>
@@ -30,17 +31,6 @@ namespace {
 
 // User-Agent string with version
 const std::string kUserAgent = "fuelflux/" FUELFLUX_VERSION;
-
-// Ensure curl_global_init is called exactly once at process startup
-std::once_flag curl_init_flag;
-
-void InitCurlGlobally() {
-    CURLcode res = curl_global_init(CURL_GLOBAL_DEFAULT);
-    if (res != CURLE_OK) {
-        throw std::runtime_error("Failed to initialize libcurl globally: " + 
-                                 std::string(curl_easy_strerror(res)));
-    }
-}
 
 // RAII wrapper for CURL handle
 class CurlHandle {
@@ -271,12 +261,6 @@ int ExtractPortFromUrl(const std::string& url) {
     return 80;
 }
 
-// Reusable CaresResolver instance to avoid repeated initialization
-CaresResolver& GetCaresResolver() {
-    static CaresResolver resolver;
-    return resolver;
-}
-
 // Helper function to perform DNS resolution and configure CURLOPT_RESOLVE
 // Parameters:
 //   curl - CURL handle to configure
@@ -284,10 +268,10 @@ CaresResolver& GetCaresResolver() {
 //   host - hostname to resolve
 //   url - full URL (needed to extract port)
 //   logPrefix - prefix for log messages (e.g., "" or "Async deauthorize: ")
-void SetupDnsResolution(CURL* curl, CurlSlist& resolveList, 
+void SetupDnsResolution(CaresResolver& resolver, CURL* curl, CurlSlist& resolveList,
                         const std::string& host, const std::string& url,
                         const std::string& logPrefix = "") {
-    std::string resolvedIp  = GetCaresResolver().Resolve(host, kPppInterface);
+    std::string resolvedIp = resolver.Resolve(host, kPppInterface);
     if (resolvedIp.empty()) {
         // c-ares failed; fall back to letting libcurl do DNS, but force it to use
         // the PPP interface so that queries do not go via the default route.
@@ -314,9 +298,12 @@ void SetupDnsResolution(CURL* curl, CurlSlist& resolveList,
 Backend::Backend(const std::string& baseAPI, const std::string& controllerUid, std::shared_ptr<MessageStorage> storage)
     : BackendBase(controllerUid, std::move(storage))
     , baseAPI_(baseAPI)
+#ifdef USE_CARES
+    , resolver_(std::make_unique<CaresResolver>(ExtractHostFromUrl(baseAPI)))
+#endif
 {
     // Initialize libcurl globally exactly once (thread-safe)
-    std::call_once(curl_init_flag, InitCurlGlobally);
+    InitializeCurlNetworking();
     LOG_BCK_INFO("Backend initialized (v{}) with base API: {} and controller UID: {}", FUELFLUX_VERSION, baseAPI_, controllerUid_);
 }
 
@@ -389,7 +376,7 @@ nlohmann::json Backend::HttpRequestWrapper(const std::string& endpoint,
             // Bind DNS queries to ppp0 interface via ares_set_local_dev()
             // Then use CURLOPT_RESOLVE to provide the resolved IP to curl
             // This preserves the hostname in the URL for Host header and SNI
-            SetupDnsResolution(curl.get(), resolveList, host, url);
+            SetupDnsResolution(*resolver_, curl.get(), resolveList, host, url);
 #endif
         } else {
             if (IsLocalhost(host)) {
@@ -548,7 +535,7 @@ nlohmann::json Backend::HttpRequestWrapper(const std::string& endpoint,
             // Bind DNS queries to ppp0 interface via ares_set_local_dev()
             // Then use CURLOPT_RESOLVE to provide the resolved IP to curl
             // This preserves the hostname in the URL for Host header and SNI
-            SetupDnsResolution(curl.get(), resolveList, host, url);
+            SetupDnsResolution(*resolver_, curl.get(), resolveList, host, url);
 #endif
         } else {
             if (IsLocalhost(host)) {
@@ -690,7 +677,7 @@ void Backend::SendAsyncDeauthorize(const std::string& baseAPI, const std::string
             
 #ifdef USE_CARES
             // Use c-ares with Yandex DNS for hostname resolution via ppp0
-            SetupDnsResolution(curl.get(), resolveList, host, url, "Async deauthorize: ");
+            SetupDnsResolution(*resolver_, curl.get(), resolveList, host, url, "Async deauthorize: ");
 #endif
         }
 #endif

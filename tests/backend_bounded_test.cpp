@@ -5,6 +5,7 @@
 #include <gtest/gtest.h>
 #include <gmock/gmock.h>
 #include "backend.h"
+#include "controller.h"
 #include <httplib.h>
 #include <atomic>
 #include <thread>
@@ -23,7 +24,8 @@ TEST(BackendIntegrationTest, DelayedDeauthorizationUsesCapturedTokenAndPreserves
     std::promise<void> deauthorizationCompleted;
     auto deauthorizationCompletedFuture = deauthorizationCompleted.get_future();
 
-    server.Post("/api/pump/authorize", [&](const httplib::Request&, httplib::Response& res) {
+    server.Post("/fleet/api/pump/authorize", [&](const httplib::Request& req, httplib::Response& res) {
+        EXPECT_EQ(nlohmann::json::parse(req.body).at("PumpControllerUid"), "000-test-controller");
         const auto token = authorizationCount.fetch_add(1) == 0 ? "token-a" : "token-b";
         nlohmann::json response = {
             {"CodeError", 0},
@@ -40,7 +42,7 @@ TEST(BackendIntegrationTest, DelayedDeauthorizationUsesCapturedTokenAndPreserves
         res.set_content(response.dump(), "application/json");
     });
 
-    server.Post("/api/pump/deauthorize", [&](const httplib::Request& req, httplib::Response& res) {
+    server.Post("/fleet/api/pump/deauthorize", [&](const httplib::Request& req, httplib::Response& res) {
         deauthorizationToken.set_value(req.get_header_value("Authorization"));
         releaseFuture.wait();
         res.set_content(nlohmann::json{{"CodeError", 0}, {"TextError", ""}}.dump(),
@@ -52,8 +54,8 @@ TEST(BackendIntegrationTest, DelayedDeauthorizationUsesCapturedTokenAndPreserves
     ASSERT_NE(port, -1);
     std::thread serverThread([&server] { server.listen_after_bind(); });
 
-    const std::string baseAPI = "http://127.0.0.1:" + std::to_string(port);
-    auto backend = std::make_shared<Backend>(baseAPI, "test-controller");
+    const std::string baseAPI = "http://127.0.0.1:" + std::to_string(port) + "/fleet";
+    auto backend = Controller::CreateDefaultBackend(RuntimeConfig{"000-test-controller", baseAPI});
     const bool firstAuthorized = backend->Authorize("first-user");
     const std::string firstToken = backend->GetToken();
     const bool deauthorizationSubmitted = firstAuthorized && backend->Deauthorize();

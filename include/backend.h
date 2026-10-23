@@ -18,6 +18,9 @@
 namespace fuelflux {
 
 class MessageStorage;
+#ifdef USE_CARES
+class CaresResolver;
+#endif
 
 // Tank information structure for backend
 struct BackendTankInfo {
@@ -75,6 +78,7 @@ public:
     virtual std::vector<UserCard> FetchUserCards(int first, int number) = 0;
     virtual std::vector<FuelTank> FetchFuelTanks(int first, int number) = 0;
     virtual const std::string& GetControllerUid() const = 0;
+    virtual const std::string& GetBaseApiUrl() const = 0;
 };
 
 // Base backend class with shared logic for request/response handling
@@ -164,6 +168,7 @@ protected:
 
 // Backend class for real REST API communication
 class Backend : public BackendBase {
+    friend struct RuntimeConfigurationTestAccess;
 public:
     // Constructor
     // Parameters:
@@ -172,6 +177,7 @@ public:
     Backend(const std::string& baseAPI, const std::string& controllerUid, std::shared_ptr<MessageStorage> storage = nullptr);
     
     ~Backend() override;
+    const std::string& GetBaseApiUrl() const override { return baseAPI_; }
 
 private:
     // Private method for common parsing of responses from the backend
@@ -187,14 +193,17 @@ private:
                                        const nlohmann::json& requestBody,
                                        const std::string& bearerToken) override;
     
-    // Send async deauthorize request without mutex
+    // Uses only immutable settings and the resolver's own synchronization.
     void SendAsyncDeauthorizeRequest(const std::string& token) override;
     
-    // Static helper for async deauthorize - doesn't use mutex or modify state
-    static void SendAsyncDeauthorize(const std::string& baseAPI, const std::string& token);
+    // The executor holds shared ownership while using this instance's resolver.
+    void SendAsyncDeauthorize(const std::string& baseAPI, const std::string& token);
 
     // Base URL of backend REST API
-    std::string baseAPI_;
+    const std::string baseAPI_;
+#ifdef USE_CARES
+    std::unique_ptr<CaresResolver> resolver_;
+#endif
     std::recursive_mutex requestMutex_;
 };
 
