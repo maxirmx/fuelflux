@@ -13,6 +13,34 @@
 
 ## Quick Start
 
+### Factory image preparation
+
+[Russian factory instruction (Word)](doc/fuelflux_factory_instruction_ru.docx)
+covers editing `D:\images\fuelflux.img` in place through WSL, replacing the ARM64
+binary, assigning device settings and writing cards with HDD Raw Copy Tool.
+
+Startup settings in `/etc/fuelflux/fuelflux.env`:
+
+| Variable | Compiled default |
+| --- | --- |
+| `FUELFLUX_CONTROLLER_ID` | `232390330480219` |
+| `FUELFLUX_BACKEND_URL` | `http://ttft.uxp.ru` |
+
+Settings are read once before workers start and reused across retries. Blank values
+use defaults. IDs are strings; leading zeros and nonnumeric IDs are preserved
+(subject to server rules). Surrounding whitespace is trimmed. HTTP/HTTPS URLs may
+include a port and base path; trailing slashes are removed. Invalid URLs, embedded
+credentials, queries and fragments produce one warning and fall back to the compiled
+server while retaining the ID. Connection failures never switch servers. Check the
+`Effective FuelFlux settings` startup log to confirm the values actually in use.
+Use a clean factory image when assigning a new identity or server; migrating
+operational databases between identities or servers is outside this procedure.
+
+Tagged ARM64 releases publish the `.deb`, a separate
+`fuelflux_<version>_arm64` executable from the same staged installation, and
+`SHA256SUMS`. The executable requires the runtime libraries declared by the matching
+package; replacing it alone does not install those dependencies.
+
 ### Build and Run (Development)
 
 Use CMake + Ninja to build and debug in VS Code. Recommended steps (PowerShell):

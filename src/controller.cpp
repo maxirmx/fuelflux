@@ -30,7 +30,12 @@ constexpr std::size_t kCalibrationInputLength = 4;
 }
 
 std::shared_ptr<IBackend> Controller::CreateDefaultBackend(std::shared_ptr<MessageStorage> storage) {
-    return std::make_shared<Backend>(BACKEND_API_URL, CONTROLLER_UID, storage);
+    return CreateDefaultBackend(RuntimeConfig{CONTROLLER_UID, BACKEND_API_URL}, std::move(storage));
+}
+
+std::shared_ptr<IBackend> Controller::CreateDefaultBackend(const RuntimeConfig& config,
+                                                         std::shared_ptr<MessageStorage> storage) {
+    return std::make_shared<Backend>(config.backendUrl, config.controllerId, std::move(storage));
 }
 
 std::size_t Controller::getCalibrationPasswordLength() const {
@@ -39,7 +44,7 @@ std::size_t Controller::getCalibrationPasswordLength() const {
 
 std::shared_ptr<IBackend> Controller::CreateDefaultBackendShared(const std::string& controllerUid, 
                                                                   std::shared_ptr<MessageStorage> storage) {
-    return std::make_shared<Backend>(BACKEND_API_URL, controllerUid, storage);
+    return CreateDefaultBackend(RuntimeConfig{controllerUid, BACKEND_API_URL}, std::move(storage));
 }
 
 Controller::Controller(ControllerId controllerId,
@@ -60,7 +65,7 @@ Controller::Controller(ControllerId controllerId,
     : controllerId_(std::move(controllerId))
     , stateMachine_(this)
     , options_(std::move(options))
-    , backend_(backend ? std::move(backend) : CreateDefaultBackend())
+    , backend_(backend ? std::move(backend) : CreateDefaultBackendShared(controllerId_))
     , selectedTank_(0)
     , enteredVolume_(0.0)
     , selectedIntakeDirection_(IntakeDirection::In)
@@ -77,7 +82,7 @@ Controller::Controller(ControllerId controllerId,
         // Create a separate backend instance for cache manager synchronization to avoid JWT token conflicts
         // The cache manager needs its own backend with independent session state so that synchronization
         // operations don't interfere with concurrent user authorization sessions in the main backend
-        auto syncBackend = CreateDefaultBackendShared(backend_->GetControllerUid(), nullptr);
+        auto syncBackend = CreateDefaultBackend(RuntimeConfig{backend_->GetControllerUid(), backend_->GetBaseApiUrl()});
         cacheManager_ = std::make_shared<CacheManager>(userCache_, syncBackend);
         LOG_CTRL_INFO("User cache initialized at: {}", persistencePaths.cacheDbPath);
     } catch (const std::exception& e) {

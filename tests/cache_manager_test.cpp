@@ -40,6 +40,7 @@ public:
     MOCK_METHOD(std::vector<UserCard>, FetchUserCards, (int first, int number), (override));
     MOCK_METHOD(std::vector<FuelTank>, FetchFuelTanks, (int first, int number), (override));
     MOCK_METHOD((const std::string&), GetControllerUid, (), (const, override));
+    MOCK_METHOD(const std::string&, GetBaseApiUrl, (), (const, override));
 };
 
 std::string MakeTempDbPath() {

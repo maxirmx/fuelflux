@@ -20,6 +20,7 @@
 #include <future>
 
 #include "backend.h"
+#include "runtime_config.h"
 #include "message_storage.h"
 #include "state_machine.h"
 #include "timing_config.h"
@@ -62,6 +63,7 @@ struct ControllerStatus {
 
 // Main controller class that orchestrates the entire system
 class Controller {
+    friend struct RuntimeConfigurationTestAccess;
   public:
     Controller(ControllerId controllerId,
                std::shared_ptr<IBackend> backend = nullptr,
@@ -184,6 +186,8 @@ class Controller {
     
     // Backend creation helper
     static std::shared_ptr<IBackend> CreateDefaultBackend(std::shared_ptr<MessageStorage> storage = nullptr);
+    static std::shared_ptr<IBackend> CreateDefaultBackend(const RuntimeConfig& config,
+                                                        std::shared_ptr<MessageStorage> storage = nullptr);
     static std::shared_ptr<IBackend> CreateDefaultBackendShared(const std::string& controllerUid, 
                                                                   std::shared_ptr<MessageStorage> storage = nullptr);
 

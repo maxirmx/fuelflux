@@ -4,6 +4,7 @@
 
 #include "backend.h"
 #include "backend_utils.h"
+#include "config.h"
 
 #include <gtest/gtest.h>
 
@@ -18,6 +19,7 @@ namespace {
 
 class TestBackendBase : public BackendBase {
 public:
+    const std::string& GetBaseApiUrl() const override { return BACKEND_API_URL; }
     explicit TestBackendBase(std::string controllerUid)
         : BackendBase(std::move(controllerUid), nullptr) {
     }

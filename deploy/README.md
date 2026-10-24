@@ -75,6 +75,7 @@ After installation:
 Edit `/etc/fuelflux/fuelflux.env` to configure:
 
 - `FUELFLUX_CONTROLLER_ID` - Unique device identifier
+- `FUELFLUX_BACKEND_URL` - HTTP/HTTPS backend base URL, optionally with port and base path
 - `FUELFLUX_PUMP_GPIO_CHIP` - GPIO chip device
 - `FUELFLUX_PUMP_RELAY_PIN` - Relay pin number
 - `FUELFLUX_PUMP_ACTIVE_LOW` - Relay active low setting

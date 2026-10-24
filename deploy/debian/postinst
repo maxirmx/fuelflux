@@ -49,8 +49,12 @@ case "${1:-}" in
 # FuelFlux Environment Configuration
 # Uncomment and modify as needed
 
-# Controller ID (unique identifier for this device)
-# FUELFLUX_CONTROLLER_ID=232390330480218
+# Controller ID: opaque unique string; blank/missing uses 232390330480219
+# FUELFLUX_CONTROLLER_ID=232390330480220
+
+# HTTP(S) backend base URL; blank/missing or invalid uses http://ttft.uxp.ru
+# No credentials, query or fragment. Trailing slashes are removed.
+# FUELFLUX_BACKEND_URL=http://ttft.uxp.ru
 
 # Pump GPIO configuration
 # FUELFLUX_PUMP_GPIO_CHIP=/dev/gpiochip0

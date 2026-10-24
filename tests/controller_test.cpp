@@ -148,6 +148,7 @@ public:
     MOCK_METHOD(std::vector<UserCard>, FetchUserCards, (int first, int number), (override));
     MOCK_METHOD(std::vector<FuelTank>, FetchFuelTanks, (int first, int number), (override));
     MOCK_METHOD(const std::string&, GetControllerUid, (), (const, override));
+    MOCK_METHOD(const std::string&, GetBaseApiUrl, (), (const, override));
 
     std::string tokenStorage_;
     std::vector<BackendTankInfo> tanksStorage_;
@@ -349,6 +350,7 @@ protected:
         auto backend = std::make_shared<NiceMock<MockBackend>>();
         mockBackend = backend.get();
         ON_CALL(*mockBackend, GetControllerUid()).WillByDefault(ReturnRef(CONTROLLER_UID));
+        ON_CALL(*mockBackend, GetBaseApiUrl()).WillByDefault(ReturnRef(BACKEND_API_URL));
         controller = std::make_unique<Controller>(
             CONTROLLER_UID,
             backend,
@@ -521,6 +523,7 @@ TEST_F(ControllerTest, PersistencePathsIsolateControllerState) {
 
     auto secondBackend = std::make_shared<NiceMock<MockBackend>>();
     ON_CALL(*secondBackend, GetControllerUid()).WillByDefault(ReturnRef(CONTROLLER_UID));
+    ON_CALL(*secondBackend, GetBaseApiUrl()).WillByDefault(ReturnRef(BACKEND_API_URL));
     auto secondController = std::make_unique<Controller>(
         CONTROLLER_UID,
         secondBackend,

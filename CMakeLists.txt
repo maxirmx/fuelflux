@@ -3,7 +3,7 @@
 # This file is a part of fuelflux application
 
 cmake_minimum_required(VERSION 3.16)
-project(FuelFlux VERSION 0.3.8 LANGUAGES CXX)
+project(FuelFlux VERSION 0.3.9 LANGUAGES CXX)
 
 # Generate version header from template
 configure_file(
@@ -355,6 +355,7 @@ set(LIB_SOURCES
     src/hardware/aht10.cpp
     src/console_emulator.cpp
     src/backend.cpp
+    src/runtime_config.cpp
     src/backend_base.cpp
     src/url_utils.cpp
 )
@@ -416,6 +417,7 @@ list(APPEND LIB_SOURCES
 # Headers
 set(HEADERS
     include/config.h
+    include/runtime_config.h
     include/state_machine.h
     include/controller.h
     include/logger.h
@@ -589,6 +591,7 @@ if(ENABLE_TESTING)
 
     # Test source files
     set(TEST_SOURCES
+        tests/runtime_config_test.cpp
         tests/backend_test.cpp
         tests/backend_base_test.cpp
         tests/backend_bounded_test.cpp
